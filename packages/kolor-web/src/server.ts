@@ -3,7 +3,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { KolorAgent, KolorEvent, McpServerConfig } from 'kolor-agent-loop';
+import type { AgentMessage, KolorAgent, KolorEvent, McpServerConfig } from 'kolor-agent-loop';
 import { SkillsRegistry, formatSkillsBlock } from 'kolor-skills';
 import {
   SessionStore,
@@ -19,6 +19,7 @@ import {
   describeError,
   readJsonBody,
   sendJson,
+  sendJsonText,
   sendSse,
   startSse,
   toHttpError,
@@ -35,6 +36,7 @@ import {
   type DefaultModelConfig,
   type ModelTarget,
 } from './providers.js';
+import { RunBroker, type Run, type RunListener } from './runs.js';
 import { TaskScheduler } from './scheduler.js';
 import { VERSION } from './version.js';
 
@@ -64,6 +66,8 @@ export interface KolorWebServer {
   memory: MemoryStore;
   /** Per-session idle timers that trigger the diary turn. */
   diaryIdle: IdleDiary;
+  /** Turns that keep running after the client that started them went away. */
+  runs: RunBroker;
   scheduler: TaskScheduler;
   /** Run a scheduler tick at `now` (defaults to the current time). */
   fireDueTasks(now?: Date): Promise<void>;
@@ -170,7 +174,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
 
-  const controllers = new Map<string, AbortController>();
+  const runs = new RunBroker();
   const publicDir = findPublicDir();
 
   const diaryIdle = new IdleDiary({
@@ -204,7 +208,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       serveStatic(url.pathname, response);
       return;
     }
-    await handleApi(request, response, url.pathname);
+    await handleApi(request, response, url.pathname, url.searchParams);
   }
 
   function serveStatic(pathname: string, response: ServerResponse): void {
@@ -223,6 +227,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     request: IncomingMessage,
     response: ServerResponse,
     pathname: string,
+    query: URLSearchParams,
   ): Promise<void> {
     const method = request.method ?? 'GET';
 
@@ -358,7 +363,13 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
 
     if (pathname === '/api/sessions') {
       if (method === 'GET') {
-        sendJson(response, 200, { sessions: store.list() });
+        const live = runs.runningSessionIds();
+        sendJson(response, 200, {
+          sessions: store.list().map((session) => ({
+            ...session,
+            running: live.has(session.id),
+          })),
+        });
         return;
       }
       if (method === 'POST') {
@@ -393,9 +404,8 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     if (pathname === '/api/chat/cancel' && method === 'POST') {
       const body = await readJsonBody(request);
       const sessionId = isRecord(body) && typeof body.sessionId === 'string' ? body.sessionId : '';
-      const controller = controllers.get(sessionId);
-      controller?.abort(new Error('cancelled by user'));
-      sendJson(response, 200, { cancelled: controller !== undefined });
+      const cancelled = runs.cancel(sessionId);
+      sendJson(response, 200, { cancelled });
       return;
     }
 
@@ -428,6 +438,31 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       return;
     }
 
+    const runMatch = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/run$/.exec(pathname);
+    if (runMatch !== null && method === 'GET') {
+      const id = runMatch[1] as string;
+      store.require(id);
+      const view = runs.view(id);
+      // Only a live turn has a buffer; a finished one is read from the session.
+      const buffered = runs.active(id)?.events ?? [];
+      // Hand-built so a multi-megabyte replay is never re-parsed.
+      sendJsonText(
+        response,
+        200,
+        `{"running":${runs.isRunning(id)},"run":${view === undefined ? 'null' : JSON.stringify(view)},"events":[${buffered.join(',')}]}`,
+      );
+      return;
+    }
+
+    const streamMatch = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/stream$/.exec(pathname);
+    if (streamMatch !== null && method === 'GET') {
+      const id = streamMatch[1] as string;
+      store.require(id);
+      const from = Number(query.get('from') ?? '0');
+      attachRunSse(response, id, Number.isFinite(from) ? from : 0);
+      return;
+    }
+
     const topicMatch = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/topic$/.exec(pathname);
     if (topicMatch !== null && method === 'PUT') {
       const body = await readJsonBody(request);
@@ -442,6 +477,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     if (resetMatch !== null && method === 'POST') {
       const id = resetMatch[1] as string;
       diaryIdle.cancel(id);
+      runs.cancel(id, 'session was reset');
       const session = store.reset(id);
       await pool.disposeSession(id);
       sendJson(response, 200, { session });
@@ -491,7 +527,11 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     if (sessionMatch !== null) {
       const id = sessionMatch[1] as string;
       if (method === 'GET') {
-        sendJson(response, 200, { session: store.require(id) });
+        // `running` lets a client that just opened join a turn in progress.
+        sendJson(response, 200, {
+          session: store.require(id),
+          running: runs.isRunning(id),
+        });
         return;
       }
       if (method === 'PATCH') {
@@ -504,6 +544,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       }
       if (method === 'DELETE') {
         diaryIdle.cancel(id);
+        runs.cancel(id, 'session was deleted');
         const removed = store.delete(id);
         await pool.disposeSession(id);
         sendJson(response, 200, { deleted: removed });
@@ -532,46 +573,76 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
 
     const session = store.require(sessionId);
-    if (controllers.has(session.id)) {
+    if (runs.isRunning(session.id)) {
       throw new HttpError(409, 'this session already has a running turn');
     }
     diaryIdle.cancel(session.id);
 
     await pool.ensureSignature();
 
-    const controller = new AbortController();
-    controllers.set(session.id, controller);
-    startSse(response);
-
-    let finished = false;
-    response.on('close', () => {
-      if (!finished) controller.abort(new Error('client disconnected'));
-    });
-
     // `/update-daily-memory` sends exactly the same message as an idle trigger.
     const outgoing = isDiaryCommand(text) ? buildDiaryTaskMessage(new Date()) : text;
 
-    let agent: KolorAgent | undefined;
+    // The turn lives in the broker, not in this request: attaching the SSE
+    // response is the only thing this handler does with the connection.
+    const run = runs.begin({ sessionId: session.id, kind: 'chat', prompt: text });
+    attachRunSse(response, session.id, 0);
     try {
-      agent = await pool.get(session.id, session.context, target);
-      sendSse(response, {
-        type: 'ready',
-        tools: agent.tools.map((tool) => tool.name),
-        mcp: agent.mcpServers,
-        model: { id: target.apiModelName, label: target.label },
+      await driveTurn(run, {
+        target,
+        context: session.context,
+        message: outgoing,
       });
-      const prepared = prepareOutgoingMessage(session.id, outgoing);
-      if (prepared.topicApplied) sendSse(response, { type: 'topic/applied' });
-      for await (const event of agent.stream(prepared.content, { signal: controller.signal })) {
-        sendSse(response, serializeEvent(event));
-      }
-    } catch (error) {
-      sendSse(response, { type: 'web/error', message: describeError(error) });
     } finally {
+      // Only a user turn restarts the quiet period.
+      diaryIdle.noteTurnFinished(session.id);
+    }
+  }
+
+  /**
+   * Drive one turn to completion, publishing every event into the broker.
+   *
+   * Nothing here depends on a client being connected, so closing the tab or
+   * losing the network only detaches the live view. The context is persisted
+   * at the end, which is what a client returning later reads back.
+   */
+  async function driveTurn(
+    run: Run,
+    input: { target: ModelTarget; context: AgentMessage[]; message: string },
+  ): Promise<void> {
+    const sessionId = run.sessionId;
+    let agent: KolorAgent | undefined;
+    let failure: unknown;
+    try {
+      try {
+        agent = await pool.get(sessionId, input.context, input.target);
+        runs.publish(run, {
+          type: 'ready',
+          tools: agent.tools.map((tool) => tool.name),
+          mcp: agent.mcpServers,
+          model: { id: input.target.apiModelName, label: input.target.label },
+        });
+        const prepared = prepareOutgoingMessage(sessionId, input.message);
+        if (prepared.topicApplied) runs.publish(run, { type: 'topic/applied' });
+        for await (const event of agent.stream(prepared.content, { signal: run.controller.signal })) {
+          runs.publish(run, serializeEvent(event));
+        }
+      } catch (error) {
+        failure = error;
+        if (!run.controller.signal.aborted) {
+          runs.publish(run, { type: 'web/error', message: describeError(error) });
+        }
+      }
+
+      // A cancelled turn is not an exception: the loop drains and ends with
+      // `stopReason: 'aborted'`, so the flag itself is what tells us.
+      const cancelled = run.controller.signal.aborted;
+      if (cancelled) runs.publish(run, { type: 'run/cancelled' });
+
       if (agent !== undefined) {
         try {
-          const updated = store.replaceContext(session.id, agent.exportContext());
-          sendSse(response, {
+          const updated = store.replaceContext(sessionId, agent.exportContext());
+          runs.publish(run, {
             type: 'session/saved',
             session: {
               id: updated.id,
@@ -583,14 +654,93 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
             },
           });
         } catch (error) {
-          sendSse(response, { type: 'web/error', message: describeError(error) });
+          failure ??= error;
+          runs.publish(run, { type: 'web/error', message: describeError(error) });
         }
       }
-      finished = true;
-      controllers.delete(session.id);
-      diaryIdle.noteTurnFinished(session.id);
-      if (!response.writableEnded) response.end();
+
+      runs.finish(run, cancelled ? 'cancelled' : failure === undefined ? 'done' : 'error', failure);
+    } catch (error) {
+      // Never leave a run registered as running.
+      runs.finish(run, 'error', error);
     }
+  }
+
+  /**
+   * Attach an SSE client to a turn, replaying what it missed.
+   *
+   * Detaching (tab closed, reload, network loss, session switch) only removes
+   * the listener. Writes are batched into one `response.write` per tick so a
+   * very fast stream does not turn into thousands of syscalls.
+   */
+  function attachRunSse(response: ServerResponse, sessionId: string, from: number): void {
+    startSse(response);
+
+    const view = runs.view(sessionId);
+    if (view !== undefined) {
+      sendSse(response, { type: 'run/state', run: view, replayFrom: Math.max(0, from) });
+    }
+
+    const queue: string[] = [];
+    let detached = false;
+    let scheduled = false;
+
+    const heartbeat = setInterval(() => {
+      if (detached || response.writableEnded || response.destroyed) return;
+      response.write(': ping\n\n');
+    }, 15_000);
+    heartbeat.unref?.();
+
+    function flush(): void {
+      scheduled = false;
+      if (queue.length === 0) return;
+      const frames = queue.splice(0, queue.length);
+      writeSseFrames(response, frames);
+    }
+
+    const listener: RunListener = {
+      event(payload: string): void {
+        if (detached) return;
+        queue.push(payload);
+        if (!scheduled) {
+          scheduled = true;
+          setImmediate(flush);
+        }
+      },
+      end(): void {
+        if (detached) return;
+        detached = true;
+        clearInterval(heartbeat);
+        flush();
+        if (!response.writableEnded) response.end();
+      },
+    };
+
+    const attached = runs.subscribe(sessionId, listener, from);
+    if (attached === undefined) {
+      // Nothing is running: the client reloads the saved session instead.
+      detached = true;
+      clearInterval(heartbeat);
+      if (!response.writableEnded) response.end();
+      return;
+    }
+    writeSseFrames(response, attached.replay);
+
+    response.on('close', () => {
+      if (detached) return;
+      detached = true;
+      clearInterval(heartbeat);
+      attached.run.listeners.delete(listener);
+    });
+  }
+
+  /** Buffer a batch of already-serialized events as SSE frames. */
+  function writeSseFrames(response: ServerResponse, payloads: string[]): void {
+    if (payloads.length === 0) return;
+    if (response.writableEnded || response.destroyed) return;
+    let out = '';
+    for (const payload of payloads) out += `data: ${payload}\n\n`;
+    response.write(out);
   }
 
   /** Quiet period in whole minutes, for the diary prompt and `/api/memory`. */
@@ -725,35 +875,51 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
    * skipped rather than queued so a slow turn cannot pile up.
    */
   async function runScheduledTurn(task: SessionTask, message: string): Promise<void> {
-    const session = store.require(task.sessionId);
-    if (controllers.has(session.id)) return;
+    await runHeadlessTurn({
+      sessionId: task.sessionId,
+      kind: 'task',
+      message,
+      prompt: message,
+      skipped: `skipped task "${task.name}": no model is configured`,
+      rearmIdle: true,
+    });
+  }
+
+  /**
+   * Run a turn nobody is waiting for (scheduled task, diary).
+   *
+   * It goes through the broker too, so the session is flagged as running and a
+   * client that opens it sees the live progress. A busy session is skipped
+   * rather than queued, so slow turns cannot pile up.
+   */
+  async function runHeadlessTurn(input: {
+    sessionId: string;
+    kind: 'task' | 'diary';
+    message: string;
+    prompt: string;
+    skipped: string;
+    /** Restart the diary quiet period afterwards (never for the diary itself). */
+    rearmIdle: boolean;
+  }): Promise<void> {
+    const session = store.require(input.sessionId);
+    if (runs.isRunning(session.id)) return;
 
     const target = activeTarget();
     if (target === undefined) {
-      options.logger?.(`skipped task "${task.name}": no model is configured`);
+      options.logger?.(input.skipped);
       return;
     }
 
-    const controller = new AbortController();
-    controllers.set(session.id, controller);
-    let agent: KolorAgent | undefined;
+    await pool.ensureSignature();
+    const run = runs.begin({
+      sessionId: session.id,
+      kind: input.kind,
+      prompt: input.prompt,
+    });
     try {
-      await pool.ensureSignature();
-      agent = await pool.get(session.id, session.context, target);
-      const prepared = prepareOutgoingMessage(session.id, message);
-      for await (const _event of agent.stream(prepared.content, { signal: controller.signal })) {
-        // Scheduled turns have no client; consuming the stream drives the loop.
-      }
+      await driveTurn(run, { target, context: session.context, message: input.message });
     } finally {
-      if (agent !== undefined) {
-        try {
-          store.replaceContext(session.id, agent.exportContext());
-        } catch (error) {
-          options.logger?.('could not persist a scheduled turn', error);
-        }
-      }
-      controllers.delete(session.id);
-      diaryIdle.noteTurnFinished(session.id);
+      if (input.rearmIdle) diaryIdle.noteTurnFinished(session.id);
     }
   }
 
@@ -764,41 +930,19 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
    * re-armed, so the diary turn cannot trigger itself again.
    */
   async function runDiaryTurn(sessionId: string): Promise<void> {
-    const session = store.require(sessionId);
-    if (controllers.has(session.id)) return;
-
-    const target = activeTarget();
-    if (target === undefined) {
-      options.logger?.('skipped the diary turn: no model is configured');
-      return;
-    }
-
     const before = memory.diary().signature;
     const message = buildDiaryTaskMessage(new Date());
-
-    const controller = new AbortController();
-    controllers.set(session.id, controller);
-    let agent: KolorAgent | undefined;
-    try {
-      await pool.ensureSignature();
-      agent = await pool.get(session.id, session.context, target);
-      const prepared = prepareOutgoingMessage(session.id, message);
-      for await (const _event of agent.stream(prepared.content, { signal: controller.signal })) {
-        // The diary turn has no client; consuming the stream drives the loop.
-      }
-    } finally {
-      if (agent !== undefined) {
-        try {
-          store.replaceContext(session.id, agent.exportContext());
-        } catch (error) {
-          options.logger?.('could not persist the diary turn', error);
-        }
-      }
-      controllers.delete(session.id);
-      const after = memory.diary().signature;
-      if (after === before) {
-        options.logger?.('the diary turn finished without appending anything');
-      }
+    await runHeadlessTurn({
+      sessionId,
+      kind: 'diary',
+      message,
+      prompt: message,
+      skipped: 'skipped the diary turn: no model is configured',
+      rearmIdle: false,
+    });
+    const after = memory.diary().signature;
+    if (after === before) {
+      options.logger?.('the diary turn finished without appending anything');
     }
   }
 
@@ -821,15 +965,13 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     providers,
     memory,
     diaryIdle,
+    runs,
     scheduler,
     fireDueTasks: (now?: Date) => scheduler.tick(now),
     async close(): Promise<void> {
       scheduler.stop();
       diaryIdle.cancelAll();
-      for (const controller of controllers.values()) {
-        controller.abort(new Error('server shutting down'));
-      }
-      controllers.clear();
+      runs.cancelAll('server shutting down');
       await Promise.race([
         scheduler.whenIdle(),
         new Promise<void>((resolve) => setTimeout(resolve, 3000)),

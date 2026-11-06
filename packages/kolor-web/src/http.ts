@@ -43,6 +43,21 @@ export function sendJson(response: ServerResponse, status: number, body: unknown
   response.end(data);
 }
 
+/**
+ * Send a response whose body is already JSON text.
+ *
+ * Used for turn replay, where concatenating pre-serialized events avoids
+ * parsing and re-encoding a multi-megabyte buffer just to hand it back.
+ */
+export function sendJsonText(response: ServerResponse, status: number, body: string): void {
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(body),
+    'cache-control': 'no-store',
+  });
+  response.end(body);
+}
+
 export function startSse(response: ServerResponse): void {
   response.writeHead(200, {
     'content-type': 'text/event-stream; charset=utf-8',
