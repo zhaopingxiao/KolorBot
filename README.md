@@ -43,8 +43,10 @@ kolorbot/
 │   ├── kolor-frame/             # KolorFrame 本地工具库
 │   └── kolor-web/               # Web 服务 + public/ 静态页面
 │       ├── src/providers.ts     # 提供商存储（~/.kolor/providers.json）+ 模型发现
+│       ├── src/runs.ts          # RunBroker：turn 生命周期 + 事件回放
 │       ├── src/server.ts        # HTTP、SSE、API、调度器接线
 │       └── public/              # index.html / app.js / styles.css
+├── restart.cmd                  # 启停脚本入口（scripts/restart.ps1）
 ├── tsconfig.base.json
 └── tsconfig.dev.json            # tsx 用的 paths（npm run web 直接跑源码）
 ```
@@ -56,7 +58,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 135 个测试
+pnpm test      # 141 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -69,6 +71,15 @@ npm run web
 ```
 
 `npm run web` 直接用 `tsx` 运行 TypeScript 源码（`tsconfig.dev.json` 把 `kolor-*` 包映射到各自 `src/`），**不再先逐个 build**；想跑编译后的产物用 `npm run web:dist`（等价于 `pnpm build && node packages/kolor-web/dist/src/bin.js`）。
+
+想后台跑并方便重启，用仓库根目录的脚本（默认 `100.87.104.6:3399`，日志 `logs/kolor-web.log`）：
+
+```powershell
+.\restart.cmd                    # 停掉旧实例并后台拉起
+.\restart.cmd status             # 端口 / PID / 模型
+.\restart.cmd stop               # 只停
+.\restart.cmd start -Foreground  # 前台跑，方便看报错
+```
 
 默认只监听 `127.0.0.1`。需要让局域网访问时用 `--host`：
 
@@ -113,6 +124,8 @@ npm run web -- --host 0.0.0.0
 - 技能：侧栏「技能」查看 `~/.agents/skills` 的 Claude 标准技能；对话开始、重置、或列表变化时，下一条消息前会带 `<system-skills>`，AI 用 `skills(id)` 工具读详情。
 - 技能里的 MCP：有 MCP 的技能在列表里带一个 **MCP** 标识，点开技能详情就能看到它通过 `kolor.json` 声明的所有 MCP 服务器（名称 + transport）；单独的 MCP 页面已经去掉。
 - 聊天：流式输出、工具调用卡片（参数 / 结果 / 状态，可折叠）、停止按钮、思考时的三个点。
+- 断线不丢回答：一轮对话在服务端跑，关闭标签页、刷新、切网都只是断开镜像；回来时会从服务端缓冲回放整轮，会话列表里正在跑的会话带一个跳动的点。同一会话同时只允许一轮，重复发送会返回 409 并自动接上看得到的那轮。
+- 跟随滚动：只有当你离消息列表底部**一行字以内**时，新输出才会自动把视图拉到最底；往上翻读历史时不会被拽走，轮次结束重建消息也不会改变你的位置。
 - 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` 由 agent-loop 直接注册，和 MCP 无关；额外 MCP 只能写在技能目录的 `kolor.json` 里。
 
 | 环境变量 | 默认值 | 作用 |
@@ -511,19 +524,21 @@ review - 按仓库规范审阅 diff……
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
 | PUT | `/api/model` | 切换当前模型（`providerId` 传空串表示回到环境变量回退） |
 | GET/PUT | `/api/memory` | 记忆设置（日记开关）+ 今日日记内容 / 切换开关 |
-| GET/POST | `/api/sessions` | 列表 / 新建 |
-| GET/PATCH/DELETE | `/api/sessions/:id` | 读取 / 改名 / 删除 |
+| GET/POST | `/api/sessions` | 列表（带 `running`）/ 新建 |
+| GET/PATCH/DELETE | `/api/sessions/:id` | 读取（带 `running`）/ 改名 / 删除 |
+| GET | `/api/sessions/:id/run` | 当前/刚结束的 turn 状态 + 已缓冲的事件 |
+| GET | `/api/sessions/:id/stream?from=N` | SSE：从第 N 个事件起回放，并继续推送实时事件 |
 | PUT | `/api/sessions/:id/context` | 替换上下文 |
 | PUT | `/api/sessions/:id/topic` | 设置/清除主题（下一条消息注入） |
 | GET/POST | `/api/sessions/:id/tasks` | 定时任务列表 / 新建 |
 | DELETE | `/api/sessions/:id/tasks/:taskId` | 删除定时任务 |
 | GET | `/api/skills` | 已安装技能列表 + 签名 + 每个技能的 `mcpServers` |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
-| POST | `/api/sessions/:id/reset` | 重置：清空上下文，保留名称与主题 |
+| POST | `/api/sessions/:id/reset` | 重置：清空上下文，保留名称与主题；正在跑的 turn 会被丢弃（不写回上下文） |
 | GET | `/api/sessions/:id/export` | 导出 JSON（含主题） |
 | POST | `/api/sessions/import` | 从 JSON 新建 |
 | GET | `/api/mcp` | skill 声明的 MCP 列表（只读；Web UI 已不再单独使用，信息并入技能详情） |
-| POST | `/api/chat` | SSE 事件流（`ready`、`topic/applied`、循环事件、`session/saved`） |
+| POST | `/api/chat` | SSE 事件流（`ready`、`topic/applied`、循环事件、`session/saved`、`run/cancelled`）；turn 在 broker 里跑，断开不影响；同会话重复请求返回 409 |
 | POST | `/api/chat/cancel` | 停止当前轮次 |
 
 ## 架构：从 dsh-agent-loop 抄了什么
@@ -545,12 +560,12 @@ review - 按仓库规范审阅 diff……
 pnpm test
 ```
 
-共 134 个测试：
+共 141 个测试：
 
 - `kolor-agent-loop`（41）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
 - `kolor-sessions`（23）：CRUD、路径解析、持久化重开、导入导出、非法上下文、主题注入、重置、旧库迁移、定时规则/任务存储、技能签名、日记签名。
 - `kolor-skills`（12）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
 - `kolor-frame`（7）：读写、目录、bash、skills 工具、越界路径、错误映射。
-- `kolor-web`（51）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、固定的整理提示词、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、以及 10 分钟静默后自动整理日记的真实端到端。
+- `kolor-web`（58）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、固定的整理提示词、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
 
 全部测试不需要网络和 API key。

@@ -1,8 +1,8 @@
-﻿# KolorBot 项目交接
+# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（134 个测试）；已接入「模型提供商」和「记忆（日记 + 记忆衔接）」，不再写死 DeepSeek，也没有内置默认模型。
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（141 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」和「断线重连的运行中 turn」，不再写死 DeepSeek，也没有内置默认模型。
 
 ## 1. 这个项目是什么
 
@@ -32,6 +32,7 @@ D:\code\kolorbot\
 │   ├── kolor-skills/         # SKILL.md / kolor.json 解析、技能注入
 │   ├── kolor-frame/          # 本地工具实现（文件 / bash / skills）
 │   └── kolor-web/            # Web 服务、SSE、调度器、提醒工具、提供商、前端
+├── scripts/restart.ps1       # 启停脚本（restart.cmd 调用）
 ├── examples/skills/deepseek-search/  # 带 MCP 的搜索/抓取技能源码
 ├── docs/                     # UI 截图
 ├── README.md
@@ -154,6 +155,9 @@ mcp__kolor-frame__read_file
 - 流式输出逐字 blur 晕入。
 - **思考指示**：发送后到第一个字（或工具卡片）出现前显示三个跳动的点；`step/start` / `reasoning/delta` 时显示，`text/delta`、`tool/call`、`tool/result`、`turn/end`、请求结束（含停止）时消失。实现是 `app.js` 的 `.thinking` + `.thinking-dot`，`prefers-reduced-motion` 时关闭动画。
 - 工具调用卡片显示：工具名、状态（运行中/完成/失败/跳过）、耗时、参数、结果，可折叠。
+- **断线重连**：turn 在服务端的 `RunBroker` 里跑，SSE 只是镜像；关标签/刷新/切会话只断开监听，回来从缓冲回放整轮。会话列表有 `running` 时显示跳动的点；轮询发现当前会话在跑会自动 `attachLive`。停止按钮走 `/api/chat/cancel`，服务端发 `run/cancelled` 再正常结束。
+- **跟随滚动**：只有离底部一行字（按 `.assistant-message` 的 `line-height` 计算）以内才自动贴底；往上翻时不拽走，轮次结束 `renderMessages` 重建也保持原位置（`renderMessages(forceBottom, note)`，会话切换才强制到底）。
+- 取消的轮次在重建后仍显示「已停止」标记（`run-note`），但部分回答不落库。
 - 保留元素：KolorBot / 新对话 / 搜索对话 / 会话列表 / 技能 / 模型 / 记忆 / 标题 / 消息数·时间 / 主题 / 定时 / 重置 / 删除 / 对话 / 模型下拉框 / 发送框。
 - 技能页：有 MCP 的技能带 `MCP` 徽标（多个显示 `MCP ×N`），点开技能显示 `MCP servers` 区块（名称 + transport）和 `SKILL.md` 全文；全局 `kolor.json` 的 server 以「全局 MCP」行显示。
 - 原来的 MCP 页面（侧栏 MCP 按钮 + `#mcp-dialog`）已删除。
@@ -212,6 +216,18 @@ mcp__kolor-frame__read_file
 - **测试**：新增 14 个（`test/memory.test.ts` 13 个 + `kolor-sessions` 1 个），覆盖文件格式、固定提示词、Previous Topic 衔接、开关持久化、`/api/memory`、注入去重、重置后重注入、`/update-daily-memory`、以及静默后自动整理日记的端到端。
 - **截图**：`docs/memory.png`（记忆页 + `## Previous Topic` + `append_diary` 工具卡片）。
 
+### 3.13 运行中的 turn（`RunBroker`，2026-11-07 新增）
+
+- **问题**：以前一轮对话活在 `/api/chat` 请求里，关标签/断网会 abort，回答直接丢失。
+- **做法**：`src/runs.ts` 的 `RunBroker` 按 session 持有 turn（每个 session 最多一个）。`/api/chat` 只做 `runs.begin()` + `attachRunSse()`，循环在 `driveTurn` 里跑；SSE 断开只移除 listener。事件序列化后进入缓冲（上限 4MB，超出后 `truncated: true`，晚加入的客户端靠会话回退）。
+- **回放**：`GET /api/sessions/:id/stream?from=N` 先发 `run/state`，再重放 `events[N..]`，然后接实时事件；15s 一个 `: ping` 心跳。`GET /api/sessions/:id/run` 返回状态 + 缓冲事件；完成后 `RunView` 保留 5 分钟。
+- **取消**：`RunAbortReason = 'user' | 'reset' | 'delete' | 'shutdown'`。abort 后循环正常结束（`stopReason: 'aborted'`），发 `run/cancelled`，状态记 `cancelled`。
+- **reset/delete 语义**：`reset` / `delete` 会 `runs.cancel(id, 'reset'|'delete')`；`driveTurn` 看到这两个原因**跳过** `store.replaceContext()`，否则被 abort 的 turn 会把 reset 前的上下文写回去（2026-11-07 修复，测试 `resetting a session during a turn is not undone`）。
+- **同一会话只跑一轮**：重复 `/api/chat` 返回 409；客户端收到 409 会 `loadSessions()` 后 `attachLive()` 接上正在跑的那轮。
+- **headless**：定时任务和日记也走 broker（`runHeadlessTurn`），所以打开会话能看到它们的实时进度；只有用户消息和定时任务会重置日记静默期，日记自己不会。
+- **前端**：`app.js` 的 `streams: Map` + `state.live`；`attachRun / detachRun / finishRun / attachLive`，`ensureStream` 用 `run.prompt`（剥壳后）重建用户气泡。流式文本按 `requestAnimationFrame` 批量插入 `.stream-chunk`。
+- **测试**：`test/runs.test.ts` 7 个（断开后继续、晚加入回放、409、取消、完成态 TTL、定时任务可见、reset 不被写回）。
+
 ## 4. 关键约束 / 容易踩的坑
 
 1. **工具调用与结果必须成对**：上下文里 assistant 的每个 `toolCalls` 都要有对应 tool 消息，否则 `validateAgentContext` 会拒绝。
@@ -237,6 +253,11 @@ mcp__kolor-frame__read_file
 21. **记忆衔接只发生在当天第一次整理**：`previous_topic` 只在日记文件由这次调用创建时生效；文件已存在时传了也会被忽略。想补写旧日记请直接编辑 Markdown。
 22. **「上一篇日记」由模型自己找**：固定提示词让它 `list daily/` 并按文件名日期读最近一篇更早的 `YYYY-MM-DD.md`；不是服务端预计算，所以日记目录改名/非日期命名会影响模型的选择。
 23. **`npm run web` 不 build**：它用 `tsx` 直接从 `src/` 导入（依赖 `tsconfig.dev.json` 的 paths）。改了包源码重启即可；改 `tsconfig.dev.json` 忘记同步 paths 会导致 `Cannot find package`。发布/测试仍用 `pnpm build` + `dist/`。
+24. **turn 不在请求里**：`/api/chat` 返回的 SSE 断开不会停 turn；要停只能 `/api/chat/cancel`。同一 session 同时只有一个 turn，重复 POST 返回 409（客户端会自动 attach 现有那轮）。
+25. **reset/delete 会丢弃运行中的 turn**：不会把 abort 前的上下文写回去；想保留就等 turn 结束再 reset。
+26. **回放缓冲上限 4MB**：超出后 `truncated: true`，晚加入的客户端只能看到部分事件，turn 结束后以 `session/saved` + 会话内容为准。
+27. **跟随滚动只看一行**：阈值是 `.assistant-message` 的 `line-height`，不是固定像素；改动消息字体/行高时不需要再调常量。
+28. **`RunBroker` 是进程内的**：进程重启后所有运行中的 turn 消失，不补跑；会话里已持久化的部分保留。
 
 ## 5. 运行
 
@@ -254,6 +275,15 @@ pnpm test
 ```powershell
 npm run web
 # 打开 http://127.0.0.1:3399，在左下角「模型」页添加提供商（接口地址 + Key）
+```
+
+也可以直接用启停脚本（默认后台跑在 `100.87.104.6:3399`，日志写 `logs/kolor-web.log`）：
+
+```powershell
+.\restart.cmd            # 停掉旧实例并后台拉起新的
+.\restart.cmd status     # 看端口/PID/模型
+.\restart.cmd stop       # 只停
+.\restart.cmd start -Foreground   # 前台跑，看报错
 ```
 
 `npm run web` 现在**直接用 `tsx` 跑 TypeScript 源码**（`tsx --tsconfig tsconfig.dev.json packages/kolor-web/src/bin.ts`），不再逐个 package `tsc`。`tsconfig.dev.json` 的 `paths` 把 `kolor-agent-loop` / `kolor-sessions` / `kolor-skills` / `kolor-frame` 映射到各自的 `src/index.ts`，所以改完代码直接重启即可；想跑编译产物用 `npm run web:dist`（`pnpm build && node packages/kolor-web/dist/src/bin.js`）。`pnpm build` / `pnpm test` 仍然走 `tsc` 到 `dist/`。
@@ -316,38 +346,40 @@ CLI 优先级高于 `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT`。
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
 | PUT | `/api/model` | 切换当前模型（`providerId: ''` 表示回退到环境变量） |
 | GET/PUT | `/api/memory` | 记忆设置（日记开关）+ 今日日记 / 切换开关 |
-| GET/POST | `/api/sessions` | 列表 / 新建 |
-| GET/PATCH/DELETE | `/api/sessions/:id` | 读取 / 改名 / 删除 |
+| GET/POST | `/api/sessions` | 列表（带 `running`）/ 新建 |
+| GET/PATCH/DELETE | `/api/sessions/:id` | 读取（带 `running`）/ 改名 / 删除 |
+| GET | `/api/sessions/:id/run` | 运行中/刚结束的 turn 状态 + 缓冲事件 |
+| GET | `/api/sessions/:id/stream?from=N` | SSE 回放 + 实时事件 |
 | PUT | `/api/sessions/:id/context` | 替换上下文 |
 | PUT | `/api/sessions/:id/topic` | 设置/清除主题 |
 | GET/POST | `/api/sessions/:id/tasks` | 定时任务列表 / 新建 |
 | DELETE | `/api/sessions/:id/tasks/:taskId` | 删除任务 |
-| POST | `/api/sessions/:id/reset` | 重置上下文 |
+| POST | `/api/sessions/:id/reset` | 重置上下文；运行中的 turn 丢弃 |
 | GET | `/api/sessions/:id/export` | 导出 JSON |
 | POST | `/api/sessions/import` | 导入会话 |
 | GET | `/api/skills` | 技能列表 + 签名 + 每个技能的 `mcpServers` |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
 | GET | `/api/mcp` | skill 声明的 MCP（只读；UI 已不单独使用） |
-| POST | `/api/chat` | SSE 聊天流 |
+| POST | `/api/chat` | SSE 聊天流（turn 在 broker 里跑；同会话重复请求 409） |
 | POST | `/api/chat/cancel` | 取消当前轮次 |
 
 UI 已不提供 export/import/rename 入口，但 API 仍然存在。
 
 ## 8. 测试与当前状态
 
-最近一次（日记提示词改成固定文案之后）结果：
+最近一次（RunBroker + 跟随滚动之后）结果：
 
 ```text
 pnpm build  ✅
-pnpm test   ✅ 134/134
+pnpm test   ✅ 141/141
   kolor-agent-loop 41
   kolor-sessions   23
   kolor-skills     12
   kolor-frame       7
-  kolor-web        51   （原 38 + 记忆日记 9 + 记忆衔接 4）
+  kolor-web        58   （原 38 + 记忆日记 9 + 记忆衔接 4 + 运行中的 turn 7）
 ```
 
-CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工具、技能注入、提醒工具、定时任务、schedule_reminder、模型提供商、以及日记（文件格式、Previous Topic 衔接、注入去重、手动命令、静默自动整理）。
+CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工具、技能注入、提醒工具、定时任务、schedule_reminder、模型提供商、日记（文件格式、Previous Topic 衔接、注入去重、手动命令、静默自动整理）、以及运行中的 turn（断开继续、回放、409、取消、reset 不被写回）。
 
 ## 9. 已知限制 / 可以继续做的事
 
@@ -383,11 +415,12 @@ cd D:\code\kolorbot
 pnpm install
 pnpm test
 
-当前状态：134 个测试全部通过，Web 可用 npm run web 启动；
+当前状态：141 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
 模型只来自「模型」页的提供商（OpenAI Chat Completions 协议），没有内置默认模型；
 只有显式设置 KOLOR_API_URL + KOLOR_API_MODEL + key 才会出现「环境变量」回退项；
 「记忆」页的日记开关可让对话静默 10 分钟后自动追加日记，发 /update-daily-memory 可立即整理；
-日记提示词是固定的英文文案，当天第一次整理会先写 ## Previous Topic 概括上一篇（记忆衔接）。
+日记提示词是固定的英文文案，当天第一次整理会先写 ## Previous Topic 概括上一篇（记忆衔接）；
+一轮对话在服务端 RunBroker 里跑，断开页面会回放；只有离底部一行以内才自动跟随滚动。
 ```
 
 如果新对话的默认工作目录不是项目目录，优先用绝对路径；这个项目的 pnpm workspace 必须在 `D:\code\kolorbot` 根目录执行命令。
@@ -407,13 +440,16 @@ pnpm test
 | `packages/kolor-web/src/memory.ts` | 记忆设置（`memory.json`）、日记读写/签名、日记提示词 |
 | `packages/kolor-web/src/diary-idle.ts` | 「对话静默 N 分钟」计时器 |
 | `packages/kolor-web/src/diary-tool.ts` | `append_diary` 本地工具 |
-| `packages/kolor-web/src/server.ts` | HTTP、SSE、API、调度器/日记接线、注入 |
+| `packages/kolor-web/src/server.ts` | HTTP、SSE、API、broker 接线、调度器/日记、注入 |
+| `packages/kolor-web/src/runs.ts` | `RunBroker`：turn 生命周期、事件缓冲/回放、取消原因 |
+| `packages/kolor-web/src/http.ts` | JSON/SSE 响应、`sendJsonText`（回放不重复序列化） |
 | `packages/kolor-web/src/agent-pool.ts` | 每会话 agent、模型指纹重建、提醒/日记工具、MCP 签名重连 |
 | `packages/kolor-web/src/reminder-tool.ts` | `schedule_reminder` |
 | `packages/kolor-web/src/cli.ts` | `--host` / `--port` 参数 |
+| `restart.cmd` + `scripts/restart.ps1` | 启停脚本：stop / start / status / restart，日志 `logs/kolor-web.log` |
 | `packages/kolor-web/public/index.html` | UI 结构（模型 / 记忆对话框、输入框上方模型下拉框） |
 | `packages/kolor-web/public/styles.css` | 白色主题 + 思考三点 + 移动端抽屉 + 提供商 / 记忆样式 |
-| `packages/kolor-web/public/app.js` | UI 状态、SSE、思考指示、工具卡片、抽屉、提供商页、记忆页 |
+| `packages/kolor-web/public/app.js` | UI 状态、turn 镜像/重连、跟随滚动、思考指示、工具卡片、抽屉、提供商页、记忆页 |
 | `tsconfig.dev.json` | tsx 的 paths（`npm run web` 直接跑源码不 build） |
 | `examples/skills/deepseek-search/` | DeepSeek 搜索/抓取技能 |
 | `docs/` | 当前 UI 截图 |
