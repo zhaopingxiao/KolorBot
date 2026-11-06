@@ -1,0 +1,1191 @@
+/* KolorBot web client: vanilla ES module, no build step. */
+
+const $ = (selector) => document.querySelector(selector);
+
+const state = {
+  sessions: [],
+  session: null,
+  filter: '',
+  running: false,
+  controller: null,
+  providerData: null,
+  memory: null,
+};
+
+/* ---------------- helpers ---------------- */
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (char) => {
+    switch (char) {
+      case '&':
+        return '&amp;';
+      case '<':
+        return '&lt;';
+      case '>':
+        return '&gt;';
+      case '"':
+        return '&quot;';
+      default:
+        return '&#39;';
+    }
+  });
+}
+
+function inlineMarkdown(text) {
+  let html = escapeHtml(text);
+  html = html.replace(/`([^`]+)`/g, '<code class="inline">$1</code>');
+  html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  return html;
+}
+
+function renderMarkdown(text) {
+  const lines = text.split('\n');
+  const out = [];
+  let code = null;
+
+  for (const line of lines) {
+    if (line.startsWith('```')) {
+      if (code === null) {
+        code = [];
+      } else {
+        out.push(`<pre class="code">${escapeHtml(code.join('\n'))}</pre>`);
+        code = null;
+      }
+      continue;
+    }
+    if (code !== null) {
+      code.push(line);
+      continue;
+    }
+    if (line.trim() === '') continue;
+    out.push(`<p>${inlineMarkdown(line)}</p>`);
+  }
+  if (code !== null) out.push(`<pre class="code">${escapeHtml(code.join('\n'))}</pre>`);
+  return out.join('');
+}
+
+function stripEnvelopes(content) {
+  let text = content;
+  let previous;
+  do {
+    previous = text;
+    text = text.replace(/^<system-skills>\r?\n[\s\S]*?\r?\n<\/system-skills>\r?\n*/, '');
+    text = text.replace(/^<system-topic>\r?\n[\s\S]*?\r?\n<\/system-topic>\r?\n*/, '');
+    text = text.replace(
+      /^<system-daily-memory>\r?\n[\s\S]*?\r?\n<\/system-daily-memory>\r?\n*/,
+      '',
+    );
+    text = text.replace(
+      /^<system-daily-memory-task>\r?\n[\s\S]*?\r?\n<\/system-daily-memory-task>\r?\n*/,
+      '',
+    );
+  } while (text !== previous);
+  return text;
+}
+
+function timeAgo(iso) {
+  const diff = Date.now() - new Date(iso).getTime();
+  if (!Number.isFinite(diff) || diff < 0) return '';
+  if (diff < 60_000) return '刚刚';
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)} 分钟前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)} 小时前`;
+  if (diff < 7 * 86_400_000) return `${Math.floor(diff / 86_400_000)} 天前`;
+  const date = new Date(iso);
+  return `${date.getMonth() + 1}月${date.getDate()}日`;
+}
+
+function toast(message, type = 'success') {
+  const host = document.querySelector('dialog[open]') ?? document.body;
+  const container = $('#toasts');
+  if (container.parentElement !== host) host.appendChild(container);
+
+  const node = el('div', `toast ${type}`, message);
+  container.appendChild(node);
+  requestAnimationFrame(() => node.classList.add('show'));
+
+  const delay = type === 'error' ? 4200 : 2400;
+  setTimeout(() => {
+    node.classList.remove('show');
+    setTimeout(() => node.remove(), 200);
+  }, delay);
+}
+
+async function api(path, options = {}) {
+  const response = await fetch(path, {
+    ...options,
+    headers: { 'content-type': 'application/json', ...(options.headers ?? {}) },
+  });
+  const text = await response.text();
+  let data = null;
+  if (text !== '') {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (!response.ok) {
+    throw new Error(data?.error ?? `请求失败（${response.status}）`);
+  }
+  return data;
+}
+
+/* ---------------- sessions ---------------- */
+
+async function loadSessions() {
+  const data = await api('/api/sessions');
+  state.sessions = data?.sessions ?? [];
+  renderSessions();
+}
+
+function renderSessions() {
+  const list = $('#session-list');
+  list.innerHTML = '';
+  const query = state.filter.trim().toLowerCase();
+  const items = state.sessions.filter(
+    (session) => query === '' || session.name.toLowerCase().includes(query),
+  );
+
+  for (const session of items) {
+    const button = el('button', 'session', session.name);
+    button.title = session.name;
+    if (state.session?.id === session.id) button.classList.add('active');
+    button.addEventListener('click', () => {
+      closeDrawers();
+      void selectSession(session.id);
+    });
+    list.appendChild(button);
+  }
+}
+
+async function selectSession(id) {
+  if (state.running) return;
+  const data = await api(`/api/sessions/${id}`);
+  state.session = data.session;
+  renderHeader();
+  renderMessages();
+  renderSessions();
+}
+
+function newChat() {
+  if (state.running) return;
+  closeDrawers();
+  state.session = null;
+  renderHeader();
+  renderMessages();
+  renderSessions();
+  const input = $('#input');
+  input.value = '';
+  input.style.height = 'auto';
+  input.focus();
+}
+
+function renderHeader() {
+  const session = state.session;
+  $('#session-title').textContent = session?.name ?? '新对话';
+
+  let count = session?.messageCount ?? 0;
+  if (session && state.running) {
+    count = Math.max(
+      count,
+      document.querySelectorAll('#messages .user-message, #messages .assistant-message').length,
+    );
+  }
+  $('#session-meta').textContent = session ? `${count} 条消息 · ${timeAgo(session.updatedAt)}` : '';
+
+  const disabled = !session || state.running;
+  for (const id of ['edit-topic', 'schedule-chat', 'reset-chat', 'delete-chat']) {
+    $(`#${id}`).disabled = disabled;
+  }
+}
+
+/* ---------------- messages ---------------- */
+
+function renderMessages() {
+  const container = $('#messages');
+  container.innerHTML = '';
+  const context = state.session?.context ?? [];
+
+  const toolResults = new Map();
+  for (const message of context) {
+    if (message.role === 'tool') toolResults.set(message.toolCallId, message);
+  }
+
+  let turn = null;
+  for (const message of context) {
+    if (message.role === 'user') {
+      turn = el('div', 'turn');
+      const text = stripEnvelopes(message.content ?? '');
+      if (text !== '') turn.appendChild(el('div', 'user-message', text));
+      container.appendChild(turn);
+      continue;
+    }
+    if (message.role !== 'assistant') continue;
+
+    const text = message.content ?? '';
+    const calls = message.toolCalls ?? [];
+    if (text.trim() === '' && calls.length === 0) continue;
+    if (turn === null) {
+      turn = el('div', 'turn');
+      container.appendChild(turn);
+    }
+    if (text.trim() !== '') {
+      const body = el('div', 'assistant-message');
+      body.innerHTML = renderMarkdown(text);
+      turn.appendChild(body);
+    }
+    for (const call of calls) {
+      appendToolCard(turn, call, toolResults.get(call.id));
+    }
+  }
+
+  container.scrollTop = container.scrollHeight;
+}
+
+function appendUser(text) {
+  const container = $('#messages');
+  const turn = el('div', 'turn');
+  turn.appendChild(el('div', 'user-message', text));
+  container.appendChild(turn);
+  container.scrollTop = container.scrollHeight;
+  return turn;
+}
+
+function appendAssistant(turn) {
+  const body = el('div', 'assistant-message');
+  turn.appendChild(body);
+  return body;
+}
+
+/* ---------------- thinking indicator ---------------- */
+
+function appendThinking(turn) {
+  const node = el('div', 'thinking');
+  node.setAttribute('aria-label', '思考中');
+  for (let i = 0; i < 3; i += 1) node.appendChild(el('span', 'thinking-dot'));
+  turn.appendChild(node);
+  return node;
+}
+
+function showThinking(stream) {
+  if (stream.thinking !== null && stream.thinking.isConnected) return;
+  stream.thinking = appendThinking(stream.turn);
+  const container = $('#messages');
+  container.scrollTop = container.scrollHeight;
+}
+
+function hideThinking(stream) {
+  if (stream?.thinking == null) return;
+  stream.thinking.remove();
+  stream.thinking = null;
+}
+
+/* ---------------- tools ---------------- */
+
+function truncateForDisplay(value, limit = 12000) {
+  const text = String(value ?? '');
+  if (text.length <= limit) return text;
+  return `${text.slice(0, limit)}\n… [truncated ${text.length - limit} chars]`;
+}
+
+function formatToolArguments(raw) {
+  if (typeof raw !== 'string' || raw.trim() === '') return '{}';
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2);
+  } catch {
+    return raw;
+  }
+}
+
+function formatDuration(ms) {
+  if (!Number.isFinite(ms)) return '';
+  if (ms < 1000) return `${Math.max(0, Math.round(ms))}ms`;
+  return `${(ms / 1000).toFixed(1)}s`;
+}
+
+function appendToolCard(turn, call, result) {
+  const details = el('details', 'tool-call');
+  details.open = true;
+
+  const summary = el('summary', 'tool-head');
+  summary.appendChild(el('span', 'tool-caret', '›'));
+  summary.appendChild(el('span', 'tool-name', call.name));
+  const status = el('span', 'tool-status running', '运行中');
+  summary.appendChild(status);
+  const duration = el('span', 'tool-duration', '');
+  summary.appendChild(duration);
+  details.appendChild(summary);
+
+  const body = el('div', 'tool-body');
+  body.appendChild(el('div', 'tool-section-label', '参数'));
+  const args = el('pre', 'tool-pre');
+  args.textContent = truncateForDisplay(formatToolArguments(call.arguments));
+  body.appendChild(args);
+  body.appendChild(el('div', 'tool-section-label', '结果'));
+  const resultNode = el('pre', 'tool-pre result', '等待结果…');
+  body.appendChild(resultNode);
+  details.appendChild(body);
+
+  const card = { element: details, status, duration, result: resultNode };
+  if (result !== undefined) {
+    applyToolResult(card, {
+      content: result.content,
+      isError: result.isError,
+    });
+  }
+  turn.appendChild(details);
+  return card;
+}
+
+function applyToolResult(card, event) {
+  const isError = event.isError === true;
+  card.status.className = `tool-status ${isError ? 'error' : 'ok'}`;
+  card.status.textContent = isError ? '失败' : '完成';
+  card.element.classList.toggle('error', isError);
+  card.result.textContent = truncateForDisplay(event.content ?? '');
+  if (event.durationMs !== undefined) {
+    card.duration.textContent = formatDuration(event.durationMs);
+  }
+}
+
+function applyToolSkipped(card, reason) {
+  card.status.className = 'tool-status skipped';
+  card.status.textContent = '跳过';
+  card.result.textContent = `跳过：${reason}`;
+}
+
+/* ---------------- chat ---------------- */
+
+function toggleRunning(running) {
+  state.running = running;
+  $('#send').classList.toggle('hidden', running);
+  $('#stop').classList.toggle('hidden', !running);
+  if (running) {
+    $('#model-select').disabled = true;
+  } else {
+    renderModelSelect();
+  }
+  renderHeader();
+}
+
+function readSseEvent(chunk) {
+  const dataLines = [];
+  for (const line of chunk.split('\n')) {
+    if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+  }
+  if (dataLines.length === 0) return null;
+  try {
+    return JSON.parse(dataLines.join('\n'));
+  } catch {
+    return null;
+  }
+}
+
+function appendStreamText(container, text) {
+  for (const char of text) {
+    if (char === '\r') continue;
+    if (char === '\n') {
+      container.appendChild(document.createElement('br'));
+      continue;
+    }
+    container.appendChild(el('span', 'stream-char', char));
+  }
+}
+
+async function consumeStream(response, onEvent, onError) {
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+
+    let index;
+    while ((index = buffer.indexOf('\n\n')) !== -1) {
+      const chunk = buffer.slice(0, index);
+      buffer = buffer.slice(index + 2);
+      const event = readSseEvent(chunk);
+      if (event === null) continue;
+      onEvent(event);
+      if (event.type === 'agent/error' || event.type === 'web/error') {
+        onError(event.message ?? '运行失败');
+      }
+    }
+  }
+}
+
+function handleStreamEvent(event, stream) {
+  if (event.type === 'step/start' || event.type === 'reasoning/delta') {
+    // The model is working: show the three dots until real output arrives.
+    showThinking(stream);
+  } else if (event.type === 'text/delta') {
+    hideThinking(stream);
+    if (stream.currentText === null) stream.currentText = appendAssistant(stream.turn);
+    appendStreamText(stream.currentText, event.text);
+  } else if (event.type === 'tool/call') {
+    hideThinking(stream);
+    dropEmptyAssistant(stream);
+    const card = appendToolCard(stream.turn, {
+      name: event.name,
+      arguments: event.arguments,
+    });
+    stream.cards.set(event.callId, card);
+    stream.currentText = null;
+  } else if (event.type === 'tool/result') {
+    hideThinking(stream);
+    dropEmptyAssistant(stream);
+    let card = stream.cards.get(event.callId);
+    if (card === undefined) {
+      card = appendToolCard(stream.turn, { name: event.name, arguments: '' });
+      stream.cards.set(event.callId, card);
+    }
+    applyToolResult(card, event);
+    stream.currentText = null;
+  } else if (event.type === 'tool/skipped') {
+    hideThinking(stream);
+    dropEmptyAssistant(stream);
+    let card = stream.cards.get(event.callId);
+    if (card === undefined) {
+      card = appendToolCard(stream.turn, { name: event.name, arguments: '' });
+      stream.cards.set(event.callId, card);
+    }
+    applyToolSkipped(card, event.reason ?? 'skipped');
+    stream.currentText = null;
+  } else if (event.type === 'turn/end') {
+    hideThinking(stream);
+  }
+
+  const container = $('#messages');
+  container.scrollTop = container.scrollHeight;
+}
+
+function dropEmptyAssistant(stream) {
+  if (stream.currentText !== null && stream.currentText.textContent === '') {
+    stream.currentText.remove();
+    stream.currentText = null;
+  }
+}
+
+async function sendMessage() {
+  const input = $('#input');
+  const text = input.value.trim();
+  if (text === '' || state.running) return;
+
+  input.value = '';
+  input.style.height = 'auto';
+
+  let stream = null;
+  try {
+    if (state.session === null) {
+      const name = text.split('\n')[0].slice(0, 32) || '新对话';
+      const created = await api('/api/sessions', {
+        method: 'POST',
+        body: JSON.stringify({ name }),
+      });
+      state.session = created.session;
+      renderHeader();
+      await loadSessions();
+    }
+
+    const session = state.session;
+    if (session === null) return;
+    const turn = appendUser(text);
+    stream = {
+      turn,
+      currentText: appendAssistant(turn),
+      cards: new Map(),
+      thinking: null,
+    };
+    showThinking(stream);
+
+    state.controller = new AbortController();
+    toggleRunning(true);
+
+    let streamError = null;
+    const response = await fetch('/api/chat', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      signal: state.controller.signal,
+      body: JSON.stringify({ sessionId: session.id, text }),
+    });
+
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.error ?? `请求失败（${response.status}）`);
+    }
+
+    await consumeStream(
+      response,
+      (event) => handleStreamEvent(event, stream),
+      (message) => {
+        streamError = message;
+      },
+    );
+    if (streamError !== null) toast(streamError, 'error');
+  } catch (error) {
+    if (error?.name !== 'AbortError') toast(error?.message ?? String(error), 'error');
+  } finally {
+    hideThinking(stream);
+    state.controller = null;
+    toggleRunning(false);
+
+    if (state.session !== null) {
+      try {
+        const fresh = await api(`/api/sessions/${state.session.id}`);
+        state.session = fresh.session;
+        renderHeader();
+        renderMessages();
+      } catch {
+        // Keep the optimistic view if the session cannot be reloaded.
+      }
+    }
+    await loadSessions().catch(() => {});
+  }
+}
+
+async function stopRun() {
+  if (!state.session) return;
+  try {
+    await api('/api/chat/cancel', {
+      method: 'POST',
+      body: JSON.stringify({ sessionId: state.session.id }),
+    });
+  } catch {
+    // The turn may have already finished.
+  }
+  state.controller?.abort();
+}
+
+/* ---------------- topic ---------------- */
+
+function openTopic() {
+  if (!state.session) return;
+  closeDrawers();
+  $('#topic-input').value = state.session.topic ?? '';
+  $('#topic-error').textContent = '';
+  $('#topic-dialog').showModal();
+}
+
+async function saveTopic(topic) {
+  if (!state.session) return;
+  try {
+    const data = await api(`/api/sessions/${state.session.id}/topic`, {
+      method: 'PUT',
+      body: JSON.stringify({ topic }),
+    });
+    state.session = data.session;
+    $('#topic-dialog').close();
+    toast(topic === '' ? '主题已清除' : '主题已保存');
+  } catch (error) {
+    $('#topic-error').textContent = error.message;
+  }
+}
+
+/* ---------------- schedule ---------------- */
+
+function openSchedule() {
+  if (!state.session) return;
+  closeDrawers();
+  $('#task-error').textContent = '';
+  $('#task-name').value = '';
+  $('#task-type').value = 'daily';
+  updateScheduleFields();
+  $('#schedule-dialog').showModal();
+  void loadTasks();
+}
+
+function updateScheduleFields() {
+  const type = $('#task-type').value;
+  $('#task-weekly').classList.toggle('hidden', type !== 'weekly');
+  $('#task-monthly').classList.toggle('hidden', type !== 'monthly');
+  $('#task-hourly').classList.toggle('hidden', type !== 'hourly');
+  $('#task-time').classList.toggle('hidden', type === 'hourly');
+}
+
+async function loadTasks() {
+  if (!state.session) return;
+  const data = await api(`/api/sessions/${state.session.id}/tasks`);
+  const list = $('#task-list');
+  list.innerHTML = '';
+  const tasks = data?.tasks ?? [];
+
+  for (const task of tasks) {
+    const item = el('div', 'list-item');
+    const grow = el('div', 'grow');
+    grow.appendChild(el('div', 'list-name', task.name));
+    grow.appendChild(el('div', 'list-sub', task.description ?? ''));
+    item.appendChild(grow);
+
+    const remove = el('button', 'text-button danger', '删除');
+    remove.addEventListener('click', async () => {
+      await api(`/api/sessions/${state.session.id}/tasks/${task.id}`, { method: 'DELETE' });
+      await loadTasks();
+      toast('定时任务已删除');
+    });
+    item.appendChild(remove);
+    list.appendChild(item);
+  }
+}
+
+function buildSchedule() {
+  const type = $('#task-type').value;
+  const time = $('#task-time').value || '09:00';
+  if (type === 'daily') return { type, time };
+  if (type === 'weekly') {
+    const weekdays = [...document.querySelectorAll('#task-weekly input:checked')].map((input) =>
+      Number(input.value),
+    );
+    if (weekdays.length === 0) throw new Error('至少选择一天');
+    return { type, weekdays, time };
+  }
+  if (type === 'monthly') {
+    const day = Number($('#task-day').value);
+    if (!Number.isInteger(day) || day < 1 || day > 31) throw new Error('日期需在 1-31 之间');
+    return { type, day, time };
+  }
+  const minute = Number($('#task-minute').value);
+  if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
+    throw new Error('分钟需在 0-59 之间');
+  }
+  return { type, minute };
+}
+
+async function addTask() {
+  if (!state.session) return;
+  const name = $('#task-name').value.trim();
+  $('#task-error').textContent = '';
+  if (name === '') {
+    $('#task-error').textContent = '请填写任务名';
+    return;
+  }
+  try {
+    const schedule = buildSchedule();
+    await api(`/api/sessions/${state.session.id}/tasks`, {
+      method: 'POST',
+      body: JSON.stringify({ name, schedule }),
+    });
+    $('#task-name').value = '';
+    await loadTasks();
+    toast('定时任务已添加');
+  } catch (error) {
+    $('#task-error').textContent = error.message;
+  }
+}
+
+/* ---------------- skills ---------------- */
+
+function openSkills() {
+  closeDrawers();
+  $('#skills-dialog').showModal();
+  void loadSkills();
+}
+
+function mcpBadge(count) {
+  return el('span', 'badge mcp', count > 1 ? `MCP ×${count}` : 'MCP');
+}
+
+function renderSkillMcp(servers) {
+  const box = $('#skill-mcp');
+  box.innerHTML = '';
+  if (!servers || servers.length === 0) {
+    box.classList.add('hidden');
+    return;
+  }
+  box.appendChild(el('div', 'skill-mcp-head', 'MCP servers'));
+  for (const server of servers) {
+    const row = el('div', 'skill-mcp-item');
+    row.appendChild(el('span', 'skill-mcp-name', server.name));
+    row.appendChild(el('span', 'skill-mcp-transport', server.transport));
+    box.appendChild(row);
+  }
+  box.classList.remove('hidden');
+}
+
+async function loadSkills() {
+  const data = await api('/api/skills');
+  const list = $('#skills-list');
+  const detail = $('#skill-detail');
+  list.innerHTML = '';
+  detail.classList.add('hidden');
+  detail.textContent = '';
+  renderSkillMcp([]);
+
+  const globalServers = data?.globalMcpServers ?? [];
+  if (globalServers.length > 0) {
+    const item = el('div', 'list-item');
+    const grow = el('div', 'grow');
+    grow.appendChild(el('div', 'list-name', '全局 MCP'));
+    grow.appendChild(
+      el('div', 'list-sub', globalServers.map((server) => `${server.name} · ${server.transport}`).join('，')),
+    );
+    item.appendChild(grow);
+    list.appendChild(item);
+  }
+
+  const skills = data?.skills ?? [];
+
+  for (const skill of skills) {
+    const servers = skill.mcpServers ?? [];
+    const item = el('div', 'list-item');
+    const grow = el('div', 'grow');
+    const name = el('div', 'list-name', skill.name);
+    if (servers.length > 0) name.appendChild(mcpBadge(servers.length));
+    grow.appendChild(name);
+    grow.appendChild(el('div', 'list-sub', skill.description));
+    item.appendChild(grow);
+    item.style.cursor = 'pointer';
+    item.addEventListener('click', async () => {
+      const loaded = await api(`/api/skills/${encodeURIComponent(skill.id)}`);
+      renderSkillMcp(loaded.skill?.mcpServers ?? servers);
+      detail.textContent = loaded.skill?.content ?? '';
+      detail.classList.remove('hidden');
+    });
+    list.appendChild(item);
+  }
+}
+
+/* ---------------- models & providers ---------------- */
+
+async function loadProviders() {
+  try {
+    state.providerData = await api('/api/providers');
+  } catch {
+    return;
+  }
+  renderModelSelect();
+  if ($('#models-dialog').open) renderProviderList();
+}
+
+function parseModelValue(value) {
+  if (value === '__env__') return { providerId: '', model: '' };
+  const index = value.indexOf('::');
+  if (index === -1) return null;
+  return { providerId: value.slice(0, index), model: value.slice(index + 2) };
+}
+
+function modelValue(provider, model) {
+  return `${provider.id}::${model}`;
+}
+
+function renderModelSelect() {
+  const select = $('#model-select');
+  const data = state.providerData;
+  const active = data?.active ?? null;
+  const options = [];
+  for (const provider of data?.providers ?? []) {
+    for (const model of provider.models) {
+      options.push({ value: modelValue(provider, model), label: `${provider.name} · ${model}` });
+    }
+  }
+  if (data?.defaults?.hasDefault) {
+    options.push({ value: '__env__', label: `环境变量 · ${data.defaults.apiModelName}` });
+  }
+
+  select.innerHTML = '';
+  if (options.length === 0) {
+    const option = document.createElement('option');
+    option.value = '';
+    option.textContent = '未配置模型';
+    option.disabled = true;
+    option.selected = true;
+    select.appendChild(option);
+    select.disabled = true;
+    select.title = '还没有可用的模型，点左下角「模型」添加提供商';
+    return;
+  }
+
+  const activeValue =
+    active?.source === 'provider'
+      ? `${active.providerId}::${active.model}`
+      : active?.source === 'env'
+        ? '__env__'
+        : '';
+  let matched = false;
+  for (const item of options) {
+    const option = document.createElement('option');
+    option.value = item.value;
+    option.textContent = item.label;
+    if (item.value === activeValue) {
+      option.selected = true;
+      matched = true;
+    }
+    select.appendChild(option);
+  }
+  if (!matched && active?.source === 'provider' && active.model !== '') {
+    // The stored model is not in the fetched list (stale file); keep it selectable.
+    const option = document.createElement('option');
+    option.value = activeValue;
+    option.textContent = active.label;
+    option.selected = true;
+    select.appendChild(option);
+    matched = true;
+  }
+  if (!matched) select.selectedIndex = 0;
+  select.disabled = state.running;
+  select.title = active?.source === 'none' ? '' : `当前：${active?.label ?? ''}`;
+}
+
+async function applyModel(value) {
+  const selection = parseModelValue(value);
+  if (selection === null) return;
+  try {
+    await api('/api/model', { method: 'PUT', body: JSON.stringify(selection) });
+    await loadProviders();
+    toast('模型已切换');
+  } catch (error) {
+    toast(error.message, 'error');
+    renderModelSelect();
+  }
+}
+
+function openModels() {
+  closeDrawers();
+  $('#provider-error').textContent = '';
+  $('#models-dialog').showModal();
+  void loadProviders();
+}
+
+function renderProviderList() {
+  const list = $('#provider-list');
+  const data = state.providerData;
+  const providers = data?.providers ?? [];
+  const active = data?.active ?? { source: 'none' };
+
+  $('#models-active').textContent =
+    active.source === 'none' ? '当前：未配置模型' : `当前：${active.label}`;
+
+  list.innerHTML = '';
+  if (providers.length === 0) {
+    list.appendChild(
+      el('p', 'provider-empty', '还没有提供商。在下面填写接口地址和 API Key，会自动识别它的所有模型。'),
+    );
+    return;
+  }
+
+  for (const provider of providers) {
+    const item = el('div', 'provider-item');
+    const head = el('div', 'list-item');
+    const grow = el('div', 'grow');
+    const name = el('div', 'list-name', provider.name);
+    if (active.source === 'provider' && active.providerId === provider.id) {
+      name.appendChild(el('span', 'badge active', '使用中'));
+    }
+    grow.appendChild(name);
+    grow.appendChild(
+      el(
+        'div',
+        'list-sub',
+        [
+          provider.baseUrl,
+          provider.hasKey ? provider.keyHint : '无 Key',
+          `${provider.models.length} 个模型`,
+        ].join(' · '),
+      ),
+    );
+    head.appendChild(grow);
+
+    const actions = el('div', 'actions');
+    const refresh = el('button', 'text-button', '刷新');
+    refresh.addEventListener('click', () => void refreshProvider(provider, refresh));
+    const remove = el('button', 'text-button danger', '删除');
+    remove.addEventListener('click', () => void removeProvider(provider));
+    actions.append(refresh, remove);
+    head.appendChild(actions);
+    item.appendChild(head);
+
+    if (provider.models.length > 0) {
+      const models = el('div', 'provider-models');
+      for (const model of provider.models) {
+        const chip = el('button', 'model-chip', model);
+        if (
+          active.source === 'provider' &&
+          active.providerId === provider.id &&
+          active.model === model
+        ) {
+          chip.classList.add('active');
+        }
+        chip.addEventListener('click', () => void applyModel(modelValue(provider, model)));
+        models.appendChild(chip);
+      }
+      item.appendChild(models);
+    } else {
+      item.appendChild(el('p', 'provider-empty', '还没有模型，点「刷新」重新识别。'));
+    }
+    list.appendChild(item);
+  }
+}
+
+async function addProvider() {
+  const errorNode = $('#provider-error');
+  errorNode.textContent = '';
+  const name = $('#provider-name').value.trim();
+  const baseUrl = $('#provider-url').value.trim();
+  const apiKey = $('#provider-key').value.trim();
+  const modelsText = $('#provider-models').value.trim();
+  if (baseUrl === '') {
+    errorNode.textContent = '请填写接口地址';
+    return;
+  }
+
+  const models = modelsText === '' ? [] : modelsText.split(/[,，\s]+/).filter(Boolean);
+  const button = $('#provider-add');
+  button.disabled = true;
+  button.textContent = '识别中…';
+  try {
+    await api('/api/providers', {
+      method: 'POST',
+      body: JSON.stringify({ name, baseUrl, apiKey, models }),
+    });
+    $('#provider-name').value = '';
+    $('#provider-url').value = '';
+    $('#provider-key').value = '';
+    $('#provider-models').value = '';
+    await loadProviders();
+    toast('提供商已添加');
+  } catch (error) {
+    errorNode.textContent = error.message;
+  } finally {
+    button.disabled = false;
+    button.textContent = '添加并识别模型';
+  }
+}
+
+async function refreshProvider(provider, button) {
+  button.disabled = true;
+  button.textContent = '识别中…';
+  try {
+    await api(`/api/providers/${provider.id}/models`, { method: 'POST' });
+    await loadProviders();
+    toast('模型列表已更新');
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = '刷新';
+  }
+}
+
+async function removeProvider(provider) {
+  if (!confirm(`删除提供商「${provider.name}」？`)) return;
+  try {
+    await api(`/api/providers/${provider.id}`, { method: 'DELETE' });
+    await loadProviders();
+    toast('提供商已删除');
+  } catch (error) {
+    toast(error.message, 'error');
+  }
+}
+
+/* ---------------- memory ---------------- */
+
+function openMemory() {
+  closeDrawers();
+  $('#memory-dialog').showModal();
+  void loadMemory();
+}
+
+async function loadMemory() {
+  try {
+    state.memory = await api('/api/memory');
+  } catch (error) {
+    toast(error.message, 'error');
+    return;
+  }
+  renderMemory();
+}
+
+function renderMemory() {
+  const data = state.memory;
+  if (!data) return;
+  const enabled = data.settings?.diary?.autoAppend === true;
+  $('#diary-auto').checked = enabled;
+  $('#diary-sub').textContent = enabled
+    ? `对话结束 ${data.diaryIdleMinutes} 分钟没有新消息时，自动让 AI 追加当天日记`
+    : `打开后，对话结束 ${data.diaryIdleMinutes} 分钟没有新消息时自动让 AI 追加当天日记`;
+
+  const today = data.today;
+  $('#diary-path').textContent = today?.relativePath ?? '';
+  const preview = $('#diary-preview');
+  preview.textContent = today?.content?.trim()
+    ? today.content
+    : '今天还没有日记。到点自动整理，或在输入框发送 /update-daily-memory。';
+}
+
+async function setDiaryAutoAppend(enabled) {
+  try {
+    state.memory = await api('/api/memory', {
+      method: 'PUT',
+      body: JSON.stringify({ diary: { autoAppend: enabled } }),
+    });
+    renderMemory();
+    toast(enabled ? '已开启定时追加日记' : '已关闭定时追加日记');
+  } catch (error) {
+    $('#diary-auto').checked = !enabled;
+    toast(error.message, 'error');
+  }
+}
+
+/* ---------------- wiring ---------------- */
+
+function currentDrawer() {
+  if ($('.sidebar').classList.contains('open')) return 'left';
+  if ($('.header-actions').classList.contains('open')) return 'right';
+  return null;
+}
+
+function syncDrawers(side) {
+  const left = side === 'left';
+  const right = side === 'right';
+  $('.sidebar').classList.toggle('open', left);
+  $('.header-actions').classList.toggle('open', right);
+  $('#drawer-backdrop').classList.toggle('hidden', side === null);
+  document.body.classList.toggle('drawer-open', side !== null);
+
+  const leftButton = $('#toggle-sidebar');
+  const rightButton = $('#toggle-actions');
+  leftButton.setAttribute('aria-expanded', String(left));
+  rightButton.setAttribute('aria-expanded', String(right));
+  leftButton.setAttribute('aria-label', left ? '关闭对话列表' : '打开对话列表');
+  rightButton.setAttribute('aria-label', right ? '关闭会话操作' : '打开会话操作');
+}
+
+function toggleDrawer(side) {
+  syncDrawers(currentDrawer() === side ? null : side);
+}
+
+function closeDrawers() {
+  syncDrawers(null);
+}
+
+function wireDialogs() {
+  for (const dialog of document.querySelectorAll('dialog')) {
+    dialog.addEventListener('click', (event) => {
+      if (event.target === dialog) dialog.close();
+    });
+  }
+  for (const button of document.querySelectorAll('[data-close]')) {
+    button.addEventListener('click', () => {
+      document.getElementById(button.getAttribute('data-close')).close();
+    });
+  }
+}
+
+function wire() {
+  $('#toggle-sidebar').addEventListener('click', () => toggleDrawer('left'));
+  $('#toggle-actions').addEventListener('click', () => toggleDrawer('right'));
+  $('#drawer-backdrop').addEventListener('click', closeDrawers);
+  document.addEventListener('keydown', (event) => {
+    if (event.key === 'Escape') closeDrawers();
+  });
+  const desktop = window.matchMedia('(min-width: 901px)');
+  desktop.addEventListener('change', (event) => {
+    if (event.matches) closeDrawers();
+  });
+
+  $('#new-chat').addEventListener('click', newChat);
+
+  const search = $('#session-filter');
+  search.addEventListener('input', () => {
+    state.filter = search.value;
+    renderSessions();
+  });
+
+  $('#send').addEventListener('click', () => void sendMessage());
+  $('#stop').addEventListener('click', () => void stopRun());
+
+  const input = $('#input');
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+  });
+  input.addEventListener('keydown', (event) => {
+    if (event.key === 'Enter' && !event.shiftKey) {
+      event.preventDefault();
+      void sendMessage();
+    }
+  });
+
+  $('#edit-topic').addEventListener('click', openTopic);
+  $('#topic-save').addEventListener('click', () => void saveTopic($('#topic-input').value));
+  $('#topic-clear').addEventListener('click', () => void saveTopic(''));
+
+  $('#schedule-chat').addEventListener('click', openSchedule);
+  $('#task-type').addEventListener('change', updateScheduleFields);
+  $('#task-add').addEventListener('click', () => void addTask());
+
+  $('#reset-chat').addEventListener('click', async () => {
+    if (!state.session) return;
+    closeDrawers();
+    if (!confirm('重置会清空这个对话的上下文，主题和定时任务保留。')) return;
+    await api(`/api/sessions/${state.session.id}/reset`, { method: 'POST' });
+    await selectSession(state.session.id);
+    await loadSessions();
+    toast('已重置');
+  });
+
+  $('#delete-chat').addEventListener('click', async () => {
+    if (!state.session) return;
+    closeDrawers();
+    if (!confirm(`删除「${state.session.name}」？`)) return;
+    await api(`/api/sessions/${state.session.id}`, { method: 'DELETE' });
+    state.session = null;
+    renderHeader();
+    renderMessages();
+    await loadSessions();
+    newChat();
+    toast('对话已删除');
+  });
+
+  $('#open-skills').addEventListener('click', openSkills);
+
+  $('#open-models').addEventListener('click', openModels);
+  $('#open-memory').addEventListener('click', openMemory);
+  $('#diary-auto').addEventListener('change', (event) =>
+    void setDiaryAutoAppend(event.target.checked),
+  );
+  $('#diary-refresh').addEventListener('click', () => void loadMemory());
+  $('#provider-add').addEventListener('click', () => void addProvider());
+  $('#model-select').addEventListener('change', (event) => void applyModel(event.target.value));
+
+  wireDialogs();
+
+  setInterval(async () => {
+    if (state.running) return;
+    try {
+      await loadSessions();
+      if (state.session === null) return;
+      const summary = state.sessions.find((session) => session.id === state.session.id);
+      if (summary && summary.messageCount !== state.session.messageCount) {
+        await selectSession(state.session.id);
+      } else if (summary) {
+        state.session.messageCount = summary.messageCount;
+        state.session.updatedAt = summary.updatedAt;
+        renderHeader();
+      }
+    } catch {
+      // Polling is best-effort.
+    }
+  }, 20_000);
+}
+
+async function init() {
+  wire();
+  await loadProviders();
+  await loadSessions();
+  if (state.sessions.length > 0) {
+    await selectSession(state.sessions[0].id);
+  } else {
+    newChat();
+  }
+}
+
+void init();

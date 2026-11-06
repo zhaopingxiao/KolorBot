@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="color-scheme" content="light" />
+    <title>KolorBot</title>
+    <link rel="icon" href="/logo.png" type="image/png" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <div class="app">
+      <aside class="sidebar">
+        <div class="brand">
+          <img class="brand-mark" src="/logo.png" alt="" width="22" height="22" />
+          <span class="brand-name">KolorBot</span>
+        </div>
+
+        <button id="new-chat" class="new-chat">新对话</button>
+        <input id="session-filter" class="search" placeholder="搜索对话" autocomplete="off" />
+        <nav id="session-list" class="sessions"></nav>
+
+        <div class="sidebar-footer">
+          <button id="open-skills" class="link-button">技能</button>
+          <button id="open-models" class="link-button">模型</button>
+          <button id="open-memory" class="link-button">记忆</button>
+        </div>
+      </aside>
+
+      <main class="main">
+        <header class="header">
+          <button id="toggle-sidebar" class="mobile-menu" aria-label="打开对话列表" aria-expanded="false">
+            <span></span><span></span><span></span>
+          </button>
+          <div class="heading">
+            <h1 id="session-title">新对话</h1>
+            <p id="session-meta"></p>
+          </div>
+          <button id="toggle-actions" class="mobile-menu" aria-label="打开会话操作" aria-expanded="false">
+            <span></span><span></span><span></span>
+          </button>
+          <div class="header-actions">
+            <div class="drawer-title">会话操作</div>
+            <button id="edit-topic" class="text-button" disabled>主题</button>
+            <button id="schedule-chat" class="text-button" disabled>定时</button>
+            <button id="reset-chat" class="text-button" disabled>重置</button>
+            <button id="delete-chat" class="text-button danger" disabled>删除</button>
+          </div>
+        </header>
+
+        <section id="messages" class="messages"></section>
+
+        <footer class="composer">
+          <div class="composer-inner">
+            <div class="composer-meta">
+              <select id="model-select" class="model-select" aria-label="选择模型" title="当前模型"></select>
+            </div>
+            <div class="composer-box">
+              <textarea id="input" rows="1" placeholder="发消息…"></textarea>
+              <button id="send" class="send-button">发送</button>
+              <button id="stop" class="send-button stop hidden">停止</button>
+            </div>
+          </div>
+        </footer>
+      </main>
+    </div>
+
+    <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
+    <div id="toasts" class="toasts" aria-live="polite"></div>
+
+    <dialog id="topic-dialog" class="dialog">
+      <div class="dialog-head">
+        <h2>主题</h2>
+        <button class="text-button" data-close="topic-dialog">关闭</button>
+      </div>
+      <textarea id="topic-input" rows="10" spellcheck="false" placeholder="写下需要 AI 记住的项目背景…"></textarea>
+      <div class="dialog-row">
+        <button id="topic-save" class="primary-button">保存</button>
+        <button id="topic-clear" class="text-button">清除</button>
+        <span id="topic-error" class="form-error"></span>
+      </div>
+    </dialog>
+
+    <dialog id="schedule-dialog" class="dialog">
+      <div class="dialog-head">
+        <h2>定时</h2>
+        <button class="text-button" data-close="schedule-dialog">关闭</button>
+      </div>
+      <div id="task-list" class="list"></div>
+
+      <div class="form-block">
+        <input id="task-name" placeholder="任务名" autocomplete="off" />
+        <div class="form-grid">
+          <select id="task-type">
+            <option value="daily">每天</option>
+            <option value="weekly">每周</option>
+            <option value="monthly">每月</option>
+            <option value="hourly">每小时</option>
+          </select>
+          <input id="task-time" type="time" value="09:00" />
+        </div>
+        <div id="task-weekly" class="weekdays hidden">
+          <label><input type="checkbox" value="1" checked />一</label>
+          <label><input type="checkbox" value="2" />二</label>
+          <label><input type="checkbox" value="3" />三</label>
+          <label><input type="checkbox" value="4" />四</label>
+          <label><input type="checkbox" value="5" />五</label>
+          <label><input type="checkbox" value="6" />六</label>
+          <label><input type="checkbox" value="7" />日</label>
+        </div>
+        <div id="task-monthly" class="hidden">
+          <input id="task-day" type="number" min="1" max="31" value="1" placeholder="每月几号" />
+        </div>
+        <div id="task-hourly" class="hidden">
+          <input id="task-minute" type="number" min="0" max="59" value="0" placeholder="每小时的哪一分" />
+        </div>
+        <div class="dialog-row">
+          <button id="task-add" class="primary-button">添加</button>
+          <span id="task-error" class="form-error"></span>
+        </div>
+      </div>
+    </dialog>
+
+    <dialog id="models-dialog" class="dialog">
+      <div class="dialog-head">
+        <h2>模型</h2>
+        <button class="text-button" data-close="models-dialog">关闭</button>
+      </div>
+      <p id="models-active" class="models-active"></p>
+      <div id="provider-list" class="list"></div>
+
+      <div class="form-block">
+        <input id="provider-name" placeholder="名称（可选，如 OpenAI）" autocomplete="off" />
+        <input
+          id="provider-url"
+          placeholder="接口地址，如 https://api.openai.com/v1"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <input
+          id="provider-key"
+          type="password"
+          placeholder="API Key（本地服务可留空）"
+          autocomplete="off"
+        />
+        <input
+          id="provider-models"
+          placeholder="手动填写模型（可选，逗号分隔）"
+          autocomplete="off"
+          spellcheck="false"
+        />
+        <div class="dialog-row">
+          <button id="provider-add" class="primary-button">添加并识别模型</button>
+          <span id="provider-error" class="form-error"></span>
+        </div>
+        <p class="form-hint">
+          使用 OpenAI Chat Completions 协议；Key 只保存在本机的 providers.json，不会回传到浏览器。
+        </p>
+      </div>
+    </dialog>
+
+    <dialog id="memory-dialog" class="dialog">
+      <div class="dialog-head">
+        <h2>记忆</h2>
+        <button class="text-button" data-close="memory-dialog">关闭</button>
+      </div>
+
+      <div class="memory-section">
+        <div class="list-item">
+          <div class="grow">
+            <div class="list-name">日记</div>
+            <div class="list-sub" id="diary-sub">对话结束一段时间没有新消息时，自动让 AI 追加当天日记</div>
+          </div>
+          <label class="switch">
+            <input id="diary-auto" type="checkbox" aria-label="定时追加日记" />
+            <span class="switch-track"><span class="switch-dot"></span></span>
+          </label>
+        </div>
+
+        <div class="memory-path">
+          <span id="diary-path" class="memory-path-text"></span>
+          <button id="diary-refresh" class="text-button">刷新</button>
+        </div>
+        <pre id="diary-preview" class="skill-detail" aria-live="polite"></pre>
+        <p class="form-hint">
+          在输入框发送 <code>/update-daily-memory</code> 会立即让 AI 整理一次日记；日记文件在 workspace 的
+          <code>daily/</code> 目录下。
+        </p>
+      </div>
+    </dialog>
+
+    <dialog id="skills-dialog" class="dialog">
+      <div class="dialog-head">
+        <h2>技能</h2>
+        <button class="text-button" data-close="skills-dialog">关闭</button>
+      </div>
+      <div id="skills-list" class="list"></div>
+      <div id="skill-mcp" class="skill-mcp hidden"></div>
+      <pre id="skill-detail" class="skill-detail hidden"></pre>
+    </dialog>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>

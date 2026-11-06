@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "deepseek-search": {
+      "command": "node",
+      "args": ["server.mjs"],
+      "env": {
+        "DEEPSEEK_API_KEY": "${DEEPSEEK_API_KEY}",
+        "KOLOR_API_KEY": "${KOLOR_API_KEY}",
+        "DEEPSEEK_API_BASE": "${DEEPSEEK_API_BASE}"
+      }
+    }
+  }
+}

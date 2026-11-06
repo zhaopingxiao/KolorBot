@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json.schemastore.org/tsconfig",
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "kolor-agent-loop": ["./packages/kolor-agent-loop/src/index.ts"],
+      "kolor-sessions": ["./packages/kolor-sessions/src/index.ts"],
+      "kolor-skills": ["./packages/kolor-skills/src/index.ts"],
+      "kolor-frame": ["./packages/kolor-frame/src/index.ts"]
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "kolorbot",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "KolorBot - a Node.js agent runtime with a web chat UI, sessions and MCP tools.",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "demo": "pnpm build && pnpm --filter kolor-agent-loop demo",
+    "demo:quickstart": "pnpm --filter kolor-agent-loop demo:quickstart",
+    "web": "tsx --tsconfig tsconfig.dev.json packages/kolor-web/src/bin.ts",
+    "web:dist": "pnpm build && node packages/kolor-web/dist/src/bin.js"
+  },
+  "dependencies": {
+    "kolor-agent-loop": "workspace:*"
+  },
+  "devDependencies": {
+    "tsx": "^4.23.15"
+  }
+}
