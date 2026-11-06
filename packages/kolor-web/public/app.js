@@ -502,6 +502,20 @@ function queueText(stream, text) {
   if (stream.frame === 0) stream.frame = requestAnimationFrame(() => flushStream(stream));
 }
 
+/**
+ * Drop the assistant body when it never received any text.
+ *
+ * A tool-only step leaves an empty placeholder; removing it keeps the card
+ * from being separated by a blank bubble.
+ */
+function dropEmptyAssistant(stream) {
+  const body = stream.currentText;
+  if (body !== null && body.textContent === '') {
+    body.remove();
+    stream.currentText = null;
+  }
+}
+
 function ensureStream(sessionId, run) {
   const existing = streams.get(sessionId);
   if (existing !== undefined) return existing;
@@ -596,9 +610,21 @@ function handleRunEvent(sessionId, event) {
 
 async function consumeRun(response, sessionId) {
   let error = null;
+  let reported = false;
   await consumeStream(
     response,
-    (event) => handleRunEvent(sessionId, event),
+    (event) => {
+      try {
+        handleRunEvent(sessionId, event);
+      } catch (failure) {
+        // One unrenderable event must not kill the live view: the turn keeps
+        // running server side, and `finishRun` reconciles from the session.
+        if (!reported) {
+          reported = true;
+          toast(failure?.message ?? String(failure), 'error');
+        }
+      }
+    },
     (message) => {
       error = message;
     },
