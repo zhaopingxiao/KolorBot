@@ -6,6 +6,22 @@ export type RunKind = 'chat' | 'task' | 'diary';
 /** Lifecycle of one turn. */
 export type RunStatus = 'running' | 'done' | 'error' | 'cancelled';
 
+/**
+ * Why a turn was aborted.
+ *
+ * `reset` / `delete` discard the turn's context on purpose: the session was
+ * wiped, so persisting what the aborted turn still holds would undo it.
+ */
+export type RunAbortReason = 'user' | 'reset' | 'delete' | 'shutdown';
+
+/** Human-readable abort messages (also become the abort signal reason). */
+const ABORT_MESSAGES: Record<RunAbortReason, string> = {
+  user: 'cancelled by user',
+  reset: 'session was reset',
+  delete: 'session was deleted',
+  shutdown: 'server shutting down',
+};
+
 /** Public, JSON-safe description of a turn (never carries the API key). */
 export interface RunView {
   id: string;
@@ -41,6 +57,8 @@ export interface Run extends RunView {
   readonly listeners: Set<RunListener>;
   /** Characters accepted into `events` so far (memory guard). */
   bufferedChars: number;
+  /** Why the turn was aborted, `null` while it is running normally. */
+  abortReason: RunAbortReason | null;
 }
 
 export interface BeginRunInput {
@@ -109,6 +127,7 @@ export class RunBroker {
       events: [],
       listeners: new Set(),
       bufferedChars: 0,
+      abortReason: null,
     };
     this.#finished.delete(input.sessionId);
     this.#runs.set(input.sessionId, run);
@@ -210,14 +229,18 @@ export class RunBroker {
   }
 
   /** Abort a running turn. Returns false when nothing was running. */
-  cancel(sessionId: string, reason = 'cancelled by user'): boolean {
+  cancel(sessionId: string, reason: RunAbortReason = 'user'): boolean {
     const run = this.#runs.get(sessionId);
     if (run === undefined) return false;
-    run.controller.abort(new Error(reason));
+    run.abortReason = reason;
+    run.controller.abort(new Error(ABORT_MESSAGES[reason]));
     return true;
   }
 
-  cancelAll(reason = 'server shutting down'): void {
-    for (const run of this.#runs.values()) run.controller.abort(new Error(reason));
+  cancelAll(reason: RunAbortReason = 'shutdown'): void {
+    for (const run of this.#runs.values()) {
+      run.abortReason = reason;
+      run.controller.abort(new Error(ABORT_MESSAGES[reason]));
+    }
   }
 }

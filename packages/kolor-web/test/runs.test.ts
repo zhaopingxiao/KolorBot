@@ -330,6 +330,46 @@ test('cancelling ends the turn and reports it to the attached client', async (t)
   assert.equal(view.run?.status, 'cancelled');
 });
 
+test('resetting a session during a turn is not undone when the turn drains', async (t) => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const model = await startMockModelServer(async (context) => {
+    context.send(textDelta('这段不应该被写回去'));
+    await gate;
+    for (const frame of finish('stop')) context.send(frame);
+    context.fin();
+  });
+  t.after(() => model.close());
+
+  const { app } = await tempApp(t, model.url);
+  const sessionId = await newSession(app);
+
+  const response = await chat(app, sessionId, '会被 reset 的消息');
+  const stream = openStream(response);
+  await waitFor(async () => {
+    const view = await readRun(app, sessionId);
+    return view.run !== null && view.run.textLength > 0 ? view : undefined;
+  }, 'the first delta');
+
+  const reset = await fetch(`${app.url}/api/sessions/${sessionId}/reset`, { method: 'POST' });
+  assert.equal(reset.status, 200);
+  release();
+
+  const settled = await waitFor(async () => {
+    const view = await readRun(app, sessionId);
+    return view.running === false ? view : undefined;
+  }, 'the aborted turn to finish');
+  assert.equal(settled.run?.status, 'cancelled');
+
+  const detail = (await (
+    await fetch(`${app.url}/api/sessions/${sessionId}`)
+  ).json()) as { session: { context: unknown[] } };
+  assert.deepEqual(detail.session.context, [], 'the reset context must not be restored');
+  await stream.cancel();
+});
+
 test('a finished turn stays visible for a short while, then is forgotten', async (t) => {
   const model = await startMockModelServer((context) => {
     context.send(textDelta('done'));

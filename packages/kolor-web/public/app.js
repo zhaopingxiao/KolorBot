@@ -185,7 +185,7 @@ async function selectSession(id) {
   const data = await api(`/api/sessions/${id}`);
   state.session = data.session;
   renderHeader();
-  renderMessages();
+  renderMessages(true);
   renderSessions();
   if (data.running === true) await attachLive(id);
   else toggleRunning(false, id);
@@ -196,7 +196,7 @@ function newChat() {
   closeDrawers();
   state.session = null;
   renderHeader();
-  renderMessages();
+  renderMessages(true);
   renderSessions();
   const input = $('#input');
   input.value = '';
@@ -225,8 +225,11 @@ function renderHeader() {
 
 /* ---------------- messages ---------------- */
 
-function renderMessages() {
+function renderMessages(forceBottom = false, note = null) {
   const container = $('#messages');
+  const stick = forceBottom || atBottom();
+  const previousTop = container.scrollTop;
+  const previousHeight = container.scrollHeight;
   container.innerHTML = '';
   const context = state.session?.context ?? [];
 
@@ -263,16 +266,19 @@ function renderMessages() {
     }
   }
 
-  container.scrollTop = container.scrollHeight;
-}
+  if (note !== null) {
+    const turns = container.querySelectorAll('.turn');
+    const last = turns[turns.length - 1];
+    if (last !== undefined) last.appendChild(el('div', 'run-note', note));
+  }
 
-function appendUser(text) {
-  const container = $('#messages');
-  const turn = el('div', 'turn');
-  turn.appendChild(el('div', 'user-message', text));
-  container.appendChild(turn);
-  container.scrollTop = container.scrollHeight;
-  return turn;
+  if (stick) {
+    scrollMessagesToBottom();
+  } else {
+    // The list was rebuilt in place: keep the reader where they were instead
+    // of yanking them to the bottom when they were reading further up.
+    container.scrollTop = previousTop + (container.scrollHeight - previousHeight);
+  }
 }
 
 function appendAssistant(turn) {
@@ -450,9 +456,30 @@ async function consumeStream(response, onEvent, onError) {
 
 /* ---- streaming render: one paint per frame, not one per token ---- */
 
+/** Height of one text line in the message list (the "follow" threshold). */
+function lineHeight() {
+  const sample = document.querySelector('#messages .assistant-message, #messages .user-message');
+  if (sample !== null) {
+    const value = parseFloat(getComputedStyle(sample).lineHeight);
+    if (Number.isFinite(value) && value > 0) return value;
+  }
+  return 22;
+}
+
+/**
+ * True only when the reader is within one text line of the bottom.
+ *
+ * Auto-scroll follows new output only in that case; scrolled further up, the
+ * view is left alone so reading history is not yanked away.
+ */
 function atBottom() {
   const container = $('#messages');
-  return container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+  return container.scrollHeight - container.scrollTop - container.clientHeight <= lineHeight();
+}
+
+function scrollMessagesToBottom() {
+  const container = $('#messages');
+  container.scrollTop = container.scrollHeight;
 }
 
 function flushStream(stream) {
@@ -461,14 +488,13 @@ function flushStream(stream) {
     stream.frame = 0;
   }
   if (stream.pending === '') return;
-  const container = $('#messages');
   const stick = atBottom();
   if (stream.currentText === null) stream.currentText = appendAssistant(stream.turn);
   // One span per frame instead of one span per character: a 5k-token answer
   // used to mean thousands of nodes and thousands of layouts.
   stream.currentText.appendChild(el('span', 'stream-chunk', stream.pending));
   stream.pending = '';
-  if (stick) container.scrollTop = container.scrollHeight;
+  if (stick) scrollMessagesToBottom();
 }
 
 function queueText(stream, text) {
@@ -481,6 +507,7 @@ function ensureStream(sessionId, run) {
   if (existing !== undefined) return existing;
 
   const container = $('#messages');
+  const stick = atBottom();
   const turn = el('div', 'turn');
   const prompt = stripEnvelopes(run.prompt ?? '');
   if (prompt !== '') turn.appendChild(el('div', 'user-message', prompt));
@@ -497,7 +524,7 @@ function ensureStream(sessionId, run) {
     cancelled: false,
   };
   streams.set(sessionId, stream);
-  container.scrollTop = container.scrollHeight;
+  if (stick) scrollMessagesToBottom();
   return stream;
 }
 
@@ -517,6 +544,7 @@ function handleRunEvent(sessionId, event) {
     queueText(stream, event.text);
   } else if (event.type === 'tool/call') {
     flushStream(stream);
+    const stick = atBottom();
     hideThinking(stream);
     dropEmptyAssistant(stream);
     const card = appendToolCard(stream.turn, {
@@ -525,8 +553,10 @@ function handleRunEvent(sessionId, event) {
     });
     stream.cards.set(event.callId, card);
     stream.currentText = null;
+    if (stick) scrollMessagesToBottom();
   } else if (event.type === 'tool/result') {
     flushStream(stream);
+    const stick = atBottom();
     hideThinking(stream);
     dropEmptyAssistant(stream);
     let card = stream.cards.get(event.callId);
@@ -536,8 +566,10 @@ function handleRunEvent(sessionId, event) {
     }
     applyToolResult(card, event);
     stream.currentText = null;
+    if (stick) scrollMessagesToBottom();
   } else if (event.type === 'tool/skipped') {
     flushStream(stream);
+    const stick = atBottom();
     hideThinking(stream);
     dropEmptyAssistant(stream);
     let card = stream.cards.get(event.callId);
@@ -547,13 +579,16 @@ function handleRunEvent(sessionId, event) {
     }
     applyToolSkipped(card, event.reason ?? 'skipped');
     stream.currentText = null;
+    if (stick) scrollMessagesToBottom();
   } else if (event.type === 'turn/end') {
     hideThinking(stream);
   } else if (event.type === 'run/cancelled') {
+    const stick = atBottom();
     stream.cancelled = true;
     hideThinking(stream);
     flushStream(stream);
     stream.turn.appendChild(el('div', 'run-note', '已停止'));
+    if (stick) scrollMessagesToBottom();
   } else if (event.type === 'session/saved') {
     flushStream(stream);
   }
@@ -620,6 +655,7 @@ function detachRun() {
 /** The turn is over: fold the live view into the saved session. */
 async function finishRun(sessionId) {
   const stream = streams.get(sessionId);
+  const cancelled = stream?.cancelled === true;
   if (stream !== undefined) {
     flushStream(stream);
     hideThinking(stream);
@@ -634,7 +670,9 @@ async function finishRun(sessionId) {
     const fresh = await api(`/api/sessions/${sessionId}`);
     state.session = fresh.session;
     renderHeader();
-    renderMessages();
+    // The cancelled marker survives the rebuild; scroll position is kept when
+    // the reader was not following the bottom.
+    renderMessages(false, cancelled ? '已停止' : null);
   } catch {
     // Keep the live view if the session cannot be reloaded.
   }
@@ -693,7 +731,14 @@ async function sendMessage() {
     if (completed) await finishRun(session.id);
   } catch (error) {
     toast(error?.message ?? String(error), 'error');
-    if (state.session !== null) toggleRunning(false, state.session.id);
+    if (state.session !== null) {
+      const id = state.session.id;
+      // A 409 means another tab/turn owns the session: resync and join it
+      // instead of leaving the stop button hidden until the next poll.
+      await loadSessions().catch(() => {});
+      if (state.runningIds.has(id)) await attachLive(id);
+      else toggleRunning(false, id);
+    }
   }
 }
 

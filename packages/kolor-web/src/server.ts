@@ -477,7 +477,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     if (resetMatch !== null && method === 'POST') {
       const id = resetMatch[1] as string;
       diaryIdle.cancel(id);
-      runs.cancel(id, 'session was reset');
+      runs.cancel(id, 'reset');
       const session = store.reset(id);
       await pool.disposeSession(id);
       sendJson(response, 200, { session });
@@ -544,7 +544,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       }
       if (method === 'DELETE') {
         diaryIdle.cancel(id);
-        runs.cancel(id, 'session was deleted');
+        runs.cancel(id, 'delete');
         const removed = store.delete(id);
         await pool.disposeSession(id);
         sendJson(response, 200, { deleted: removed });
@@ -573,9 +573,6 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
 
     const session = store.require(sessionId);
-    if (runs.isRunning(session.id)) {
-      throw new HttpError(409, 'this session already has a running turn');
-    }
     diaryIdle.cancel(session.id);
 
     await pool.ensureSignature();
@@ -583,16 +580,34 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     // `/update-daily-memory` sends exactly the same message as an idle trigger.
     const outgoing = isDiaryCommand(text) ? buildDiaryTaskMessage(new Date()) : text;
 
+    // Re-check after the await: two quick POSTs could both pass the check
+    // above. `begin` is synchronous, so this closes the race window.
+    if (runs.isRunning(session.id)) {
+      throw new HttpError(409, 'this session already has a running turn');
+    }
+
     // The turn lives in the broker, not in this request: attaching the SSE
     // response is the only thing this handler does with the connection.
-    const run = runs.begin({ sessionId: session.id, kind: 'chat', prompt: text });
-    attachRunSse(response, session.id, 0);
+    // `outgoing` is what the user sees in the live bubble once envelopes are
+    // stripped, so a diary command shows the same timestamped line as an
+    // automatic trigger.
+    const run = ((): Run => {
+      try {
+        return runs.begin({ sessionId: session.id, kind: 'chat', prompt: outgoing });
+      } catch {
+        throw new HttpError(409, 'this session already has a running turn');
+      }
+    })();
     try {
+      attachRunSse(response, session.id, 0);
       await driveTurn(run, {
         target,
         context: session.context,
         message: outgoing,
       });
+    } catch (error) {
+      // A broken socket must still close the run, or the session stays busy.
+      if (runs.isRunning(session.id)) runs.finish(run, 'error', error);
     } finally {
       // Only a user turn restarts the quiet period.
       diaryIdle.noteTurnFinished(session.id);
@@ -639,7 +654,12 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const cancelled = run.controller.signal.aborted;
       if (cancelled) runs.publish(run, { type: 'run/cancelled' });
 
-      if (agent !== undefined) {
+      // The session was reset or deleted while this turn was running: saving
+      // the agent's context now would undo the reset (or resurrect a deleted
+      // session), so the aborted turn is dropped instead.
+      const discarded = run.abortReason === 'reset' || run.abortReason === 'delete';
+
+      if (agent !== undefined && !discarded) {
         try {
           const updated = store.replaceContext(sessionId, agent.exportContext());
           runs.publish(run, {
@@ -911,11 +931,21 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
 
     await pool.ensureSignature();
-    const run = runs.begin({
-      sessionId: session.id,
-      kind: input.kind,
-      prompt: input.prompt,
-    });
+    // Re-check after the await; a scheduler tick and a chat request can meet
+    // here, and a busy session is skipped rather than queued.
+    if (runs.isRunning(session.id)) return;
+    const run = ((): Run | undefined => {
+      try {
+        return runs.begin({
+          sessionId: session.id,
+          kind: input.kind,
+          prompt: input.prompt,
+        });
+      } catch {
+        return undefined;
+      }
+    })();
+    if (run === undefined) return;
     try {
       await driveTurn(run, { target, context: session.context, message: input.message });
     } finally {
@@ -971,7 +1001,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     async close(): Promise<void> {
       scheduler.stop();
       diaryIdle.cancelAll();
-      runs.cancelAll('server shutting down');
+      runs.cancelAll('shutdown');
       await Promise.race([
         scheduler.whenIdle(),
         new Promise<void>((resolve) => setTimeout(resolve, 3000)),
