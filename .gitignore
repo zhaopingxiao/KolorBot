@@ -5,3 +5,5 @@ dist/
 .DS_Store
 coverage/
 .pnpm-store/
+logs/
+.tmp-restart-test/
