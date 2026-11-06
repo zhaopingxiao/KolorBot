@@ -145,7 +145,9 @@ button:focus-visible {
 }
 
 .session {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 7px;
   width: 100%;
   padding: 8px 10px;
   border-radius: 8px;
@@ -153,10 +155,37 @@ button:focus-visible {
   color: var(--text);
   font-size: 13px;
   text-align: left;
+  cursor: pointer;
+}
+
+.session-name {
+  flex: 1;
+  min-width: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  cursor: pointer;
+}
+
+/* A turn is running in the background for this session. */
+.running-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: running-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes running-pulse {
+  0%,
+  100% {
+    opacity: 0.25;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 .session:hover {
@@ -360,9 +389,21 @@ button:focus-visible {
   margin-bottom: 0;
 }
 
-.stream-char {
+/*
+ * Streamed text arrives one paint-frame at a time, not one character at a
+ * time: the reveal animation still runs, but over a batch, so a long answer
+ * costs a handful of nodes per second instead of thousands.
+ */
+.stream-chunk {
   display: inline;
-  animation: char-in 0.34s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+  animation: char-in 0.24s cubic-bezier(0.2, 0.7, 0.2, 1) both;
+}
+
+/* Shown when a turn was stopped by the user. */
+.run-note {
+  font-size: 12px;
+  color: var(--faint);
+  padding: 2px 0 6px;
 }
 
 @keyframes char-in {

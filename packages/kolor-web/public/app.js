@@ -7,7 +7,9 @@ const state = {
   session: null,
   filter: '',
   running: false,
-  controller: null,
+  runningIds: new Set(),
+  /** The stream this page is currently mirroring, if any. */
+  live: null,
   providerData: null,
   memory: null,
 };
@@ -142,7 +144,13 @@ async function api(path, options = {}) {
 async function loadSessions() {
   const data = await api('/api/sessions');
   state.sessions = data?.sessions ?? [];
+  // Turns keep running after their client detaches, so the list (not the
+  // current page) says which sessions are busy.
+  state.runningIds = new Set(
+    state.sessions.filter((session) => session.running === true).map((session) => session.id),
+  );
   renderSessions();
+  if (state.session !== null) syncBusy();
 }
 
 function renderSessions() {
@@ -154,8 +162,13 @@ function renderSessions() {
   );
 
   for (const session of items) {
-    const button = el('button', 'session', session.name);
+    const button = el('button', 'session');
     button.title = session.name;
+    if (state.runningIds.has(session.id)) {
+      button.appendChild(el('span', 'running-dot'));
+      button.title = session.name + '（正在运行）';
+    }
+    button.appendChild(el('span', 'session-name', session.name));
     if (state.session?.id === session.id) button.classList.add('active');
     button.addEventListener('click', () => {
       closeDrawers();
@@ -166,16 +179,20 @@ function renderSessions() {
 }
 
 async function selectSession(id) {
-  if (state.running) return;
+  // Leaving a running session only stops mirroring it; the turn continues and
+  // is replayed in full when you come back.
+  if (state.live !== null && state.live.sessionId !== id) detachRun();
   const data = await api(`/api/sessions/${id}`);
   state.session = data.session;
   renderHeader();
   renderMessages();
   renderSessions();
+  if (data.running === true) await attachLive(id);
+  else toggleRunning(false, id);
 }
 
 function newChat() {
-  if (state.running) return;
+  if (state.live !== null) detachRun();
   closeDrawers();
   state.session = null;
   renderHeader();
@@ -276,9 +293,12 @@ function appendThinking(turn) {
 
 function showThinking(stream) {
   if (stream.thinking !== null && stream.thinking.isConnected) return;
+  const stick = atBottom();
   stream.thinking = appendThinking(stream.turn);
-  const container = $('#messages');
-  container.scrollTop = container.scrollHeight;
+  if (stick) {
+    const container = $('#messages');
+    container.scrollTop = container.scrollHeight;
+  }
 }
 
 function hideThinking(stream) {
@@ -363,16 +383,31 @@ function applyToolSkipped(card, reason) {
 
 /* ---------------- chat ---------------- */
 
-function toggleRunning(running) {
-  state.running = running;
-  $('#send').classList.toggle('hidden', running);
-  $('#stop').classList.toggle('hidden', !running);
-  if (running) {
-    $('#model-select').disabled = true;
-  } else {
-    renderModelSelect();
-  }
+/**
+ * One live view per session, keyed by session id.
+ *
+ * The server owns the turn; this object only mirrors it into the DOM. It can be
+ * thrown away and rebuilt from the replay buffer at any time, which is what
+ * makes switching sessions and reloading safe mid-turn.
+ */
+const streams = new Map();
+
+function syncBusy() {
+  state.running = state.session !== null && state.runningIds.has(state.session.id);
+  $('#send').classList.toggle('hidden', state.running);
+  $('#stop').classList.toggle('hidden', !state.running);
+  if (state.running) $('#model-select').disabled = true;
+  else renderModelSelect();
   renderHeader();
+}
+
+function toggleRunning(running, sessionId) {
+  if (sessionId !== undefined) {
+    if (running) state.runningIds.add(sessionId);
+    else state.runningIds.delete(sessionId);
+  }
+  syncBusy();
+  renderSessions();
 }
 
 function readSseEvent(chunk) {
@@ -385,17 +420,6 @@ function readSseEvent(chunk) {
     return JSON.parse(dataLines.join('\n'));
   } catch {
     return null;
-  }
-}
-
-function appendStreamText(container, text) {
-  for (const char of text) {
-    if (char === '\r') continue;
-    if (char === '\n') {
-      container.appendChild(document.createElement('br'));
-      continue;
-    }
-    container.appendChild(el('span', 'stream-char', char));
   }
 }
 
@@ -413,6 +437,7 @@ async function consumeStream(response, onEvent, onError) {
     while ((index = buffer.indexOf('\n\n')) !== -1) {
       const chunk = buffer.slice(0, index);
       buffer = buffer.slice(index + 2);
+      if (chunk.startsWith(':')) continue; // heartbeat
       const event = readSseEvent(chunk);
       if (event === null) continue;
       onEvent(event);
@@ -423,15 +448,75 @@ async function consumeStream(response, onEvent, onError) {
   }
 }
 
-function handleStreamEvent(event, stream) {
+/* ---- streaming render: one paint per frame, not one per token ---- */
+
+function atBottom() {
+  const container = $('#messages');
+  return container.scrollHeight - container.scrollTop - container.clientHeight < 120;
+}
+
+function flushStream(stream) {
+  if (stream.frame !== 0) {
+    cancelAnimationFrame(stream.frame);
+    stream.frame = 0;
+  }
+  if (stream.pending === '') return;
+  const container = $('#messages');
+  const stick = atBottom();
+  if (stream.currentText === null) stream.currentText = appendAssistant(stream.turn);
+  // One span per frame instead of one span per character: a 5k-token answer
+  // used to mean thousands of nodes and thousands of layouts.
+  stream.currentText.appendChild(el('span', 'stream-chunk', stream.pending));
+  stream.pending = '';
+  if (stick) container.scrollTop = container.scrollHeight;
+}
+
+function queueText(stream, text) {
+  stream.pending += text;
+  if (stream.frame === 0) stream.frame = requestAnimationFrame(() => flushStream(stream));
+}
+
+function ensureStream(sessionId, run) {
+  const existing = streams.get(sessionId);
+  if (existing !== undefined) return existing;
+
+  const container = $('#messages');
+  const turn = el('div', 'turn');
+  const prompt = stripEnvelopes(run.prompt ?? '');
+  if (prompt !== '') turn.appendChild(el('div', 'user-message', prompt));
+  container.appendChild(turn);
+
+  const stream = {
+    sessionId,
+    turn,
+    currentText: null,
+    pending: '',
+    frame: 0,
+    cards: new Map(),
+    thinking: null,
+    cancelled: false,
+  };
+  streams.set(sessionId, stream);
+  container.scrollTop = container.scrollHeight;
+  return stream;
+}
+
+function handleRunEvent(sessionId, event) {
+  if (event.type === 'run/state') {
+    ensureStream(sessionId, event.run ?? {});
+    return;
+  }
+
+  const stream = streams.get(sessionId);
+  if (stream === undefined) return;
+
   if (event.type === 'step/start' || event.type === 'reasoning/delta') {
-    // The model is working: show the three dots until real output arrives.
     showThinking(stream);
   } else if (event.type === 'text/delta') {
     hideThinking(stream);
-    if (stream.currentText === null) stream.currentText = appendAssistant(stream.turn);
-    appendStreamText(stream.currentText, event.text);
+    queueText(stream, event.text);
   } else if (event.type === 'tool/call') {
+    flushStream(stream);
     hideThinking(stream);
     dropEmptyAssistant(stream);
     const card = appendToolCard(stream.turn, {
@@ -441,6 +526,7 @@ function handleStreamEvent(event, stream) {
     stream.cards.set(event.callId, card);
     stream.currentText = null;
   } else if (event.type === 'tool/result') {
+    flushStream(stream);
     hideThinking(stream);
     dropEmptyAssistant(stream);
     let card = stream.cards.get(event.callId);
@@ -451,6 +537,7 @@ function handleStreamEvent(event, stream) {
     applyToolResult(card, event);
     stream.currentText = null;
   } else if (event.type === 'tool/skipped') {
+    flushStream(stream);
     hideThinking(stream);
     dropEmptyAssistant(stream);
     let card = stream.cards.get(event.callId);
@@ -462,16 +549,112 @@ function handleStreamEvent(event, stream) {
     stream.currentText = null;
   } else if (event.type === 'turn/end') {
     hideThinking(stream);
+  } else if (event.type === 'run/cancelled') {
+    stream.cancelled = true;
+    hideThinking(stream);
+    flushStream(stream);
+    stream.turn.appendChild(el('div', 'run-note', '已停止'));
+  } else if (event.type === 'session/saved') {
+    flushStream(stream);
   }
-
-  const container = $('#messages');
-  container.scrollTop = container.scrollHeight;
 }
 
-function dropEmptyAssistant(stream) {
-  if (stream.currentText !== null && stream.currentText.textContent === '') {
-    stream.currentText.remove();
-    stream.currentText = null;
+async function consumeRun(response, sessionId) {
+  let error = null;
+  await consumeStream(
+    response,
+    (event) => handleRunEvent(sessionId, event),
+    (message) => {
+      error = message;
+    },
+  );
+  if (error !== null) toast(error, 'error');
+}
+
+/**
+ * Attach the visible session to a running turn.
+ *
+ * `open` issues the request (a POST to start a turn, a GET to rejoin one). The
+ * server streams `run/state` first and then replays every event from the
+ * beginning, so the same handler rebuilds a turn that started long ago.
+ *
+ * Resolves true when the turn finished while attached, false when this client
+ * detached early (the turn keeps running server side).
+ */
+async function attachRun(sessionId, open) {
+  detachRun();
+  const controller = new AbortController();
+  state.live = { sessionId, controller };
+  let completed = false;
+  try {
+    const response = await open(controller.signal);
+    if (!response.ok) {
+      const data = await response.json().catch(() => null);
+      throw new Error(data?.error ?? `请求失败（${response.status}）`);
+    }
+    await consumeRun(response, sessionId);
+    completed = true;
+  } catch (error) {
+    if (error?.name === 'AbortError') return false;
+    throw error;
+  } finally {
+    if (state.live?.controller === controller) state.live = null;
+  }
+  return completed;
+}
+
+/** Stop mirroring a turn without stopping it. Rejoining replays from the start. */
+function detachRun() {
+  const live = state.live;
+  if (live === null) return;
+  state.live = null;
+  live.controller.abort();
+
+  const stream = streams.get(live.sessionId);
+  if (stream !== undefined) {
+    if (stream.frame !== 0) cancelAnimationFrame(stream.frame);
+    streams.delete(live.sessionId);
+  }
+}
+
+/** The turn is over: fold the live view into the saved session. */
+async function finishRun(sessionId) {
+  const stream = streams.get(sessionId);
+  if (stream !== undefined) {
+    flushStream(stream);
+    hideThinking(stream);
+    streams.delete(sessionId);
+  }
+
+  toggleRunning(false, sessionId);
+  await loadSessions().catch(() => {});
+  if (state.session?.id !== sessionId) return;
+
+  try {
+    const fresh = await api(`/api/sessions/${sessionId}`);
+    state.session = fresh.session;
+    renderHeader();
+    renderMessages();
+  } catch {
+    // Keep the live view if the session cannot be reloaded.
+  }
+}
+
+/** Join a turn that is already running (page load, session switch, polling). */
+async function attachLive(sessionId) {
+  if (state.live?.sessionId === sessionId) return;
+  toggleRunning(true, sessionId);
+  try {
+    const completed = await attachRun(sessionId, (signal) =>
+      fetch(`/api/sessions/${sessionId}/stream`, {
+        signal,
+        headers: { accept: 'text/event-stream' },
+      }),
+    );
+    if (completed) await finishRun(sessionId);
+  } catch {
+    // Nothing running any more, or the stream could not be opened.
+    toggleRunning(false, sessionId);
   }
 }
 
@@ -483,7 +666,6 @@ async function sendMessage() {
   input.value = '';
   input.style.height = 'auto';
 
-  let stream = null;
   try {
     if (state.session === null) {
       const name = text.split('\n')[0].slice(0, 32) || '新对话';
@@ -498,72 +680,38 @@ async function sendMessage() {
 
     const session = state.session;
     if (session === null) return;
-    const turn = appendUser(text);
-    stream = {
-      turn,
-      currentText: appendAssistant(turn),
-      cards: new Map(),
-      thinking: null,
-    };
-    showThinking(stream);
 
-    state.controller = new AbortController();
-    toggleRunning(true);
-
-    let streamError = null;
-    const response = await fetch('/api/chat', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      signal: state.controller.signal,
-      body: JSON.stringify({ sessionId: session.id, text }),
-    });
-
-    if (!response.ok) {
-      const data = await response.json().catch(() => null);
-      throw new Error(data?.error ?? `请求失败（${response.status}）`);
-    }
-
-    await consumeStream(
-      response,
-      (event) => handleStreamEvent(event, stream),
-      (message) => {
-        streamError = message;
-      },
+    toggleRunning(true, session.id);
+    const completed = await attachRun(session.id, (signal) =>
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        signal,
+        body: JSON.stringify({ sessionId: session.id, text }),
+      }),
     );
-    if (streamError !== null) toast(streamError, 'error');
+    if (completed) await finishRun(session.id);
   } catch (error) {
-    if (error?.name !== 'AbortError') toast(error?.message ?? String(error), 'error');
-  } finally {
-    hideThinking(stream);
-    state.controller = null;
-    toggleRunning(false);
-
-    if (state.session !== null) {
-      try {
-        const fresh = await api(`/api/sessions/${state.session.id}`);
-        state.session = fresh.session;
-        renderHeader();
-        renderMessages();
-      } catch {
-        // Keep the optimistic view if the session cannot be reloaded.
-      }
-    }
-    await loadSessions().catch(() => {});
+    toast(error?.message ?? String(error), 'error');
+    if (state.session !== null) toggleRunning(false, state.session.id);
   }
 }
 
 async function stopRun() {
-  if (!state.session) return;
+  const session = state.session;
+  if (!session) return;
   try {
+    // The turn ends server side and the stream closes right after, so the
+    // live view still receives the final state instead of being cut off.
     await api('/api/chat/cancel', {
       method: 'POST',
-      body: JSON.stringify({ sessionId: state.session.id }),
+      body: JSON.stringify({ sessionId: session.id }),
     });
   } catch {
     // The turn may have already finished.
   }
-  state.controller?.abort();
 }
+
 
 /* ---------------- topic ---------------- */
 
@@ -1159,13 +1307,20 @@ function wire() {
   wireDialogs();
 
   setInterval(async () => {
-    if (state.running) return;
     try {
       await loadSessions();
       if (state.session === null) return;
-      const summary = state.sessions.find((session) => session.id === state.session.id);
+      const sessionId = state.session.id;
+      // A turn that started elsewhere (scheduled task, another tab) is worth
+      // joining: the replay rebuilds the whole thing, not just the tail.
+      if (state.live === null && state.runningIds.has(sessionId)) {
+        await attachLive(sessionId);
+        return;
+      }
+      if (state.live !== null) return;
+      const summary = state.sessions.find((session) => session.id === sessionId);
       if (summary && summary.messageCount !== state.session.messageCount) {
-        await selectSession(state.session.id);
+        await selectSession(sessionId);
       } else if (summary) {
         state.session.messageCount = summary.messageCount;
         state.session.updatedAt = summary.updatedAt;
