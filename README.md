@@ -1,4 +1,4 @@
-﻿# KolorBot
+# KolorBot
 
 <img src="packages/kolor-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -12,7 +12,7 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 - **`kolor-sessions`** — 会话存储：SQLite，默认 `~/.kolor/sessions.db`；支持会话主题、重置、定时任务、导出/导入上下文。
 - **`kolor-skills`** — 技能发现：读取 `~/.agents/skills` 下 Claude 标准的 `SKILL.md`，生成 `<system-skills>` 列表。
 - **`kolor-frame`** — **KolorFrame** 本地工具库：读写文件、列目录、执行 bash、读取技能详情；由 agent-loop 直接注册，不再是 MCP 进程。
-- **`kolor-web`** — 本地 Web UI + HTTP API：聊天、会话、模型提供商、MCP 列表、技能。
+- **`kolor-web`** — 本地 Web UI + HTTP API：聊天、会话、模型提供商、技能（含 MCP）、记忆（日记）、断线重连的轮次运行。
 
 只要传入 `apiUrl`、`apiModelName`、`apiKey` 就能跑；工具既可以在进程内注册，也可以来自任意 MCP 服务器。KolorFrame 的五个工具由 agent-loop 默认注册成本地工具，所以不配置 MCP 时 AI 也有文件/bash/技能能力。
 
@@ -47,8 +47,12 @@ kolorbot/
 │       ├── src/server.ts        # HTTP、SSE、API、调度器接线
 │       └── public/              # index.html / app.js / styles.css
 ├── restart.cmd                  # 启停脚本入口（scripts/restart.ps1）
+├── pnpm-workspace.yaml          # workspace 定义（packages/）
+├── pnpm-lock.yaml
 ├── tsconfig.base.json
-└── tsconfig.dev.json            # tsx 用的 paths（npm run web 直接跑源码）
+├── tsconfig.dev.json            # tsx 用的 paths（npm run web 直接跑源码）
+├── LICENSE                      # MIT
+└── .gitignore
 ```
 
 ## 快速开始
@@ -574,3 +578,7 @@ pnpm test
 - `kolor-web`（58）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、固定的整理提示词、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
 
 全部测试不需要网络和 API key。
+
+## License
+
+[MIT](LICENSE)
