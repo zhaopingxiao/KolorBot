@@ -42,35 +42,182 @@ function escapeHtml(value) {
 
 function inlineMarkdown(text) {
   let html = escapeHtml(text);
-  html = html.replace(/`([^`]+)`/g, '<code class="inline">$1</code>');
+  // Inline code first so its content is left alone, then links and emphasis.
+  html = html.replace(/`([^`\n]+)`/g, '<code class="inline">$1</code>');
+  html = html.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener">$1</a>',
+  );
   html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+  html = html.replace(/~~([^~]+)~~/g, '<del>$1</del>');
   return html;
 }
 
-function renderMarkdown(text) {
-  const lines = text.split('\n');
-  const out = [];
-  let code = null;
+const MD_FENCE = (line) => /^\s*(```|~~~)/.test(line);
+const MD_HEADING = (line) => /^(#{1,6})\s+(.+)$/.exec(line);
+const MD_HR = (line) => /^\s*([-*_])\s*\1\s*\1[\s\1]*$/.test(line);
+const MD_QUOTE = (line) => /^>\s?/.test(line);
+const MD_LIST_ITEM = (line) => /^(\s*)([-*+]|\d+[.)])\s+(.*)$/.exec(line);
+const MD_TABLE_ROW = (line) => /^\s*\|.*\|\s*$/.test(line);
+const MD_TABLE_SEP = (line) => /^\s*\|?[\s:|-]+\|[\s:|-]*$/.test(line) && line.includes('-');
 
-  for (const line of lines) {
-    if (line.startsWith('```')) {
-      if (code === null) {
-        code = [];
-      } else {
-        out.push(`<pre class="code">${escapeHtml(code.join('\n'))}</pre>`);
-        code = null;
+function renderMarkdown(text) {
+  const lines = String(text ?? '').replace(/\r\n?/g, '\n').split('\n');
+  const out = [];
+  let index = 0;
+
+  const isBlank = (line) => line.trim() === '';
+  const blockStart = (at) => {
+    if (at >= lines.length) return true;
+    const line = lines[at];
+    if (isBlank(line) || MD_FENCE(line) || MD_HEADING(line) !== null || MD_HR(line)) return true;
+    if (MD_QUOTE(line) || MD_LIST_ITEM(line) !== null) return true;
+    return MD_TABLE_ROW(line) && at + 1 < lines.length && MD_TABLE_SEP(lines[at + 1]);
+  };
+
+  while (index < lines.length) {
+    const line = lines[index];
+    if (isBlank(line)) {
+      index += 1;
+      continue;
+    }
+
+    // Fenced code block with an optional language label.
+    if (MD_FENCE(line)) {
+      const lang = (/^```(\S*)/.exec(line.trim())?.[1] ?? '').trim();
+      const buffer = [];
+      index += 1;
+      while (index < lines.length && !MD_FENCE(lines[index])) {
+        buffer.push(lines[index]);
+        index += 1;
+      }
+      index += 1; // closing fence
+      const code = escapeHtml(buffer.join('\n'));
+      if (lang === '') out.push(`<pre class="code">${code}</pre>`);
+      else {
+        out.push(
+          `<div class="code-block"><div class="code-lang">${escapeHtml(lang)}</div><pre class="code">${code}</pre></div>`,
+        );
       }
       continue;
     }
-    if (code !== null) {
-      code.push(line);
+
+    const heading = MD_HEADING(line);
+    if (heading !== null) {
+      const level = heading[1].length;
+      out.push(`<h${level}>${inlineMarkdown(heading[2])}</h${level}>`);
+      index += 1;
       continue;
     }
-    if (line.trim() === '') continue;
-    out.push(`<p>${inlineMarkdown(line)}</p>`);
+
+    if (MD_HR(line)) {
+      out.push('<hr>');
+      index += 1;
+      continue;
+    }
+
+    if (MD_QUOTE(line)) {
+      const buffer = [];
+      while (index < lines.length && MD_QUOTE(lines[index])) {
+        buffer.push(lines[index].replace(/^>\s?/, ''));
+        index += 1;
+      }
+      out.push(`<blockquote>${renderMarkdown(buffer.join('\n'))}</blockquote>`);
+      continue;
+    }
+
+    const listMatch = MD_LIST_ITEM(line);
+    if (listMatch !== null) {
+      const items = [];
+      while (index < lines.length) {
+        const match = MD_LIST_ITEM(lines[index]);
+        if (match === null) break;
+        items.push({
+          indent: match[1].replaceAll('\t', '  ').length,
+          ordered: /^\d/.test(match[2]),
+          text: match[3],
+        });
+        index += 1;
+      }
+      out.push(renderListItems(items));
+      continue;
+    }
+
+    if (MD_TABLE_ROW(line) && index + 1 < lines.length && MD_TABLE_SEP(lines[index + 1])) {
+      const headerCells = splitTableRow(line);
+      index += 2;
+      const rows = [];
+      while (index < lines.length && MD_TABLE_ROW(lines[index])) {
+        rows.push(splitTableRow(lines[index]));
+        index += 1;
+      }
+      const cells = (row, tag) =>
+        row.map((cell) => `<${tag}>${inlineMarkdown(cell.trim())}</${tag}>`).join('');
+      out.push(
+        `<div class="md-table"><table><thead><tr>${cells(headerCells, 'th')}</tr></thead><tbody>${rows
+          .map((row) => `<tr>${cells(row, 'td')}</tr>`)
+          .join('')}</tbody></table></div>`,
+      );
+      continue;
+    }
+
+    // Paragraph: lines until a blank line or the next block element.
+    const buffer = [line];
+    index += 1;
+    while (index < lines.length && !blockStart(index)) {
+      buffer.push(lines[index]);
+      index += 1;
+    }
+    out.push(`<p>${buffer.map(inlineMarkdown).join('<br>')}</p>`);
   }
-  if (code !== null) out.push(`<pre class="code">${escapeHtml(code.join('\n'))}</pre>`);
   return out.join('');
+}
+
+function splitTableRow(line) {
+  let row = line.trim();
+  if (row.startsWith('|')) row = row.slice(1);
+  if (row.endsWith('|')) row = row.slice(0, -1);
+  return row.split('|');
+}
+
+function renderListItems(items) {
+  let cursor = 0;
+  function renderLevel(indent) {
+    const groups = [];
+    let groupType = null;
+    let groupItems = [];
+    const flush = () => {
+      if (groupItems.length === 0) return;
+      const tag = groupType === 'ordered' ? 'ol' : 'ul';
+      groups.push(`<${tag}>${groupItems.join('')}</${tag}>`);
+      groupItems = [];
+    };
+    while (cursor < items.length) {
+      const item = items[cursor];
+      if (item.indent < indent || item.indent > indent) break;
+      const type = item.ordered ? 'ordered' : 'unordered';
+      if (groupType !== type) {
+        flush();
+        groupType = type;
+      }
+      cursor += 1;
+      const task = /^\[([ xX])\]\s+(.*)$/.exec(item.text);
+      let inner = '';
+      if (task !== null) {
+        inner = `<input type="checkbox" disabled ${task[1] !== ' ' ? 'checked' : ''}> ${inlineMarkdown(task[2])}`;
+      } else {
+        inner = inlineMarkdown(item.text);
+      }
+      if (cursor < items.length && items[cursor].indent > indent) {
+        inner += renderLevel(items[cursor].indent);
+      }
+      groupItems.push(`<li>${inner}</li>`);
+    }
+    flush();
+    return groups.join('');
+  }
+  return renderLevel(items[0]?.indent ?? 0);
 }
 
 function stripEnvelopes(content) {
@@ -488,13 +635,27 @@ function flushStream(stream) {
     stream.frame = 0;
   }
   if (stream.pending === '') return;
+  stream.text += stream.pending;
+  stream.lastFragment = stream.pending;
+  stream.pending = '';
   const stick = atBottom();
   if (stream.currentText === null) stream.currentText = appendAssistant(stream.turn);
-  // One span per frame instead of one span per character: a 5k-token answer
-  // used to mean thousands of nodes and thousands of layouts.
-  stream.currentText.appendChild(el('span', 'stream-chunk', stream.pending));
-  stream.pending = '';
+  renderStreamBody(stream);
   if (stick) scrollMessagesToBottom();
+}
+
+/**
+ * Live markdown: everything except the newest fragment is rendered immediately;
+ * the newest fragment stays raw so its fade-in animation keeps running. On the
+ * next frame it becomes part of the rendered prefix.
+ */
+function renderStreamBody(stream) {
+  const body = stream.currentText;
+  if (body === null) return;
+  const fragment = stream.lastFragment;
+  const prefix = stream.text.slice(0, Math.max(0, stream.text.length - fragment.length));
+  body.innerHTML = prefix === '' ? '' : renderMarkdown(prefix);
+  body.appendChild(el('span', 'stream-chunk', fragment));
 }
 
 function queueText(stream, text) {
@@ -532,6 +693,8 @@ function ensureStream(sessionId, run) {
     turn,
     currentText: null,
     pending: '',
+    text: '',
+    lastFragment: '',
     frame: 0,
     cards: new Map(),
     thinking: null,
