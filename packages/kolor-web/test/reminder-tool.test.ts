@@ -37,18 +37,18 @@ test('creates a short reminder for the current session', async (t) => {
   assert.match(tool.description, /40 characters/);
 
   const result = (await tool.execute(
-    { name: '站会', schedule: { type: 'daily', time: '09:30' } },
+    { name: '站会', schedule: { type: 'daily', times: ['09:30', '21:00'] } },
     context(sessionId),
   )) as { content: string; isError?: boolean };
 
   assert.equal(result.isError, undefined);
   assert.match(result.content, /Reminder created: 站会/);
-  assert.match(result.content, /每天 09:30/);
+  assert.match(result.content, /每天 09:30、21:00/);
 
   const tasks = store.listTasks(sessionId);
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0]?.name, '站会');
-  assert.deepEqual(tasks[0]?.schedule, { type: 'daily', time: '09:30' });
+  assert.deepEqual(tasks[0]?.schedule, { type: 'daily', times: ['09:30', '21:00'] });
 });
 
 test('rejects long names and invalid schedules', async (t) => {

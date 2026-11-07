@@ -811,12 +811,60 @@ async function saveTopic(topic) {
 
 /* ---------------- schedule ---------------- */
 
+const SCHEDULE_NODES = {
+  time: { container: '#task-times', type: 'time', value: '09:00' },
+  day: { container: '#task-days', type: 'number', value: '1', min: '1', max: '31' },
+  minute: { container: '#task-minutes', type: 'number', value: '0', min: '0', max: '59' },
+};
+
+function addScheduleNode(kind, value) {
+  const spec = SCHEDULE_NODES[kind];
+  const container = $(spec.container);
+  const row = el('div', 'node-row');
+  const input = document.createElement('input');
+  input.type = spec.type;
+  if (spec.min !== undefined) input.min = spec.min;
+  if (spec.max !== undefined) input.max = spec.max;
+  input.value = value ?? spec.value;
+  row.appendChild(input);
+
+  const remove = el('button', 'node-remove', '×');
+  remove.type = 'button';
+  remove.setAttribute('aria-label', '删除');
+  remove.addEventListener('click', () => {
+    row.remove();
+    syncScheduleNodes(container);
+  });
+  row.appendChild(remove);
+
+  container.appendChild(row);
+  syncScheduleNodes(container);
+  return row;
+}
+
+/** The last remaining row cannot be removed. */
+function syncScheduleNodes(container) {
+  const rows = [...container.querySelectorAll('.node-row')];
+  for (const row of rows) {
+    row.querySelector('.node-remove')?.classList.toggle('hidden', rows.length <= 1);
+  }
+}
+
+function resetScheduleNodes() {
+  for (const kind of ['time', 'day', 'minute']) {
+    const container = $(SCHEDULE_NODES[kind].container);
+    container.innerHTML = '';
+    addScheduleNode(kind);
+  }
+}
+
 function openSchedule() {
   if (!state.session) return;
   closeDrawers();
   $('#task-error').textContent = '';
   $('#task-name').value = '';
   $('#task-type').value = 'daily';
+  resetScheduleNodes();
   updateScheduleFields();
   $('#schedule-dialog').showModal();
   void loadTasks();
@@ -825,9 +873,9 @@ function openSchedule() {
 function updateScheduleFields() {
   const type = $('#task-type').value;
   $('#task-weekly').classList.toggle('hidden', type !== 'weekly');
-  $('#task-monthly').classList.toggle('hidden', type !== 'monthly');
-  $('#task-hourly').classList.toggle('hidden', type !== 'hourly');
-  $('#task-time').classList.toggle('hidden', type === 'hourly');
+  $('#task-days-field').classList.toggle('hidden', type !== 'monthly');
+  $('#task-minutes-field').classList.toggle('hidden', type !== 'hourly');
+  $('#task-times-field').classList.toggle('hidden', type === 'hourly');
 }
 
 async function loadTasks() {
@@ -855,27 +903,49 @@ async function loadTasks() {
   }
 }
 
+function readScheduleValues(kind) {
+  const container = $(SCHEDULE_NODES[kind].container);
+  return [...container.querySelectorAll('input')].map((input) => input.value);
+}
+
+function readTimes() {
+  const values = readScheduleValues('time').filter((value) => value !== '');
+  if (values.length === 0) throw new Error('至少填写一个时间');
+  for (const value of values) {
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) throw new Error('时间格式需为 HH:mm');
+  }
+  return [...new Set(values)];
+}
+
+function readNumbers(kind, label, min, max) {
+  const values = readScheduleValues(kind).filter((value) => value !== '');
+  if (values.length === 0) throw new Error(`至少填写一个${label}`);
+  const numbers = [];
+  for (const value of values) {
+    const number = Number(value);
+    if (!Number.isInteger(number) || number < min || number > max) {
+      throw new Error(`${label}需在 ${min}-${max} 之间`);
+    }
+    numbers.push(number);
+  }
+  return [...new Set(numbers)].sort((a, b) => a - b);
+}
+
 function buildSchedule() {
   const type = $('#task-type').value;
-  const time = $('#task-time').value || '09:00';
-  if (type === 'daily') return { type, time };
+  if (type === 'hourly') {
+    return { type, minutes: readNumbers('minute', '分钟', 0, 59) };
+  }
+  const times = readTimes();
+  if (type === 'daily') return { type, times };
   if (type === 'weekly') {
     const weekdays = [...document.querySelectorAll('#task-weekly input:checked')].map((input) =>
       Number(input.value),
     );
     if (weekdays.length === 0) throw new Error('至少选择一天');
-    return { type, weekdays, time };
+    return { type, weekdays, times };
   }
-  if (type === 'monthly') {
-    const day = Number($('#task-day').value);
-    if (!Number.isInteger(day) || day < 1 || day > 31) throw new Error('日期需在 1-31 之间');
-    return { type, day, time };
-  }
-  const minute = Number($('#task-minute').value);
-  if (!Number.isInteger(minute) || minute < 0 || minute > 59) {
-    throw new Error('分钟需在 0-59 之间');
-  }
-  return { type, minute };
+  return { type: 'monthly', days: readNumbers('day', '日期', 1, 31), times };
 }
 
 async function addTask() {
@@ -1340,6 +1410,9 @@ function wire() {
   $('#schedule-chat').addEventListener('click', openSchedule);
   $('#task-type').addEventListener('change', updateScheduleFields);
   $('#task-add').addEventListener('click', () => void addTask());
+  $('#task-add-time').addEventListener('click', () => addScheduleNode('time'));
+  $('#task-add-day').addEventListener('click', () => addScheduleNode('day'));
+  $('#task-add-minute').addEventListener('click', () => addScheduleNode('minute'));
 
   $('#reset-chat').addEventListener('click', async () => {
     if (!state.session) return;

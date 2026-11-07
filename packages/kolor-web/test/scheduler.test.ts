@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SessionTask } from 'kolor-sessions';
 import { TaskScheduler, firedThisMinute, formatTaskMessage } from '../src/scheduler.js';
@@ -11,7 +11,7 @@ function makeTask(overrides: Partial<SessionTask> = {}): SessionTask {
     id: 't_1',
     sessionId: 's_1',
     name: '写周报',
-    schedule: { type: 'daily', time: '20:16' },
+    schedule: { type: 'daily', times: ['20:16'] },
     createdAt: '2026-10-27T12:00:00.000Z',
     lastFiredAt: null,
     ...overrides,
@@ -37,7 +37,7 @@ test('fires matching tasks once per minute', async () => {
   const now = at(2026, 10, 27, 20, 16, 5);
   const tasks = [
     makeTask({ id: 't_due' }),
-    makeTask({ id: 't_other', schedule: { type: 'daily', time: '19:00' } }),
+    makeTask({ id: 't_other', schedule: { type: 'daily', times: ['19:00'] } }),
   ];
   const fired: string[] = [];
   const scheduler = new TaskScheduler({

@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -302,7 +302,7 @@ test('lets the model schedule a reminder for itself', async (t) => {
   const tasks = ((await tasksResponse.json()) as { tasks: Array<Record<string, unknown>> }).tasks;
   assert.equal(tasks.length, 1);
   assert.equal(tasks[0]?.name, '站会');
-  assert.deepEqual(tasks[0]?.schedule, { type: 'daily', time: '09:30' });
+  assert.deepEqual(tasks[0]?.schedule, { type: 'daily', times: ['09:30'] });
 });
 
 test('injects <system-skills> at start, after reset, and when the list changes', async (t) => {

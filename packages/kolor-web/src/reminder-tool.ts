@@ -50,22 +50,26 @@ export function createReminderTool(
               type: 'string',
               enum: ['daily', 'weekly', 'monthly', 'hourly'],
             },
-            time: {
-              type: 'string',
-              description: 'HH:mm for daily/weekly/monthly; omit for hourly.',
+            times: {
+              type: 'array',
+              items: { type: 'string' },
+              description:
+                'One or more HH:mm times for daily/weekly/monthly (e.g. ["09:00","21:00"]); omit for hourly.',
             },
             weekdays: {
               type: 'array',
               items: { type: 'integer' },
               description: 'ISO weekdays for weekly: 1=Monday … 7=Sunday.',
             },
-            day: {
-              type: 'integer',
-              description: 'Day of month (1-31) for monthly.',
+            days: {
+              type: 'array',
+              items: { type: 'integer' },
+              description: 'Days of month (1-31) for monthly; one or more.',
             },
-            minute: {
-              type: 'integer',
-              description: 'Minute of the hour (0-59) for hourly.',
+            minutes: {
+              type: 'array',
+              items: { type: 'integer' },
+              description: 'Minutes of the hour (0-59) for hourly; one or more (e.g. [0,30]).',
             },
           },
           required: ['type'],

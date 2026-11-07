@@ -25,7 +25,7 @@ test('creates, lists and deletes scheduled tasks', (t) => {
   });
   assert.match(daily.id, /^t_[0-9a-f]{16}$/);
   assert.equal(daily.sessionId, session.id);
-  assert.deepEqual(daily.schedule, { type: 'daily', time: '09:30' });
+  assert.deepEqual(daily.schedule, { type: 'daily', times: ['09:30'] });
   assert.equal(daily.lastFiredAt, null);
 
   store.createTask(session.id, {

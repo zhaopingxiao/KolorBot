@@ -291,7 +291,7 @@ test('stores and deletes scheduled tasks', async (t) => {
     method: 'POST',
     body: JSON.stringify({
       name: '写周报',
-      schedule: { type: 'weekly', weekdays: [5], time: '18:00' },
+      schedule: { type: 'weekly', weekdays: [5], times: ['09:00', '18:00'] },
     }),
   });
   assert.equal(added.status, 201);
@@ -301,15 +301,28 @@ test('stores and deletes scheduled tasks', async (t) => {
     nextRunAt: string;
     schedule: unknown;
   };
-  assert.equal(task.description, '每周五 18:00');
+  assert.equal(task.description, '每周五 09:00、18:00');
   assert.ok(new Date(task.nextRunAt).getTime() > Date.now());
 
+  const monthly = await call(app, `/api/sessions/${id}/tasks`, {
+    method: 'POST',
+    body: JSON.stringify({
+      name: '月报',
+      schedule: { type: 'monthly', days: [15, 30], times: ['09:00', '21:00'] },
+    }),
+  });
+  assert.equal(monthly.status, 201);
+  assert.equal(
+    (monthly.data?.task as { description: string }).description,
+    '每月 15、30 日 09:00、21:00',
+  );
+
   const listed = await call(app, `/api/sessions/${id}/tasks`);
-  assert.equal((listed.data?.tasks as unknown[]).length, 1);
+  assert.equal((listed.data?.tasks as unknown[]).length, 2);
 
   const removed = await call(app, `/api/sessions/${id}/tasks/${task.id}`, { method: 'DELETE' });
   assert.equal((removed.data as { deleted: boolean }).deleted, true);
-  assert.equal(((await call(app, `/api/sessions/${id}/tasks`)).data?.tasks as unknown[]).length, 0);
+  assert.equal(((await call(app, `/api/sessions/${id}/tasks`)).data?.tasks as unknown[]).length, 1);
 
   const invalid = await call(app, `/api/sessions/${id}/tasks`, {
     method: 'POST',

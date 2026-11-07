@@ -7,26 +7,28 @@ export interface WeeklySchedule {
   type: 'weekly';
   /** ISO weekdays, at least one. */
   weekdays: Weekday[];
-  /** Local time, `HH:mm`. */
-  time: string;
+  /** Local times, `HH:mm`, at least one. */
+  times: string[];
 }
 
 export interface MonthlySchedule {
   type: 'monthly';
-  /** Day of month, 1-31. Months without that day are skipped. */
-  day: number;
-  time: string;
+  /** Days of month, 1-31. Months without a day are skipped for that day. */
+  days: number[];
+  /** Local times, `HH:mm`, at least one. */
+  times: string[];
 }
 
 export interface DailySchedule {
   type: 'daily';
-  time: string;
+  /** Local times, `HH:mm`, at least one. */
+  times: string[];
 }
 
 export interface HourlySchedule {
   type: 'hourly';
-  /** Minute of every hour, 0-59. */
-  minute: number;
+  /** Minutes of every hour, 0-59, at least one. */
+  minutes: number[];
 }
 
 export type TaskSchedule = WeeklySchedule | MonthlySchedule | DailySchedule | HourlySchedule;
@@ -43,12 +45,18 @@ const ENGLISH_WEEKDAYS = [
   'Saturday',
 ];
 
-/** Validate and normalise a schedule coming from JSON or the web form. */
+/**
+ * Validate and normalise a schedule coming from JSON or the web form.
+ *
+ * The plural fields (`times` / `days` / `minutes`) are canonical. The old
+ * singular fields (`time` / `day` / `minute`) are still accepted so rows
+ * created before multiple nodes existed keep working.
+ */
 export function validateTaskSchedule(value: unknown): TaskSchedule {
   if (!isRecord(value)) throw new KolorStateError('task schedule must be an object');
   switch (value.type) {
     case 'daily': {
-      return { type: 'daily', time: requireTime(value.time) };
+      return { type: 'daily', times: requireTimes(value.times, value.time) };
     }
     case 'weekly': {
       if (!Array.isArray(value.weekdays) || value.weekdays.length === 0) {
@@ -66,22 +74,18 @@ export function validateTaskSchedule(value: unknown): TaskSchedule {
       return {
         type: 'weekly',
         weekdays: weekdays as Weekday[],
-        time: requireTime(value.time),
+        times: requireTimes(value.times, value.time),
       };
     }
     case 'monthly': {
-      const day = value.day;
-      if (typeof day !== 'number' || !Number.isInteger(day) || day < 1 || day > 31) {
-        throw new KolorStateError('monthly schedule day must be an integer from 1 to 31');
-      }
-      return { type: 'monthly', day, time: requireTime(value.time) };
+      return {
+        type: 'monthly',
+        days: requireDays(value.days, value.day),
+        times: requireTimes(value.times, value.time),
+      };
     }
     case 'hourly': {
-      const minute = value.minute;
-      if (typeof minute !== 'number' || !Number.isInteger(minute) || minute < 0 || minute > 59) {
-        throw new KolorStateError('hourly schedule minute must be an integer from 0 to 59');
-      }
-      return { type: 'hourly', minute };
+      return { type: 'hourly', minutes: requireMinutes(value.minutes, value.minute) };
     }
     default:
       throw new KolorStateError(
@@ -90,31 +94,21 @@ export function validateTaskSchedule(value: unknown): TaskSchedule {
   }
 }
 
-/** True when the local `date` falls in the minute the schedule describes. */
+/** True when the local `date` falls in any minute the schedule describes. */
 export function matchesSchedule(schedule: TaskSchedule, date: Date): boolean {
   switch (schedule.type) {
-    case 'daily': {
-      const { hour, minute } = parseTime(schedule.time);
-      return date.getHours() === hour && date.getMinutes() === minute;
-    }
-    case 'weekly': {
-      const { hour, minute } = parseTime(schedule.time);
-      return (
-        schedule.weekdays.includes(isoWeekday(date)) &&
-        date.getHours() === hour &&
-        date.getMinutes() === minute
-      );
-    }
-    case 'monthly': {
-      const { hour, minute } = parseTime(schedule.time);
-      return (
-        date.getDate() === schedule.day &&
-        date.getHours() === hour &&
-        date.getMinutes() === minute
-      );
-    }
+    case 'daily':
+      return schedule.times.some((time) => matchesTime(time, date));
+    case 'weekly':
+      return schedule.weekdays.includes(isoWeekday(date))
+        ? schedule.times.some((time) => matchesTime(time, date))
+        : false;
+    case 'monthly':
+      return schedule.days.includes(date.getDate())
+        ? schedule.times.some((time) => matchesTime(time, date))
+        : false;
     case 'hourly':
-      return date.getMinutes() === schedule.minute;
+      return schedule.minutes.includes(date.getMinutes());
   }
 }
 
@@ -135,40 +129,51 @@ export function nextRun(schedule: TaskSchedule, from: Date = new Date()): Date {
   const startMinute = anchor;
 
   if (schedule.type === 'hourly') {
-    const candidate = new Date(startMinute);
-    candidate.setMinutes(schedule.minute, 0, 0);
-    if (candidate.getTime() < startMinute.getTime()) candidate.setHours(candidate.getHours() + 1);
-    return candidate;
+    let best: Date | undefined;
+    for (const minute of schedule.minutes) {
+      const candidate = new Date(startMinute);
+      candidate.setMinutes(minute, 0, 0);
+      if (candidate.getTime() < startMinute.getTime()) candidate.setHours(candidate.getHours() + 1);
+      best = earlier(best, candidate);
+    }
+    return best ?? new Date(startMinute.getTime() + 86_400_000);
   }
 
-  const { hour, minute } = parseTime(schedule.time);
-
   if (schedule.type === 'daily') {
-    const candidate = new Date(
-      startMinute.getFullYear(),
-      startMinute.getMonth(),
-      startMinute.getDate(),
-      hour,
-      minute,
-    );
-    if (candidate.getTime() < startMinute.getTime()) candidate.setDate(candidate.getDate() + 1);
-    return candidate;
+    let best: Date | undefined;
+    for (const time of schedule.times) {
+      const { hour, minute } = parseTime(time);
+      const candidate = new Date(
+        startMinute.getFullYear(),
+        startMinute.getMonth(),
+        startMinute.getDate(),
+        hour,
+        minute,
+      );
+      if (candidate.getTime() < startMinute.getTime()) candidate.setDate(candidate.getDate() + 1);
+      best = earlier(best, candidate);
+    }
+    return best ?? new Date(startMinute.getTime() + 86_400_000);
   }
 
   if (schedule.type === 'weekly') {
+    let best: Date | undefined;
     for (let offset = 0; offset <= 7; offset++) {
       const day = new Date(
         startMinute.getFullYear(),
         startMinute.getMonth(),
         startMinute.getDate() + offset,
-        hour,
-        minute,
       );
-      if (day.getTime() < startMinute.getTime()) continue;
-      if (schedule.weekdays.includes(isoWeekday(day))) return day;
+      if (!schedule.weekdays.includes(isoWeekday(day))) continue;
+      for (const time of schedule.times) {
+        const { hour, minute } = parseTime(time);
+        const candidate = new Date(day.getFullYear(), day.getMonth(), day.getDate(), hour, minute);
+        if (candidate.getTime() < startMinute.getTime()) continue;
+        best = earlier(best, candidate);
+      }
     }
     // Unreachable: after 7 days every weekday matches.
-    return new Date(startMinute.getTime() + 7 * 86_400_000);
+    return best ?? new Date(startMinute.getTime() + 7 * 86_400_000);
   }
 
   // monthly: search up to 13 months ahead.
@@ -179,15 +184,17 @@ export function nextRun(schedule: TaskSchedule, from: Date = new Date()): Date {
       monthStart.getMonth() + 1,
       0,
     ).getDate();
-    if (schedule.day > daysInMonth) continue;
-    const candidate = new Date(
-      monthStart.getFullYear(),
-      monthStart.getMonth(),
-      schedule.day,
-      hour,
-      minute,
-    );
-    if (candidate.getTime() >= startMinute.getTime()) return candidate;
+    let best: Date | undefined;
+    for (const day of schedule.days) {
+      if (day > daysInMonth) continue;
+      for (const time of schedule.times) {
+        const { hour, minute } = parseTime(time);
+        const candidate = new Date(monthStart.getFullYear(), monthStart.getMonth(), day, hour, minute);
+        if (candidate.getTime() < startMinute.getTime()) continue;
+        best = earlier(best, candidate);
+      }
+    }
+    if (best !== undefined) return best;
   }
   return new Date(startMinute.getTime() + 400 * 86_400_000);
 }
@@ -196,13 +203,13 @@ export function nextRun(schedule: TaskSchedule, from: Date = new Date()): Date {
 export function describeSchedule(schedule: TaskSchedule): string {
   switch (schedule.type) {
     case 'daily':
-      return `每天 ${schedule.time}`;
+      return `每天 ${schedule.times.join('、')}`;
     case 'weekly':
-      return `每${schedule.weekdays.map((day) => WEEKDAY_LABELS[day - 1]).join('、')} ${schedule.time}`;
+      return `每${schedule.weekdays.map((day) => WEEKDAY_LABELS[day - 1]).join('、')} ${schedule.times.join('、')}`;
     case 'monthly':
-      return `每月 ${schedule.day} 日 ${schedule.time}`;
+      return `每月 ${schedule.days.join('、')} 日 ${schedule.times.join('、')}`;
     case 'hourly':
-      return `每小时第 ${schedule.minute} 分`;
+      return `每小时第 ${schedule.minutes.join('、')} 分`;
   }
 }
 
@@ -226,10 +233,68 @@ export function parseTime(time: string): { hour: number; minute: number } {
   return { hour: Number(match[1]), minute: Number(match[2]) };
 }
 
-function requireTime(value: unknown): string {
-  if (typeof value !== 'string') throw new KolorStateError('schedule time must be a string');
-  parseTime(value);
-  return value;
+function matchesTime(time: string, date: Date): boolean {
+  const { hour, minute } = parseTime(time);
+  return date.getHours() === hour && date.getMinutes() === minute;
+}
+
+function earlier(best: Date | undefined, candidate: Date): Date {
+  if (best === undefined) return candidate;
+  return candidate.getTime() < best.getTime() ? candidate : best;
+}
+
+/** Accepts `times: ["09:00", …]` and the legacy `time: "09:00"`. */
+function requireTimes(value: unknown, legacy: unknown): string[] {
+  const source = value !== undefined ? value : legacy;
+  if (source === undefined) throw new KolorStateError('schedule needs at least one time');
+  const list = Array.isArray(source) ? source : [source];
+  if (list.length === 0) throw new KolorStateError('schedule needs at least one time');
+  const seen = new Set<string>();
+  for (const item of list) {
+    if (typeof item !== 'string') {
+      throw new KolorStateError('schedule times must be HH:mm strings');
+    }
+    parseTime(item);
+    seen.add(item);
+  }
+  return [...seen].sort((a, b) => timeValue(a) - timeValue(b));
+}
+
+/** Accepts `days: [15, 30]` and the legacy `day: 15`. */
+function requireDays(value: unknown, legacy: unknown): number[] {
+  const source = value !== undefined ? value : legacy;
+  if (source === undefined) throw new KolorStateError('monthly schedule needs at least one day');
+  const list = Array.isArray(source) ? source : [source];
+  if (list.length === 0) throw new KolorStateError('monthly schedule needs at least one day');
+  const seen = new Set<number>();
+  for (const item of list) {
+    if (typeof item !== 'number' || !Number.isInteger(item) || item < 1 || item > 31) {
+      throw new KolorStateError('monthly schedule day must be an integer from 1 to 31');
+    }
+    seen.add(item);
+  }
+  return [...seen].sort((a, b) => a - b);
+}
+
+/** Accepts `minutes: [0, 30]` and the legacy `minute: 30`. */
+function requireMinutes(value: unknown, legacy: unknown): number[] {
+  const source = value !== undefined ? value : legacy;
+  if (source === undefined) throw new KolorStateError('hourly schedule needs at least one minute');
+  const list = Array.isArray(source) ? source : [source];
+  if (list.length === 0) throw new KolorStateError('hourly schedule needs at least one minute');
+  const seen = new Set<number>();
+  for (const item of list) {
+    if (typeof item !== 'number' || !Number.isInteger(item) || item < 0 || item > 59) {
+      throw new KolorStateError('hourly schedule minute must be an integer from 0 to 59');
+    }
+    seen.add(item);
+  }
+  return [...seen].sort((a, b) => a - b);
+}
+
+function timeValue(time: string): number {
+  const { hour, minute } = parseTime(time);
+  return hour * 60 + minute;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

@@ -769,11 +769,68 @@ button:focus-visible {
   margin-top: 12px;
 }
 
-.form-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 8px;
-  margin-top: 8px;
+.node-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.node-label {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.node-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.node-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.node-row input {
+  flex: 1;
+  min-width: 0;
+}
+
+.node-add {
+  align-self: flex-start;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--muted);
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.node-add:hover {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.node-remove {
+  flex: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--faint);
+  font-size: 15px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.node-remove:hover {
+  background: var(--bg-2);
+  color: var(--danger);
 }
 
 .form-block {
