@@ -155,6 +155,7 @@ mcp__kolor-frame__read_file
 
 - 白色极简风，纯白背景 + 浅灰层级（`--bg: #ffffff`，侧栏/输入盒 `#fafafa`），无 1px 描边，`tabular-nums` 数字锁宽，toast 自动消失。
 - 流式输出逐字 blur 晕入。
+- **Markdown 实时渲染（2026-11-07）**：`renderMarkdown` 支持标题 `#`-`######`、`> ` 引用、有序/无序列表（含嵌套和 `- [ ]` 任务项）、Github 风格表格（`| a | b |` + 分隔行）、` ```lang ` 围栏代码块（带语言标签）、`---` 分隔线、`**加粗**`、`*斜体*`、`~~删除线~~`、`` `行内代码` ``、`[链接](url)`；HTML 全部转义后再套样式，代码内容不解析内联。流式时 `flushStream` 每一帧把已接收文本（去掉最新一段）重新 `innerHTML = renderMarkdown(prefix)`，**只有最新一段保持原始文本 + `.stream-chunk` 淡入动画**，下一帧它并入已渲染部分——所以是边出边渲染，而不是等整条回复结束。样式在 `styles.css` 的 "rendered markdown" 区块。
 - **思考指示**：发送后到第一个字（或工具卡片）出现前显示三个跳动的点；`step/start` / `reasoning/delta` 时显示，`text/delta`、`tool/call`、`tool/result`、`turn/end`、请求结束（含停止）时消失。实现是 `app.js` 的 `.thinking` + `.thinking-dot`，`prefers-reduced-motion` 时关闭动画。
 - 工具调用卡片显示：工具名、状态（运行中/完成/失败/跳过）、耗时、参数、结果，可折叠。
 - **断线重连**：turn 在服务端的 `RunBroker` 里跑，SSE 只是镜像；关标签/刷新/切会话只断开监听，回来从缓冲回放整轮。会话列表有 `running` 时显示跳动的点；轮询发现当前会话在跑会自动 `attachLive`。停止按钮走 `/api/chat/cancel`，服务端发 `run/cancelled` 再正常结束。
