@@ -1,8 +1,9 @@
 # KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
-> 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（141 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」和「断线重连的运行中 turn」，不再写死 DeepSeek，也没有内置默认模型。
+> 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
+> 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（141 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
 
 ## 1. 这个项目是什么
 
@@ -33,10 +34,14 @@ D:\code\kolorbot\
 │   ├── kolor-frame/          # 本地工具实现（文件 / bash / skills）
 │   └── kolor-web/            # Web 服务、SSE、调度器、提醒工具、提供商、前端
 ├── scripts/restart.ps1       # 启停脚本（restart.cmd 调用）
+├── restart.cmd               # 启停脚本入口
 ├── examples/skills/deepseek-search/  # 带 MCP 的搜索/抓取技能源码
 ├── docs/                     # UI 截图
 ├── README.md
-└── HANDOFF.md
+├── HANDOFF.md
+├── pnpm-workspace.yaml / pnpm-lock.yaml
+├── tsconfig.base.json / tsconfig.dev.json
+└── LICENSE                   # MIT
 ```
 
 注意：项目显示名已改成 **KolorBot**，但底层标识保留：
@@ -230,7 +235,7 @@ mcp__kolor-frame__read_file
 - **headless**：定时任务和日记也走 broker（`runHeadlessTurn`），所以打开会话能看到它们的实时进度；只有用户消息和定时任务会重置日记静默期，日记自己不会。
 - **前端**：`app.js` 的 `streams: Map` + `state.live`；`attachRun / detachRun / finishRun / attachLive`，`ensureStream` 用 `run.prompt`（剥壳后）重建用户气泡。流式文本按 `requestAnimationFrame` 批量插入 `.stream-chunk`。
 - **客户端容错（2026-11-07）**：`consumeRun` 把 `handleRunEvent` 包在 try/catch 里，单个事件渲染失败只 toast 一次并继续消费；轮次结束仍由 `finishRun` 从会话兜底重建。同一天修过一个 `dropEmptyAssistant is not defined`：重构 `handleStreamEvent` 时函数被删但 `handleRunEvent` 的三处调用还在，结果一出现工具调用就抛 ReferenceError——实时卡片中断、页面只弹一个报错，等轮次结束重新拉会话才看到消息。
-- **测试**：`test/runs.test.ts` 7 个（断开后继续、晚加入回放、409、取消、完成态 TTL、定时任务可见、reset 不被写回）。客户端 JS 没有自动化测试，改 `public/app.js` 后至少手测：文本流、工具卡片、刷新重连、取消。
+- **测试**：`test/runs.test.ts` 7 个（断开后继续、晚加入回放、409、取消、完成态 TTL、定时任务可见、reset 不被写回）。客户端 JS 没有自动化测试，改 `public/app.js` 后至少手测：文本流、工具卡片、Markdown 渲染（标题/表格/代码块）、刷新重连、取消。
 
 ## 4. 关键约束 / 容易踩的坑
 
@@ -371,7 +376,7 @@ UI 已不提供 export/import/rename 入口，但 API 仍然存在。
 
 ## 8. 测试与当前状态
 
-最近一次（RunBroker + 跟随滚动之后）结果：
+最近一次（多时间节点定时任务 + 实时 Markdown 之后）结果：
 
 ```text
 pnpm build  ✅
@@ -424,7 +429,9 @@ pnpm test
 只有显式设置 KOLOR_API_URL + KOLOR_API_MODEL + key 才会出现「环境变量」回退项；
 「记忆」页的日记开关可让对话静默 10 分钟后自动追加日记，发 /update-daily-memory 可立即整理；
 日记提示词是固定的英文文案，当天第一次整理会先写 ## Previous Topic 概括上一篇（记忆衔接）；
-一轮对话在服务端 RunBroker 里跑，断开页面会回放；只有离底部一行以内才自动跟随滚动。
+一轮对话在服务端 RunBroker 里跑，断开页面会回放；只有离底部一行以内才自动跟随滚动；
+定时任务每种规则都支持 + 添加多个时间节点（时刻 / 日期 / 分钟），AI 回复边出边渲染 Markdown；
+代码已推送到 GitHub：https://github.com/zhaopingxiao/KolorBot.git。
 ```
 
 如果新对话的默认工作目录不是项目目录，优先用绝对路径；这个项目的 pnpm workspace 必须在 `D:\code\kolorbot` 根目录执行命令。
@@ -436,7 +443,7 @@ pnpm test
 | `packages/kolor-agent-loop/src/agent.ts` | `KolorAgent` 主循环、本地工具注册、MCP 连接 |
 | `packages/kolor-agent-loop/src/config.ts` | 模型配置、系统提示词（KolorBot） |
 | `packages/kolor-sessions/src/store.ts` | 会话/主题/任务 SQLite |
-| `packages/kolor-sessions/src/schedule.ts` | 调度规则、`nextRunAt`、`describeSchedule` |
+| `packages/kolor-sessions/src/schedule.ts` | 调度规则（多时间节点 `times`/`days`/`minutes`）、`nextRunAt`、`describeSchedule` |
 | `packages/kolor-skills/src/skills.ts` | 技能发现、签名、`<system-skills>` |
 | `packages/kolor-skills/src/mcp.ts` | `kolor.json` MCP 解析、`${VAR}` 展开 |
 | `packages/kolor-frame/src/tools.ts` | 文件/bash/skills 工具实现 |
@@ -453,7 +460,7 @@ pnpm test
 | `restart.cmd` + `scripts/restart.ps1` | 启停脚本：stop / start / status / restart，日志 `logs/kolor-web.log` |
 | `packages/kolor-web/public/index.html` | UI 结构（模型 / 记忆对话框、输入框上方模型下拉框） |
 | `packages/kolor-web/public/styles.css` | 白色主题 + 思考三点 + 移动端抽屉 + 提供商 / 记忆样式 |
-| `packages/kolor-web/public/app.js` | UI 状态、turn 镜像/重连、跟随滚动、思考指示、工具卡片、抽屉、提供商页、记忆页 |
+| `packages/kolor-web/public/app.js` | UI 状态、turn 镜像/重连、跟随滚动、Markdown 渲染、思考指示、工具卡片、抽屉、提供商页、记忆页 |
 | `tsconfig.dev.json` | tsx 的 paths（`npm run web` 直接跑源码不 build） |
 | `examples/skills/deepseek-search/` | DeepSeek 搜索/抓取技能 |
 | `docs/` | 当前 UI 截图 |
