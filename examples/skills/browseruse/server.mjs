@@ -61,7 +61,7 @@ const viewServer = createServer(async (request, response) => {
   header .grow { flex: 1; }
   header input { flex: 0 0 260px; padding: 5px 9px; border: 0; border-radius: 7px; background: #222; color: #eee; font-size: 13px; }
   #stage { position: relative; display: flex; justify-content: center; align-items: flex-start; height: calc(100vh - 40px); }
-  #frame { max-width: 100%; max-height: 100%; cursor: crosshair; }
+  #frame { max-width: 100%; max-height: 100%; cursor: crosshair; touch-action: none; }
   #hint { position: fixed; left: 14px; bottom: 10px; font-size: 11px; color: #888; }
 </style></head>
 <body>
@@ -88,6 +88,22 @@ frame.addEventListener('click', (event) => send({ type: 'click', ...rel(event), 
 frame.addEventListener('dblclick', (event) => send({ type: 'dblclick', ...rel(event) }));
 frame.addEventListener('contextmenu', (event) => { event.preventDefault(); send({ type: 'click', ...rel(event), button: 2 }); });
 frame.addEventListener('wheel', (event) => { event.preventDefault(); send({ type: 'wheel', deltaX: event.deltaX, deltaY: event.deltaY }); });
+// Touch scrolling: a single-finger vertical swipe scrolls the real page.
+let touchY = null;
+frame.addEventListener('touchstart', (event) => {
+  if (event.touches.length === 1) touchY = event.touches[0].clientY;
+}, { passive: true });
+frame.addEventListener('touchmove', (event) => {
+  if (touchY === null || event.touches.length !== 1) return;
+  event.preventDefault();
+  const y = event.touches[0].clientY;
+  const deltaY = touchY - y;
+  if (Math.abs(deltaY) >= 14) {
+    send({ type: 'wheel', deltaX: 0, deltaY });
+    touchY = y;
+  }
+}, { passive: false });
+frame.addEventListener('touchend', () => { touchY = null; }, { passive: true });
 let moveTimer = 0;
 frame.addEventListener('mousemove', (event) => {
   clearTimeout(moveTimer);
@@ -284,6 +300,10 @@ async function applyInput(payload) {
       await current.mouse.dblclick(x(payload.x), y(payload.y));
       break;
     case 'wheel':
+      // Point the mouse at the middle of the viewport first: Playwright's
+      // wheel targets whatever is under the cursor, and a stale position can
+      // sit over a non-scrollable area.
+      await current.mouse.move(size.width / 2, size.height / 2);
       await current.mouse.wheel(clamp(payload.deltaX, -600, 600), clamp(payload.deltaY, -600, 600));
       break;
     case 'key':
@@ -377,7 +397,7 @@ const SNAPSHOT_SCRIPT = `
   });
 })()`;
 
-async function snapshotPage() {
+async function snapshotPage({ instructions = true } = {}) {
   const current = await requirePage();
   const payload = await current.evaluate(SNAPSHOT_SCRIPT);
   await captureFrame();
@@ -405,18 +425,31 @@ async function snapshotPage() {
   }
 
   const shot = saveFrame();
+  if (instructions) {
+    lines.push(
+      '',
+      'Use browser_click(i) / browser_type(i, text) with these indexes. Re-snapshot after the page changes.',
+    );
+  }
   lines.push(
-    '',
-    'Use browser_click(i) / browser_type(i, text) with these indexes. Re-snapshot after the page changes.',
-    `Live view: ${viewAddress()}`,
     '',
     '## Screenshot',
     `![page screenshot](${shot.url})`,
     `Screenshot file: ${shot.file}`,
-    'Include the markdown image line above verbatim in your reply so the user can see the page.',
+    'Include the markdown image line above verbatim in your reply so the user can see the page (do this every time you receive a screenshot).',
     'Only look at the image itself (or ask for another snapshot) when the text snapshot is not enough to understand the page.',
   );
   return clip(lines.join('\n'), 24_000);
+}
+
+/**
+ * Every action automatically ends with a fresh snapshot (page text + a new
+ * screenshot), so the model never has to call browser_snapshot just to see
+ * what its last action did.
+ */
+async function appendAutoSnapshot(text) {
+  const snapshot = await snapshotPage({ instructions: false });
+  return `${text}\n\n---\n## Auto snapshot after this action\n${snapshot}`;
 }
 
 /* ------------------------------------------------------------------ tools */
@@ -425,8 +458,9 @@ const TOOLS = [
   {
     name: 'browser_open',
     description:
-      'Open a URL in the real browser (http/https, or a data: URL). Returns the page title and URL. ' +
-      'The browser window is headless; a live picture is streamed at the local view URL.',
+      'Open a URL in the real browser (http/https, or a data: URL). Returns the page title, URL and the live view URL — ' +
+      'mention the live view URL to the user once after opening a page, and repeat it only when the user asks for it. ' +
+      'The result ends with an automatic snapshot (page text + a markdown screenshot line); include that image line in your reply.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -442,13 +476,15 @@ const TOOLS = [
       'Readable snapshot of the current page: title, URL, visible text, every interactive element with an index, ' +
       'plus a freshly captured screenshot saved in the skill directory. The result contains a markdown image line ' +
       '(![page screenshot](http://...)) and the screenshot file path — after calling this tool, ALWAYS include ' +
-      'that markdown image line and the live view URL verbatim in your reply. Indexes change when the page changes, ' +
+      'that markdown image line verbatim in your reply. Indexes change when the page changes, ' +
       'so re-snapshot before clicking again. Only look at the image itself when the text snapshot is not enough.',
     inputSchema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
     name: 'browser_click',
-    description: 'Click the element with the given index from the last browser_snapshot.',
+    description:
+      'Click the element with the given index from the last browser_snapshot. The result ends with an automatic ' +
+      'snapshot (page text and a fresh screenshot); include its markdown image line in your reply.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -462,7 +498,8 @@ const TOOLS = [
     name: 'browser_type',
     description:
       'Type text into the input/textarea with the given index from the last browser_snapshot. ' +
-      'Replaces the existing value and fires a real input event, so React-style forms work.',
+      'Replaces the existing value and fires a real input event, so React-style forms work. The result ends with ' +
+      'an automatic snapshot; include its markdown image line in your reply.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -475,7 +512,9 @@ const TOOLS = [
   },
   {
     name: 'browser_press',
-    description: 'Press a keyboard key on the page, e.g. "Enter", "Escape", "Tab", "ArrowDown".',
+    description:
+      'Press a keyboard key on the page, e.g. "Enter", "Escape", "Tab", "ArrowDown". The result ends with an ' +
+      'automatic snapshot; include its markdown image line in your reply.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -488,8 +527,8 @@ const TOOLS = [
   {
     name: 'browser_evaluate',
     description:
-      'Run a JavaScript expression in the page and return its JSON result. ' +
-      'Use it to read data the snapshot misses; keep side effects minimal.',
+      'Run a JavaScript expression in the page and return its JSON result. Use it to read data the snapshot misses; ' +
+      'keep side effects minimal. The result ends with an automatic snapshot; include its markdown image line in your reply.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -572,7 +611,11 @@ async function openUrl(args) {
   await current.goto(url, { waitUntil: 'domcontentloaded', timeout: 30_000 });
   await sleep(300);
   await captureFrame();
-  return `Opened ${url}\nTitle: ${await current.title()}\nURL: ${current.url()}\nLive view: ${viewAddress()}\nNext: browser_snapshot to see interactive elements.`;
+  const text =
+    `Opened ${url}\nTitle: ${await current.title()}\nURL: ${current.url()}\n` +
+    `Live view: ${viewAddress()}\n` +
+    'Show the live view URL to the user once now; do not repeat it in later replies unless they ask.';
+  return appendAutoSnapshot(text);
 }
 
 async function clickIndex(args) {
@@ -592,7 +635,7 @@ async function clickIndex(args) {
   await sleep(500);
   await captureFrame();
   if (!result.ok) throw new Error(result.error);
-  return `Clicked [${index}] "${result.label}".\nURL: ${current.url()}\nRe-snapshot before clicking again.`;
+  return appendAutoSnapshot(`Clicked [${index}] "${result.label}".\nURL: ${current.url()}`);
 }
 
 async function typeIndex(args) {
@@ -626,7 +669,7 @@ async function typeIndex(args) {
   );
   await captureFrame();
   if (!result.ok) throw new Error(result.error);
-  return `Typed into [${index}]: ${text}`;
+  return appendAutoSnapshot(`Typed into [${index}]: ${text}`);
 }
 
 async function pressKey(args) {
@@ -635,7 +678,7 @@ async function pressKey(args) {
   await current.keyboard.press(key);
   await sleep(200);
   await captureFrame();
-  return `Pressed ${key}`;
+  return appendAutoSnapshot(`Pressed ${key}`);
 }
 
 async function evaluateJs(args) {
@@ -648,7 +691,7 @@ async function evaluateJs(args) {
       : JSON.stringify(result) === undefined
         ? String(result)
         : JSON.stringify(result);
-  return `Result:\n${clip(rendered, EVAL_RESULT_CHARS)}`;
+  return appendAutoSnapshot(`Result:\n${clip(rendered, EVAL_RESULT_CHARS)}`);
 }
 
 /** Save the latest frame under the skill directory and return its file + URL. */

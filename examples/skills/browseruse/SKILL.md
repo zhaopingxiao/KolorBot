@@ -9,23 +9,25 @@ description: 用真实浏览器（无头 Edge）操控网页并实时看到画�
 
 ## 回答要求（重要）
 
-- **每次涉及浏览器的回复都要给出实时画面地址**：`http://127.0.0.1:9223/`（端口随 `BROWSERUSE_VIEW_PORT` 变，以工具返回值为准）。
-- **每次调用 `browser_snapshot` 后，必须把返回里的 `![page screenshot](http://...)` 这一行原样放进回复**（KolorBot 的 Markdown 会把它渲染成截图），同时附上返回的截图文件路径。
+- **实时画面地址只在打开新网页后给一次**（`browser_open` 的返回里带有 `Live view: ...`），或者用户主动询问时再给；其他操作后的回复里不要再重复这个地址。
+- **每次拿到截图都必须在回复里展示**：把返回里的 `![page screenshot](http://...)` 这一行原样放进回复（KolorBot 的 Markdown 会把它渲染成截图），并附上返回的截图文件路径。
+- **每个操作都会自动附带一次 snapshot**：`browser_open` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 的返回末尾都有 `## Auto snapshot after this action`（最新页面文本 + 新截图），不需要为了看结果再手动调 `browser_snapshot`；需要更完整的页面信息时再手动 snapshot。
 - snapshot 的**文本**（标题、URL、正文、元素序号）已经够理解页面时，就不要再读图片；只有文本不够清楚时，才需要用图片核对，或直接让用户看截图/实时画面。
-- 页面变化后旧序号失效，先重新 snapshot 再点击/输入。
+- 页面变化后旧序号失效：自动快照里的序号就是最新的，可直接用于下一次点击/输入。
 
 ## 实时画面
 
 - 打开 **http://127.0.0.1:9223** （端口可用环境变量 `BROWSERUSE_VIEW_PORT` 改），页面以 MJPEG 实时显示浏览器画面，随每次操作自动刷新。
-- **画面可以手动操作**：鼠标点击 / 双击 / 右键、滚轮、键盘都直接转发到真实浏览器（坐标按截图比例映射到页面视口）；顶部输入框回车可把中文/任意文字发进网页（`insertText`，适合输入法输入不了的场景）。先点一下画面让网页获得焦点，再开始键入。
+- **画面可以手动操作**：鼠标点击 / 双击 / 右键、滚轮、键盘都直接转发到真实浏览器（坐标按截图比例映射到页面视口）；触摸屏上下滑动会把滚动转发到页面（单指滑动 = 滚动网页），顶部输入框回车可把中文/任意文字发进网页（`insertText`，适合输入法输入不了的场景）。先点一下画面让网页获得焦点，再开始键入。
+- 如果页面内容比浏览器视口长，用滚轮/触摸滑动看下面的部分；实时画面本身只显示浏览器视口。
 - 有头模式：把环境变量 `BROWSERUSE_HEADLESS=false` 设置到启动 `kolor-web` 的进程里，就能看到真实浏览器窗口。
 
 ## 工具
 
 | 工具 | 说明 |
 | --- | --- |
-| `browser_open(url)` | 打开 http/https（或 `data:`）页面，返回标题、URL 和实时画面地址 |
-| `browser_snapshot()` | **文本 + 截图合并**：标题、URL、正文、所有可交互元素的序号，外加一张保存到技能目录 `shots/` 的截图；返回里同时给出 Markdown 图片行和截图文件路径 |
+| `browser_open(url)` | 打开 http/https（或 `data:`）页面，返回标题、URL 和实时画面地址（只在打开后给用户一次） |
+| `browser_snapshot()` | **文本 + 截图合并**：标题、URL、正文、所有可交互元素的序号，外加一张保存到技能目录 `shots/` 的截图；返回里同时给出 Markdown 图片行和截图文件路径。普通操作会自动带快照，一般不用手动调用 |
 | `browser_click(index)` | 点击快照里的第 `index` 个元素 |
 | `browser_type(index, text)` | 往第 `index` 个输入框/文本域里填文字（走原生 setter + input 事件，兼容 React 表单） |
 | `browser_press(key)` | 按键，例如 `Enter`、`Escape`、`Tab`、`ArrowDown` |
@@ -35,11 +37,11 @@ description: 用真实浏览器（无头 Edge）操控网页并实时看到画�
 
 ## 标准流程
 
-1. `browser_open("https://example.com")`；
-2. `browser_snapshot()`：拿元素序号，同时拿到截图（把返回里的 Markdown 图片行贴进回复）；
-3. `browser_type(0, "hello")` / `browser_click(2)` / `browser_press("Enter")`；
-4. 页面变化后**必须重新 `browser_snapshot`**，旧序号会失效，并再次展示新截图；
-5. 文本够用就别额外读图；需要细节时看截图文件，或让用户看实时画面。
+1. `browser_open("https://example.com")`：返回标题、URL、实时地址（这次回复里给用户一次），以及自动快照；
+2. 把自动快照里的 Markdown 图片行贴进回复；
+3. `browser_type(0, "hello")` / `browser_click(2)` / `browser_press("Enter")`：每个操作又会自动带回最新快照和截图，继续展示；
+4. 自动快照里的序号可以直接用，页面变化后不需要手动重新 snapshot；
+5. 文本够用就别额外读图；需要细节时看截图文件，或让用户看实时画面（用户主动问再把地址给他）。
 
 ## WebMCP
 

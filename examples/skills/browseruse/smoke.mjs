@@ -1,6 +1,21 @@
 import { spawn } from 'node:child_process';
 import { join } from 'node:path';
 
+const PORT = process.env.BROWSERUSE_VIEW_PORT || '9223';
+
+// A leftover server on the view port would serve the checks and make this
+// script lie (the new server silently falls back to the next port).
+try {
+  await fetch(`http://127.0.0.1:${PORT}/`, { signal: AbortSignal.timeout(1200) });
+  console.log(
+    `port ${PORT} is already serving a live view (leftover server or a running KolorBot session); ` +
+      'stop it first, then rerun the smoke test.',
+  );
+  process.exit(1);
+} catch {
+  // free port, continue
+}
+
 const server = join(process.cwd(), 'server.mjs');
 const child = spawn(process.execPath, [server], { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'inherit'] });
 
@@ -93,12 +108,25 @@ for (const request of requests) {
   const image = /!\[[^\]]*\]\((http[^)]+\/shot\/[^)]+)\)/.exec(snapshotText);
   const shotFile = /Screenshot file: (.+)/.exec(snapshotText)?.[1] ?? '';
   console.log(
-    `snapshot image: ${image ? 'ok' : 'MISSING'} | live view line: ${snapshotText.includes('Live view:') ? 'ok' : 'MISSING'} | file: ${shotFile}`,
+    `snapshot image: ${image ? 'ok' : 'MISSING'} | snapshot live URL: ${snapshotText.includes('Live view:') ? 'LEAK' : 'ok'} | file: ${shotFile}`,
   );
   if (image) {
     const shot = await fetch(image[1]);
     const bytes = Buffer.from(await shot.arrayBuffer());
     console.log(`shot url: ${shot.status}, ${bytes.length} bytes, jpeg=${bytes[0] === 0xff && bytes[1] === 0xd8}`);
+  }
+
+  // Every action must end with an automatic snapshot (text + screenshot),
+  // and only browser_open may expose the live view URL.
+  const openText = done.get(3)?.result?.content?.[0]?.text ?? '';
+  console.log(
+    `open live view: ${openText.includes('Live view:') ? 'ok' : 'MISSING'} | open auto snapshot: ${openText.includes('Auto snapshot after this action') ? 'ok' : 'MISSING'}`,
+  );
+  for (const [label, id] of [['click', 5], ['type', 6], ['evaluate', 7]]) {
+    const text = done.get(id)?.result?.content?.[0]?.text ?? '';
+    console.log(
+      `auto snapshot ${label}: ${text.includes('## Auto snapshot after this action') ? 'ok' : 'MISSING'} | image: ${text.includes('![page screenshot]') ? 'ok' : 'MISSING'} | live URL: ${text.includes('Live view:') ? 'LEAK' : 'ok'}`,
+    );
   }
 
   // Manual control: forward text and a click through /input, then read back.
@@ -111,14 +139,34 @@ for (const request of requests) {
   console.log('input text:', JSON.stringify(await input({ type: 'text', text: '你好' })));
   console.log('input click:', JSON.stringify(await input({ type: 'click', x: 0.05, y: 0.05 })));
 
-  child.stdin.write(
-    `${JSON.stringify({ id: 10, method: 'tools/call', params: { name: 'browser_evaluate', arguments: { expression: 'JSON.stringify({ name: document.querySelector("#name").value, clicked: window.clicked ?? 0 })' } } })}\n`,
-  );
-  const deadline = Date.now() + 60_000;
-  while (!done.has(10) && Date.now() < deadline) {
-    await new Promise((resolve) => setTimeout(resolve, 50));
-  }
-  requests.push({ id: 10, method: 'tools/call', params: { name: 'browser_evaluate' } });
+  const waitFor = async (requestId) => {
+    const deadline = Date.now() + 60_000;
+    while (!done.has(requestId) && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    }
+  };
+  const call = async (requestId, name, args) => {
+    child.stdin.write(
+      `${JSON.stringify({ id: requestId, method: 'tools/call', params: { name, arguments: args } })}\n`,
+    );
+    await waitFor(requestId);
+    requests.push({ id: requestId, method: 'tools/call', params: { name } });
+  };
+
+  await call(10, 'browser_evaluate', {
+    expression: 'JSON.stringify({ name: document.querySelector("#name").value, clicked: window.clicked ?? 0 })',
+  });
+
+  // Wheel forwarding: open a tall page, scroll it through /input, read scrollY.
+  await call(11, 'browser_open', {
+    url: 'data:text/html,%3Cbody style=%22height:4000px%22%3E%3Ch1%3Etop%3C/h1%3E%3C/body%3E',
+  });
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  console.log('input wheel:', JSON.stringify(await input({ type: 'wheel', deltaY: 600 })));
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  await call(12, 'browser_evaluate', { expression: 'String(window.scrollY)' });
+  const scrollY = done.get(12)?.result?.content?.[0]?.text ?? '';
+  console.log(`wheel scrolled page: ${/Result:\s*[1-9]\d*/.test(scrollY) ? 'ok' : `MISSING (${scrollY.replace(/\s+/g, ' ').slice(0, 80)})`}`);
 }
 
 async function report() {
