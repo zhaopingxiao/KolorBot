@@ -1,4 +1,4 @@
-﻿# KolorBot 项目交接
+# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
@@ -36,6 +36,7 @@ D:\code\kolorbot\
 ├── scripts/restart.ps1       # 启停脚本（restart.cmd 调用）
 ├── restart.cmd               # 启停脚本入口
 ├── examples/skills/deepseek-search/  # 带 MCP 的搜索/抓取技能源码
+├── examples/skills/browseruse/       # 带 MCP 的无头浏览器技能（实时画面 + WebMCP）
 ├── docs/                     # UI 截图
 ├── README.md
 ├── HANDOFF.md
@@ -238,6 +239,18 @@ mcp__kolor-frame__read_file
 - **客户端容错（2026-11-07）**：`consumeRun` 把 `handleRunEvent` 包在 try/catch 里，单个事件渲染失败只 toast 一次并继续消费；轮次结束仍由 `finishRun` 从会话兜底重建。同一天修过一个 `dropEmptyAssistant is not defined`：重构 `handleStreamEvent` 时函数被删但 `handleRunEvent` 的三处调用还在，结果一出现工具调用就抛 ReferenceError——实时卡片中断、页面只弹一个报错，等轮次结束重新拉会话才看到消息。
 - **测试**：`test/runs.test.ts` 7 个（断开后继续、晚加入回放、409、取消、完成态 TTL、定时任务可见、reset 不被写回）。客户端 JS 没有自动化测试，改 `public/app.js` 后至少手测：文本流、工具卡片、Markdown 渲染（标题/表格/代码块）、刷新重连、取消。
 
+### 3.14 浏览器操控技能（browseruse，2026-11-08 新增）
+
+一个**挂在 MCP 上的真实浏览器**，只是技能、不是内置功能。源码 `examples/skills/browseruse/`，已安装到 `~/.agents/skills/browseruse/`（含 `node_modules`）。
+
+- **入口**：`kolor.json` 声明 stdio MCP `browseruse` → `node server.mjs`；依赖只有 `playwright-core`，驱动**系统 Edge**（`channel: 'msedge'`）的无头实例，不用下载浏览器内核。
+- **实时画面**：server 内置一个小 HTTP 服务，默认 `http://127.0.0.1:9223/`（`BROWSERUSE_VIEW_PORT` 可改；`BROWSERUSE_HEADLESS=false` 显示真实窗口），`/screen.mjpg` 用 MJPEG 实时流屏幕，`/screen.png` 取单帧，`/` 是观看页。每次工具操作后自动截图；有人观看时每 250ms 补帧。
+- **工具**（模型看到的是 `mcp__browseruse__browser_*`）：`browser_open(url)`、`browser_snapshot()`（标题/URL/正文/带序号的可交互元素）、`browser_click(index)`、`browser_type(index, text)`（原生 setter + input 事件，兼容 React 表单）、`browser_press(key)`、`browser_evaluate(expression)`、`browser_screenshot()`（存技能目录 `shots/`）。
+- **WebMCP**：`browser_webmcp_list()` / `browser_webmcp_call(name, input)` 通过 CDP `Page.listWebMCPTools` / `Page.invokeWebMCPTool` 调用**网页自己注册的** WebMCP 工具；启动参数带了 `--enable-features=WebMCP,WebMCPTesting,DevToolsWebMCPSupport`。需要 Chrome ≥ 149；当前系统 Edge 157 还没开放该 CDP 命令，工具会返回明确的「不支持」错误，换支持它的浏览器即可用。
+- **生命周期**：MCP 进程随会话 agent 存在，所以浏览器页面和实时画面在**同一会话的多轮之间保留**；会话删除/重置或模型切换重建 agent 时进程退出、画面地址失效。
+- **验证**：`examples/skills/browseruse/smoke.mjs` 直接对 server.mjs 打 JSON-RPC（open/snapshot/click/type/evaluate/screenshot/webmcp_list + 实时画面三个端点）；另在线上实例实测过真实模型两轮（打开 example.com → 读 document.title），`/screen.png` 返回 46KB JPEG。
+- **注意**：这是浏览器自动化，网页里能登录、能执行任意 JS；敏感操作前先确认用户。单窗口单页面，没有多标签。
+
 ## 4. 关键约束 / 容易踩的坑
 
 1. **工具调用与结果必须成对**：上下文里 assistant 的每个 `toolCalls` 都要有对应 tool 消息，否则 `validateAgentContext` 会拒绝。
@@ -337,7 +350,7 @@ CLI 优先级高于 `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT`。
 │   └── daily/        # 日记：YYYY-MM-DD.md，一天一个文件
 └── mcp.json          # 已废弃并删除，不再使用
 
-~/.agents/skills/     # 技能目录（当前 3 个：deepseek-search / email / ppt-master）
+~/.agents/skills/     # 技能目录（当前 4 个：deepseek-search / email / ppt-master / browseruse）
 ```
 
 - 迁移项目目录**不会**自动迁移这些数据。
@@ -464,4 +477,5 @@ pnpm test
 | `packages/kolor-web/public/app.js` | UI 状态、turn 镜像/重连、跟随滚动、Markdown 渲染、思考指示、工具卡片、抽屉、提供商页、记忆页 |
 | `tsconfig.dev.json` | tsx 的 paths（`npm run web` 直接跑源码不 build） |
 | `examples/skills/deepseek-search/` | DeepSeek 搜索/抓取技能 |
+| `examples/skills/browseruse/` | 无头浏览器技能（`server.mjs` MCP + 实时画面 + WebMCP；`smoke.mjs` 自测） |
 | `docs/` | 当前 UI 截图 |

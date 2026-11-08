@@ -30,6 +30,7 @@ kolorbot/
 ├── docs/tool-call.png           # 工具调用详情截图
 ├── docs/mobile.png              # 移动端抽屉截图
 ├── examples/skills/deepseek-search/  # 带 MCP 的搜索 / 抓取 skill
+├── examples/skills/browseruse/      # 带 MCP 的无头浏览器技能（实时画面 + WebMCP）
 ├── packages/
 │   ├── kolor-agent-loop/        # 主循环
 │   │   ├── src/agent.ts         # KolorAgent：turn/step、事件、取消、上下文导入
@@ -142,6 +143,8 @@ npm run web -- --host 0.0.0.0
 | `KOLOR_SESSIONS_DB` | `<home>/sessions.db` | 会话数据库 |
 | `KOLOR_FRAME_ROOT` | `<home>/workspace` | 内置文件/bash 工具的工作区根 |
 | `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 技能目录（Claude 标准） |
+| `BROWSERUSE_VIEW_PORT` | `9223` | browseruse 技能实时画面的端口（经 `kolor.json` 的 `${VAR}` 注入技能进程） |
+| `BROWSERUSE_HEADLESS` | `true` | browseruse 技能用 `false` 时显示真实浏览器窗口 |
 
 > `KOLOR_API_URL`、`KOLOR_API_MODEL`、`DEEPSEEK_API_KEY` **三个都设置**时，才会出现「环境变量 · 模型」这个回退项；只设置 key 不会自动补 deepseek 端点。
 
@@ -524,6 +527,8 @@ review - 按仓库规范审阅 diff……
 路径优先级：`KOLOR_SKILLS_DIR` → `~/.agents/skills`。Web 侧栏的「技能」可以直接查看已安装技能和内容；带 `kolor.json` 的技能会显示 **MCP** 标识，点开详情能看到它声明的所有 MCP server。
 
 示例：[`examples/skills/deepseek-search`](examples/skills/deepseek-search) 是一个带 MCP 的搜索/抓取 skill，模型可以调用 `search` 搜索网页、`fetch` 读取 Markdown 正文；它通过 `kolor.json` 的 `${DEEPSEEK_API_KEY}` 占位符拿到宿主进程的 key。
+
+另一个示例：[`examples/skills/browseruse`](examples/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` / `browser_screenshot` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示；还带 `browser_webmcp_list` / `browser_webmcp_call` 两个工具，调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
 
 ## Web HTTP API
 
