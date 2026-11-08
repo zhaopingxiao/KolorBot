@@ -1,7 +1,8 @@
+import { randomUUID } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { join } from 'node:path';
+import { extname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentMessage, KolorAgent, KolorEvent, McpServerConfig } from 'kolor-agent-loop';
 import { SkillsRegistry, formatSkillsBlock } from 'kolor-skills';
@@ -166,11 +167,25 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     diaryDir: join(config.frameRoot, 'daily'),
   });
 
+  // Images read by the `read_image` tool are exposed through short-lived URLs
+  // so the chat UI can render them; nothing else under the workspace is served.
+  const images = new Map<string, string>();
+  const registerImage = (file: string): string => {
+    const token = randomUUID().replace(/-/g, '').slice(0, 16);
+    images.set(token, file);
+    if (images.size > 200) {
+      const oldest = images.keys().next().value;
+      if (oldest !== undefined) images.delete(oldest);
+    }
+    return `/api/images/${token}`;
+  };
+
   const pool = new AgentPool({
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
     createReminder: (sessionId, input) => store.createTask(sessionId, input),
     createDiary: (note, options) => memory.append(note, undefined, options),
     kolorFrame: { root: config.frameRoot, skillsRoot: config.skillsDir },
+    registerImage,
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
 
@@ -406,6 +421,37 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const sessionId = isRecord(body) && typeof body.sessionId === 'string' ? body.sessionId : '';
       const cancelled = runs.cancel(sessionId);
       sendJson(response, 200, { cancelled });
+      return;
+    }
+
+    // Images registered by the `read_image` tool (only those paths are served).
+    const imageMatch = /^\/api\/images\/([A-Za-z0-9]+)$/.exec(pathname);
+    if (imageMatch !== null && method === 'GET') {
+      const file = images.get(imageMatch[1] as string);
+      if (file === undefined) throw new HttpError(404, 'image not found');
+      let body: Buffer;
+      try {
+        body = readFileSync(file);
+      } catch {
+        throw new HttpError(404, 'image not found');
+      }
+      const extension = extname(file).toLowerCase();
+      const mime =
+        extension === '.png'
+          ? 'image/png'
+          : extension === '.webp'
+            ? 'image/webp'
+            : extension === '.gif'
+              ? 'image/gif'
+              : extension === '.bmp'
+                ? 'image/bmp'
+                : 'image/jpeg';
+      response.writeHead(200, {
+        'content-type': mime,
+        'content-length': body.length,
+        'cache-control': 'private, max-age=300',
+      });
+      response.end(body);
       return;
     }
 

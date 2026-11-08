@@ -238,6 +238,10 @@ test('lists MCP servers from skill kolor.json files and is read-only', async (t)
   assert.equal(restartEcho.status, 200);
   assert.equal(restartEcho.data?.status, null);
 
+  // Images are only served for tokens registered by the read_image tool.
+  const unknownImage = await call(app, '/api/images/deadbeef');
+  assert.equal(unknownImage.status, 404);
+
   const patched = await call(app, '/api/mcp/echo', {
     method: 'PATCH',
     body: JSON.stringify({ enabled: false }),

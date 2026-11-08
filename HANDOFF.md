@@ -3,7 +3,7 @@
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（144 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（146 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
 
 ## 1. 这个项目是什么
 
@@ -31,7 +31,7 @@ D:\code\kolorbot\
 │   ├── kolor-agent-loop/     # 主循环、模型客户端、MCP 客户端、工具调度
 │   ├── kolor-sessions/       # SessionStore（node:sqlite）、主题、定时任务
 │   ├── kolor-skills/         # SKILL.md / kolor.json 解析、技能注入
-│   ├── kolor-frame/          # 本地工具实现（文件 / bash / skills）
+│   ├── kolor-frame/          # 本地工具实现（文件 / bash / skills / read_image）
 │   └── kolor-web/            # Web 服务、SSE、调度器、提醒工具、提供商、前端
 ├── scripts/restart.ps1       # 启停脚本（restart.cmd 调用）
 ├── restart.cmd               # 启停脚本入口
@@ -146,6 +146,7 @@ write_file
 list_files
 bash
 skills
+read_image
 ```
 
 不再是：
@@ -156,6 +157,8 @@ mcp__kolor-frame__read_file
 ```
 
 `kolor-frame` 包现在只是一个本地工具库，没有 MCP server / bin / SDK 依赖；`KolorAgent` 默认注册这些工具，传 `{ kolorFrame: false }` 可关闭。
+
+**`read_image`（2026-11-08）**：按本地路径读取 PNG/JPEG/GIF/WebP/BMP，返回格式、字节数、像素尺寸（PNG/JPEG/GIF/WebP/BMP 头部解析，无第三方依赖）和可展示的 Markdown 链接。路径限制在工作区 + 技能目录（`kolorFrame.root` / `kolorFrame.skillsRoot`，所以能读 browseruse 的截图）。宿主通过 `FrameContext.registerImage` 注入回调：kolor-web 登记 token 并返回 `/api/images/<token>`，前端只渲染登记过的图片；没注入时只返回元数据。文本模型拿到的是元数据和链接，**看不到像素**。
 
 ### 3.8 Web UI（`kolor-web`）
 
@@ -385,6 +388,7 @@ CLI 优先级高于 `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT`。
 | GET | `/api/skills` | 技能列表 + 签名 + 每个技能的 `mcpServers` |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
 | GET | /api/mcp | skill 声明的 MCP（只读；UI 已不单独使用） |
+| GET | /api/images/:token | read_image 注册过的本地图片 |
 | POST | /api/mcp/:name/restart | 关闭指定的 MCP 服务器并重新连接（技能详情「刷新」按钮） |
 | POST | `/api/chat` | SSE 聊天流（turn 在 broker 里跑；同会话重复请求 409） |
 | POST | `/api/chat/cancel` | 取消当前轮次 |
@@ -397,15 +401,15 @@ UI 已不提供 export/import/rename 入口，但 API 仍然存在。
 
 ```text
 pnpm build  ✅
-pnpm test   ✅ 144/144
+pnpm test   ✅ 146/146
   kolor-agent-loop 42
   kolor-sessions   23
   kolor-skills     12
-  kolor-frame       7
+  kolor-frame       9
   kolor-web        60   （原 38 + 记忆日记 9 + 记忆衔接 4 + 运行中的 turn 7 + 衔接兜底 2）
 ```
 
-CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工具、技能注入、提醒工具、定时任务、schedule_reminder、模型提供商、日记（文件格式、Previous Topic 衔接与拒绝后重试、注入去重、手动命令、静默自动整理）、以及运行中的 turn（断开继续、回放、409、取消、reset 不被写回）。
+`kolor-frame` 测试覆盖 `read_image` 的格式/尺寸识别、技能目录访问、非图片与越界拒绝。CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工具、技能注入、提醒工具、定时任务、schedule_reminder、模型提供商、日记（文件格式、Previous Topic 衔接与拒绝后重试、注入去重、手动命令、静默自动整理）、以及运行中的 turn（断开继续、回放、409、取消、reset 不被写回）。
 
 ## 9. 已知限制 / 可以继续做的事
 
@@ -441,7 +445,7 @@ cd D:\code\kolorbot
 pnpm install
 pnpm test
 
-当前状态：144 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
+当前状态：146 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
 模型只来自「模型」页的提供商（OpenAI Chat Completions 协议），没有内置默认模型；
 只有显式设置 KOLOR_API_URL + KOLOR_API_MODEL + key 才会出现「环境变量」回退项；
 「记忆」页的日记开关可让对话静默 10 分钟后自动追加日记，发 /update-daily-memory 可立即整理；
@@ -463,7 +467,7 @@ pnpm test
 | `packages/kolor-sessions/src/schedule.ts` | 调度规则（多时间节点 `times`/`days`/`minutes`）、`nextRunAt`、`describeSchedule` |
 | `packages/kolor-skills/src/skills.ts` | 技能发现、签名、`<system-skills>` |
 | `packages/kolor-skills/src/mcp.ts` | `kolor.json` MCP 解析、`${VAR}` 展开 |
-| `packages/kolor-frame/src/tools.ts` | 文件/bash/skills 工具实现 |
+| `packages/kolor-frame/src/tools.ts` | 文件/bash/skills/read_image 工具实现 |
 | `packages/kolor-web/src/providers.ts` | 提供商存储（`providers.json`）、`/models` 发现、active 模型解析 |
 | `packages/kolor-web/src/memory.ts` | 记忆设置（`memory.json`）、日记读写/签名、日记提示词 |
 | `packages/kolor-web/src/diary-idle.ts` | 「对话静默 N 分钟」计时器 |

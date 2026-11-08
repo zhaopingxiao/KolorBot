@@ -22,12 +22,14 @@ import {
 import { KolorAbortError, KolorStateError, isAbortError, toError } from './util/errors.js';
 import { shortId } from './util/id.js';
 
-/** Options for the built-in frame tools (file / bash / skills). */
+/** Options for the built-in frame tools (file / bash / skills / read_image). */
 export interface KolorFrameOptions {
   /** Workspace root for file/bash tools. Defaults to `process.cwd()`. */
   root?: string;
   /** Skills directory; defaults to `~/.agents/skills`. */
   skillsRoot?: string;
+  /** Serve an image to the host app and return its URL (for `read_image`). */
+  registerImage?: (absolutePath: string) => string | undefined;
 }
 
 /** Construction-time hooks. */
@@ -413,6 +415,7 @@ export class KolorAgent {
     const context: FrameContext = {
       root: settings.root ?? process.cwd(),
       ...(settings.skillsRoot === undefined ? {} : { skillsRoot: settings.skillsRoot }),
+      ...(settings.registerImage === undefined ? {} : { registerImage: settings.registerImage }),
     };
 
     for (const definition of FRAME_TOOLS) {
