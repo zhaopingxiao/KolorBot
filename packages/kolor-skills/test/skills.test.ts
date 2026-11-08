@@ -78,12 +78,89 @@ test('falls back to the first paragraph for a description', (t) => {
   assert.equal(skill?.description, 'Do the thing.');
 });
 
+test('merges the three skills areas with the first root winning', (t) => {
+  const agents = tempRoot(t);
+  const user = tempRoot(t);
+  const builtin = tempRoot(t);
+  writeSkill(agents, 'shared', 'name: Shared\ndescription: from agents');
+  writeSkill(user, 'shared', 'name: Shared\ndescription: from user');
+  writeSkill(user, 'only-user', 'description: user only');
+  writeSkill(builtin, 'builtin-one', 'description: built in');
+  writeSkill(builtin, 'only-user', 'description: builtin copy');
+
+  const registry = new SkillsRegistry({
+    roots: [
+      { source: 'user', path: user },
+      { source: 'agents', path: agents },
+      { source: 'builtin', path: builtin },
+    ],
+  });
+  const skills = registry.list();
+  assert.deepEqual(
+    skills.map((skill) => skill.id),
+    ['builtin-one', 'only-user', 'shared'],
+  );
+  assert.equal(skills.find((skill) => skill.id === 'shared')?.source, 'user');
+  assert.equal(skills.find((skill) => skill.id === 'shared')?.description, 'from user');
+  assert.equal(skills.find((skill) => skill.id === 'only-user')?.description, 'user only');
+
+  assert.deepEqual(
+    registry.listSource('builtin').map((skill) => skill.id),
+    ['builtin-one', 'only-user'],
+  );
+  const builtinSkill = registry.get('builtin-one');
+  assert.equal(builtinSkill?.source, 'builtin');
+  assert.match(builtinSkill?.path ?? '', /builtin-one[\\/]SKILL\.md$/);
+});
+
+test('collects MCP servers across roots with the first declaration winning', (t) => {
+  const agents = tempRoot(t);
+  const user = tempRoot(t);
+  writeSkill(agents, 'a', 'description: A');
+  mkdirSync(user, { recursive: true });
+  writeFileSync(
+    join(agents, 'kolor.json'),
+    JSON.stringify({
+      mcpServers: {
+        shared: { command: 'node', args: ['agents.js'] },
+        onlyAgents: { command: 'node', args: ['a.js'] },
+      },
+    }),
+    'utf8',
+  );
+  writeFileSync(
+    join(user, 'kolor.json'),
+    JSON.stringify({ mcpServers: { shared: { command: 'node', args: ['user.js'] } } }),
+    'utf8',
+  );
+
+  const servers = new SkillsRegistry({
+    roots: [
+      { source: 'user', path: user },
+      { source: 'agents', path: agents },
+    ],
+  }).mcpServers();
+  assert.deepEqual(
+    servers.map((server) => [server.name, server.transport]),
+    [
+      ['shared', 'stdio'],
+      ['onlyAgents', 'stdio'],
+    ],
+  );
+  const shared = servers[0];
+  if (shared?.transport !== 'stdio') {
+    assert.fail('the shared server should be stdio');
+  }
+  assert.equal(shared.command, 'node');
+  assert.deepEqual(shared.args, ['user.js']);
+});
+
 test('signature changes only when id or description changes', (t) => {
   const root = tempRoot(t);
   writeSkill(root, 'alpha', 'description: first');
   const registry = new SkillsRegistry({ root });
   const before = registry.signature();
-  assert.match(before, /^v1:[0-9a-f]{40}$/);
+  assert.match(before, /^v2:[0-9a-f]{40}$/);
 
   writeSkill(root, 'alpha', 'description: first', '# Body changed');
   assert.equal(registry.signature(), before, 'body changes do not alter the list');
@@ -244,8 +321,8 @@ test('unknown ids and missing roots are handled', (t) => {
 
 test('formats the system-skills block', () => {
   const block = formatSkillsBlock([
-    { id: 'pdf', name: 'PDF', description: 'Extract PDF text', path: '/x/pdf/SKILL.md' },
-    { id: 'review', name: 'Review', description: 'Review a diff', path: '/x/review/SKILL.md' },
+    { id: 'pdf', name: 'PDF', description: 'Extract PDF text', path: '/x/pdf/SKILL.md', source: 'agents' },
+    { id: 'review', name: 'Review', description: 'Review a diff', path: '/x/review/SKILL.md', source: 'agents' },
   ]);
   assert.equal(
     block,

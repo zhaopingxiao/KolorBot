@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -242,6 +242,7 @@ async function makeApp(t: TestContext, overrides: Record<string, unknown> = {}):
     home,
     frameRoot,
     skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
     port: 0,
     apiUrl: 'http://127.0.0.1:1/v1',
     apiModelName: 'test-model',

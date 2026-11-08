@@ -4,7 +4,7 @@ import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { AgentMessage, KolorAgent, KolorEvent, McpServerConfig } from 'kolor-agent-loop';
-import { SkillsRegistry, formatSkillsBlock } from 'kolor-skills';
+import { SKILL_SOURCE_LABELS, SkillsRegistry, formatSkillsBlock } from 'kolor-skills';
 import {
   SessionStore,
   describeSchedule,
@@ -150,7 +150,11 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     config.apiKey.trim() !== '';
 
   const skillsRegistry = new SkillsRegistry({
-    root: config.skillsDir,
+    roots: [
+      { source: 'user', path: config.userSkillsDir },
+      { source: 'agents', path: config.skillsDir },
+      { source: 'builtin', path: config.builtinSkillsDir },
+    ],
     env: {
       ...process.env,
       ...(config.apiKey === ''
@@ -159,6 +163,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     },
   });
   mkdirSync(config.skillsDir, { recursive: true });
+  mkdirSync(config.userSkillsDir, { recursive: true });
 
   const diaryIdleMs = options.diaryIdleMs ?? DEFAULT_DIARY_IDLE_MS;
   const memory = new MemoryStore({
@@ -170,7 +175,11 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
     createReminder: (sessionId, input) => store.createTask(sessionId, input),
     createDiary: (note, options) => memory.append(note, undefined, options),
-    kolorFrame: { root: config.frameRoot, skillsRoot: config.skillsDir },
+    kolorFrame: {
+      root: config.frameRoot,
+      skillsRoot: config.skillsDir,
+      extraSkillRoots: [config.userSkillsDir, config.builtinSkillsDir],
+    },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
 
@@ -329,15 +338,26 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         name: string;
         transport: string;
       } => ({ name: server.name, transport: server.transport });
+      const skills = skillsRegistry.list().map((skill) => ({
+        ...skill,
+        mcpServers: mcpServers
+          .filter((server) => server.skillId === skill.id)
+          .map(publicServer),
+      }));
       sendJson(response, 200, {
         root: config.skillsDir,
+        // Display order: compatibility area, custom area, built-in area.
+        roots: (['agents', 'user', 'builtin'] as const).map((source) => {
+          const root = skillsRegistry.roots.find((entry) => entry.source === source);
+          return {
+            source,
+            label: SKILL_SOURCE_LABELS[source],
+            path: root?.path ?? '',
+            count: skills.filter((skill) => skill.source === source).length,
+          };
+        }),
         signature: skillsRegistry.signature(),
-        skills: skillsRegistry.list().map((skill) => ({
-          ...skill,
-          mcpServers: mcpServers
-            .filter((server) => server.skillId === skill.id)
-            .map(publicServer),
-        })),
+        skills,
         globalMcpServers: mcpServers
           .filter((server) => server.skillId === '')
           .map(publicServer),

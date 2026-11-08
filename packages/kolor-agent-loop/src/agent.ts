@@ -28,6 +28,8 @@ export interface KolorFrameOptions {
   root?: string;
   /** Skills directory; defaults to `~/.agents/skills`. */
   skillsRoot?: string;
+  /** Extra skills areas searched by the `skills` tool (user / built-in). */
+  extraSkillRoots?: string[];
 }
 
 /** Construction-time hooks. */
@@ -413,6 +415,9 @@ export class KolorAgent {
     const context: FrameContext = {
       root: settings.root ?? process.cwd(),
       ...(settings.skillsRoot === undefined ? {} : { skillsRoot: settings.skillsRoot }),
+      ...(settings.extraSkillRoots === undefined
+        ? {}
+        : { extraSkillRoots: settings.extraSkillRoots }),
     };
 
     for (const definition of FRAME_TOOLS) {

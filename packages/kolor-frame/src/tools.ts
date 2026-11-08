@@ -2,7 +2,7 @@ import { exec } from 'node:child_process';
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { SkillsRegistry, resolveSkillsRoot } from 'kolor-skills';
+import { SkillError, SkillsRegistry, resolveSkillsRoot } from 'kolor-skills';
 
 /** Runtime context for KolorFrame tools. */
 export interface FrameContext {
@@ -10,6 +10,8 @@ export interface FrameContext {
   root: string;
   /** Skills directory (`~/.agents/skills` by default). */
   skillsRoot?: string;
+  /** Extra skills areas (user / built-in) searched by the `skills` tool. */
+  extraSkillRoots?: string[];
 }
 
 export interface FrameToolResult {
@@ -299,22 +301,29 @@ async function bashTool(args: Record<string, unknown>, context: FrameContext): P
 
 function skillsTool(args: Record<string, unknown>, context: FrameContext): FrameToolResult {
   const id = requireString(args, 'id');
-  const registry = new SkillsRegistry({ root: context.skillsRoot ?? resolveSkillsRoot() });
-  const skill = registry.read(id);
-  const files = skill.files.length > 0 ? skill.files.join('\n') : '(none)';
-  return {
-    content: [
-      `# Skill ${skill.id}`,
-      `name: ${skill.name}`,
-      `path: ${skill.path}`,
-      'files:',
-      files,
-      '',
-      '---',
-      '',
-      skill.content,
-    ].join('\n'),
-  };
+  const roots = [
+    context.skillsRoot ?? resolveSkillsRoot(),
+    ...(context.extraSkillRoots ?? []),
+  ].filter((root) => root.trim() !== '');
+  for (const root of roots) {
+    const skill = new SkillsRegistry({ root }).get(id);
+    if (skill === undefined) continue;
+    const files = skill.files.length > 0 ? skill.files.join('\n') : '(none)';
+    return {
+      content: [
+        `# Skill ${skill.id}`,
+        `name: ${skill.name}`,
+        `path: ${skill.path}`,
+        'files:',
+        files,
+        '',
+        '---',
+        '',
+        skill.content,
+      ].join('\n'),
+    };
+  }
+  throw new SkillError(`unknown skill "${id}"`);
 }
 
 function formatBashResult(

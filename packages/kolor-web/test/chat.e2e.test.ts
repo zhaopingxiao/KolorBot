@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -27,6 +27,7 @@ async function tempApp(
     home,
     frameRoot,
     skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
     port: 0,
     apiUrl,
     apiModelName: 'test-model',
@@ -424,6 +425,8 @@ test('reports a missing API key before starting a turn', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'kolor-web-nokey-'));
   const app = await createKolorWebServer({
     home,
+    skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
     port: 0,
     apiUrl: model.url,
     apiKey: '',

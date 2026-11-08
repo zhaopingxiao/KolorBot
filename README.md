@@ -29,8 +29,7 @@ kolorbot/
 ├── docs/skills.png              # 技能面板（含 MCP 标识与详情）
 ├── docs/tool-call.png           # 工具调用详情截图
 ├── docs/mobile.png              # 移动端抽屉截图
-├── examples/skills/deepseek-search/  # 带 MCP 的搜索 / 抓取 skill
-├── examples/skills/browseruse/      # 带 MCP 的无头浏览器技能（实时画面 + WebMCP）
+├── inner/skills/browseruse/     # 内置技能：带 MCP 的无头浏览器（实时画面 + WebMCP）
 ├── packages/
 │   ├── kolor-agent-loop/        # 主循环
 │   │   ├── src/agent.ts         # KolorAgent：turn/step、事件、取消、上下文导入
@@ -63,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 144 个测试
+pnpm test      # 147 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -142,7 +141,9 @@ npm run web -- --host 0.0.0.0
 | `KOLOR_HOME` | `~/.kolor` | 数据目录（`sessions.db`、`providers.json`、`memory.json`、`workspace/`） |
 | `KOLOR_SESSIONS_DB` | `<home>/sessions.db` | 会话数据库 |
 | `KOLOR_FRAME_ROOT` | `<home>/workspace` | 内置文件/bash 工具的工作区根 |
-| `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 技能目录（Claude 标准） |
+| `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 兼容技能区（Claude 标准） |
+| `KOLOR_USER_SKILLS_DIR` | `<frameRoot>/skills` | 专属技能区（默认 `~/.kolor/workspace/skills`） |
+| `KOLOR_BUILTIN_SKILLS_DIR` | `<repo>/inner/skills` | 内置技能区 |
 | `BROWSERUSE_VIEW_PORT` | `9223` | browseruse 技能实时画面的端口（经 `kolor.json` 的 `${VAR}` 注入技能进程） |
 | `BROWSERUSE_HEADLESS` | `true` | browseruse 技能用 `false` 时显示真实浏览器窗口 |
 
@@ -337,7 +338,7 @@ KolorFrame 提供：
 - **API Key 只存在这个文件里**（POSIX 上写 `0600`），接口只回传 `hasKey` 和 `••••最后四位`，永远不回传明文；会话数据库里也不会写 key。
 - 接口地址会做归一化：粘贴 `.../chat/completions` 或 `.../models` 会去掉后缀，只保留根地址。
 - 这是本机可信环境的单用户工具：`providers.json` 是明文的，不要把它放进公开仓库。
-- `examples/skills/deepseek-search` 的 `${DEEPSEEK_API_KEY}` 仍然从**进程环境变量**读取，不会自动使用提供商里的 key。
+- 技能 `kolor.json` 里的 `${DEEPSEEK_API_KEY}` 仍然从**进程环境变量**读取，不会自动使用提供商里的 key。
 
 ## 记忆：日记
 
@@ -519,16 +520,26 @@ review - 按仓库规范审阅 diff……
 （用户原话）
 ```
 
-- 发送后把列表指纹（`v1:<sha1>`）记进会话的 `skills_signature`；之后普通消息不再重复携带。
+- 发送后把列表指纹（`v2:<sha1>`）记进会话的 `skills_signature`；之后普通消息不再重复携带。
 - 重置会清空该指纹，所以重置后的第一条消息会重新注入。
 - 列表为空时不注入空标签。
-- AI 需要细节时调用内置的 `skills(id)` 工具，拿到完整 `SKILL.md` 和该技能的文件列表。
+- AI 需要细节时调用内置的 `skills(id)` 工具，拿到完整 `SKILL.md` 和该技能的文件列表（三个区都会查）。
 
-路径优先级：`KOLOR_SKILLS_DIR` → `~/.agents/skills`。Web 侧栏的「技能」可以直接查看已安装技能和内容；带 `kolor.json` 的技能会显示 **MCP** 标识，点开详情能看到它声明的所有 MCP server。
+### 技能的三个区
 
-示例：[`examples/skills/deepseek-search`](examples/skills/deepseek-search) 是一个带 MCP 的搜索/抓取 skill，模型可以调用 `search` 搜索网页、`fetch` 读取 Markdown 正文；它通过 `kolor.json` 的 `${DEEPSEEK_API_KEY}` 占位符拿到宿主进程的 key。
+Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区分组展示（带数量；空区会显示目录提示）：
 
-另一个示例：[`examples/skills/browseruse`](examples/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径。**每个操作（打开/点击/输入/按键/执行 JS）都会自动附带一次 snapshot 和新截图**，截图按需展示（用户要截图或需要说明页面时才贴出来）；实时画面地址只在打开新网页后给一次（或用户主动问），文本快照够用时不额外读图。预览页支持鼠标/键盘/滚轮，触摸屏上单指上下滑动会滚动网页。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
+| 区 | 目录 | 说明 |
+| --- | --- | --- |
+| 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR` 可覆盖） | Claude 标准的兼容区，原来的安装位置 |
+| 专属技能 | `<workspace>/skills`，默认 `~/.kolor/workspace/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
+| 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` 放在这里 |
+
+- 三个区都按 `<区>/<id>/SKILL.md` 组织；同名技能按 **专属 → 兼容 → 内置** 的优先级取第一个，不会重复注入。
+- 三个区的 `kolor.json` 都会被收集；同名 MCP server 同样按这个优先级取第一个。
+- 改完技能文件不需要重启：下一轮对话重新读列表（列表指纹变化会触发重新注入和 MCP 重连）。
+
+内置技能 [`inner/skills/browseruse`](inner/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径。**每个操作（打开/点击/输入/按键/执行 JS）都会自动附带一次 snapshot 和新截图**，截图按需展示（用户要截图或需要说明页面时才贴出来）；实时画面地址只在打开新网页后给一次（或用户主动问），文本快照够用时不额外读图。预览页支持鼠标/键盘/滚轮，触摸屏上单指上下滑动会滚动网页。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
 
 ## Web HTTP API
 
@@ -548,7 +559,7 @@ review - 按仓库规范审阅 diff……
 | PUT | `/api/sessions/:id/topic` | 设置/清除主题（下一条消息注入） |
 | GET/POST | `/api/sessions/:id/tasks` | 定时任务列表 / 新建 |
 | DELETE | `/api/sessions/:id/tasks/:taskId` | 删除定时任务 |
-| GET | `/api/skills` | 已安装技能列表 + 签名 + 每个技能的 `mcpServers` |
+| GET | `/api/skills` | 三个技能区的技能列表（`source` 区分区）+ 签名 + `roots`（分区/路径/数量）+ 每个技能的 `mcpServers` |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
 | POST | `/api/sessions/:id/reset` | 重置：清空上下文，保留名称与主题；正在跑的 turn 会被丢弃（不写回上下文） |
 | GET | `/api/sessions/:id/export` | 导出 JSON（含主题） |
@@ -577,13 +588,13 @@ review - 按仓库规范审阅 diff……
 pnpm test
 ```
 
-共 144 个测试：
+共 147 个测试：
 
 - `kolor-agent-loop`（42）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
 - `kolor-sessions`（23）：CRUD、路径解析、持久化重开、导入导出、非法上下文、主题注入、重置、旧库迁移、定时规则/任务存储、技能签名、日记签名。
-- `kolor-skills`（12）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
+- `kolor-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
 - `kolor-frame`（7）：读写、目录、bash、skills 工具、越界路径、错误映射。
-- `kolor-web`（60）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、固定的整理提示词、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、当天第一次整理必须有 `previous_topic`（拒绝后重试）、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
+- `kolor-web`（61）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、固定的整理提示词、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、当天第一次整理必须有 `previous_topic`（拒绝后重试）、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
 
 全部测试不需要网络和 API key。
 

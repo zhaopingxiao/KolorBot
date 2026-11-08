@@ -3,7 +3,7 @@
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（144 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（147 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
 
 ## 1. 这个项目是什么
 
@@ -35,8 +35,7 @@ D:\code\kolorbot\
 │   └── kolor-web/            # Web 服务、SSE、调度器、提醒工具、提供商、前端
 ├── scripts/restart.ps1       # 启停脚本（restart.cmd 调用）
 ├── restart.cmd               # 启停脚本入口
-├── examples/skills/deepseek-search/  # 带 MCP 的搜索/抓取技能源码
-├── examples/skills/browseruse/       # 带 MCP 的无头浏览器技能（实时画面 + WebMCP）
+├── inner/skills/browseruse/  # 内置技能：无头浏览器（MCP + 实时画面 + WebMCP）
 ├── docs/                     # UI 截图
 ├── README.md
 ├── HANDOFF.md
@@ -106,11 +105,20 @@ It's 2026/10/27 20:16:00 Tuesday. Do: 任务名
 
 ### 3.5 技能（`kolor-skills`）
 
-- 技能目录：`~/.agents/skills/<id>/SKILL.md`，Claude 标准 frontmatter。
+- 三个技能区（2026-11-08 新增多区支持）：
+
+  | 区 | 目录 | 说明 |
+  | --- | --- | --- |
+  | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR`） | Claude 标准兼容区 |
+  | 专属技能 | `<frameRoot>/skills`（`KOLOR_USER_SKILLS_DIR`） | KolorBot 自己的区，默认 `~/.kolor/workspace/skills` |
+  | 内置技能 | `<repo>/inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR`） | 随源码分发，`browseruse` 在这里 |
+
+- 每个区都按 `<区>/<id>/SKILL.md` 读，Claude 标准 frontmatter；同名技能按 **专属 → 兼容 → 内置** 取第一个，三个区的 `kolor.json` 都收集、同名 MCP server 同样按这个优先级。
+- `SkillsRegistry({ roots })` 接收 `SkillRoot[]`（`source` + `path`）；`list()` 合并去重、`listSource(source)` 保留分区、`get(id)` 从实际路径读文件；`signature()` 是 `v2:<sha1>`（包含 id/描述/来源），来源变化会重新注入。
 - 生成 `<system-skills>` 列表，格式 `id - description`。
 - 对话开始、重置、或技能列表指纹变化时注入；发送后记录 `skills_signature`。
-- 内置 `skills(id)` 工具读取完整 `SKILL.md` 和文件列表。
-- Web 侧栏「技能」面板可查看列表和详情；有 MCP 的技能带 **MCP** 标识，点开详情能看到它声明的所有 server（名称 + transport）。
+- 内置 `skills(id)` 工具读取完整 `SKILL.md` 和文件列表（`kolorFrame.extraSkillRoots` 让三个区都能查）。
+- Web 侧栏「技能」面板按三个区分组展示（标题 + 数量 + 空区目录提示），有 MCP 的技能带 **MCP** 标识，点开详情能看到它声明的所有 server（名称 + transport）。`/api/skills` 返回 `roots: [{ source, label, path, count }]`。
 - 每技能可用 `kolor.json` 声明 MCP：
 
 ```json
@@ -126,7 +134,7 @@ It's 2026/10/27 20:16:00 Tuesday. Do: 任务名
 ```
 
 - 也接受 `"mcp"` 作为 `mcpServers` 的别名。
-- `kolor.json` 可放在单个技能目录，也可放在 `~/.agents/skills/kolor.json` 作为全局配置（全局优先）。
+- `kolor.json` 可放在单个技能目录，也可放在任一个技能区根目录作为全局配置（区根优先，然后按技能 id 排序）。
 - `env` / `headers` 支持 `${VAR}` 展开，从启动进程的环境读取；`/api/mcp` 和 `/api/config` 不会回传 env/headers。
 
 ### 3.6 MCP 的管理方式
@@ -179,7 +187,7 @@ mcp__kolor-frame__read_file
 
 ### 3.9 DeepSeek 搜索/抓取技能
 
-已经安装到 `~/.agents/skills/deepseek-search/`，源码在 `examples/skills/deepseek-search/`。
+已经安装到 `~/.agents/skills/deepseek-search/`（源码已从仓库的 examples 里移除，技能本身仍在兼容区）。
 
 - MCP server：`server.mjs`，无第三方依赖，stdio JSON-RPC。
 - 工具：
@@ -241,7 +249,7 @@ mcp__kolor-frame__read_file
 
 ### 3.14 浏览器操控技能（browseruse，2026-11-08 新增）
 
-一个**挂在 MCP 上的真实浏览器**，只是技能、不是内置功能。源码 `examples/skills/browseruse/`，已安装到 `~/.agents/skills/browseruse/`（含 `node_modules`）。
+一个**挂在 MCP 上的真实浏览器**，只是技能。源码在 `inner/skills/browseruse/`（内置技能区，启动时自动发现，不再安装到 `~/.agents`）。
 
 - **入口**：`kolor.json` 声明 stdio MCP `browseruse` → `node server.mjs`；依赖只有 `playwright-core`，驱动**系统 Edge**（`channel: 'msedge'`）的无头实例，不用下载浏览器内核。
 - **实时画面**：server 内置一个小 HTTP 服务，默认 `http://127.0.0.1:9223/`（`BROWSERUSE_VIEW_PORT` 可改；`BROWSERUSE_HEADLESS=false` 显示真实窗口），`/screen.mjpg` 用 MJPEG 实时流屏幕，`/screen.png` 取单帧，`/shot/<file>` 提供保存的截图，`/` 是观看页。每次工具操作后自动截图；有人观看时每 250ms 补帧。**页面可手动操作**：观看页把鼠标点击/双击/右键、滚轮、键盘经 `POST /input` 转发到真实页面（坐标按截图比例映射到视口，键盘带修饰键，中文走顶部输入框回车 → `insertText`），**触摸屏单指上下滑动会转成滚轮滚动网页**（2026-11-08：之前只能鼠标滚轮，手机没法滑）；滚轮转发会先把鼠标移到视口中心再滚，避免落在不可滚动区域。
@@ -250,7 +258,7 @@ mcp__kolor-frame__read_file
 - **实时地址只在打开新页面后给一次**：`browser_open` 的返回里带 `Live view:`，其他工具（含自动快照）不再输出地址；用户主动问时才重复。
 - **WebMCP**：`browser_webmcp_list()` / `browser_webmcp_call(name, input)` 通过 CDP `Page.listWebMCPTools` / `Page.invokeWebMCPTool` 调用**网页自己注册的** WebMCP 工具；启动参数带了 `--enable-features=WebMCP,WebMCPTesting,DevToolsWebMCPSupport`。需要 Chrome ≥ 149；当前系统 Edge 157 还没开放该 CDP 命令，工具会返回明确的「不支持」错误，换支持它的浏览器即可用。
 - **生命周期**：MCP 进程随会话 agent 存在，所以浏览器页面和实时画面在**同一会话的多轮之间保留**；会话删除/重置或模型切换重建 agent 时进程退出、画面地址失效。
-- **验证**：`examples/skills/browseruse/smoke.mjs` 直接对 server.mjs 打 JSON-RPC（open/snapshot/click/type/evaluate/webmcp_list + 实时画面三个端点 + `/input` 手动操作 + 滚轮滚动）；检查每个操作的返回都带自动快照和 `![...]` 图片、只有 `browser_open` 带 `Live view:`、`/shot/<file>` 可下载 JPEG、wheel 后 `scrollY > 0`。另在线上实例用真实模型实测：只调用 `browser_open` + `browser_click`，回复里出现 **2 张截图** 且实时地址只出现一次；UI 侧确认 Markdown 图片渲染成 `<img class="md-image">`。
+- **验证**：`inner/skills/browseruse/smoke.mjs` 直接对 server.mjs 打 JSON-RPC（open/snapshot/click/type/evaluate/webmcp_list + 实时画面三个端点 + `/input` 手动操作 + 滚轮滚动）；检查每个操作的返回都带自动快照和 `![...]` 图片、只有 `browser_open` 带 `Live view:`、`/shot/<file>` 可下载 JPEG、wheel 后 `scrollY > 0`。另在线上实例用真实模型实测：只调用 `browser_open` + `browser_click`，回复里出现 **2 张截图** 且实时地址只出现一次；UI 侧确认 Markdown 图片渲染成 `<img class="md-image">`。
 - **注意**：这是浏览器自动化，网页里能登录、能执行任意 JS；敏感操作前先确认用户。单窗口单页面，没有多标签。
 
 ## 4. 关键约束 / 容易踩的坑
@@ -352,7 +360,9 @@ CLI 优先级高于 `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT`。
 │   └── daily/        # 日记：YYYY-MM-DD.md，一天一个文件
 └── mcp.json          # 已废弃并删除，不再使用
 
-~/.agents/skills/     # 技能目录（当前 4 个：deepseek-search / email / ppt-master / browseruse）
+~/.agents/skills/     # 兼容技能区（当前 3 个：deepseek-search / email / ppt-master）
+~/.kolor/workspace/skills/  # 专属技能区（默认空）
+<repo>/inner/skills/  # 内置技能区（browseruse）
 ```
 
 - 迁移项目目录**不会**自动迁移这些数据。
@@ -382,7 +392,7 @@ CLI 优先级高于 `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT`。
 | POST | `/api/sessions/:id/reset` | 重置上下文；运行中的 turn 丢弃 |
 | GET | `/api/sessions/:id/export` | 导出 JSON |
 | POST | `/api/sessions/import` | 导入会话 |
-| GET | `/api/skills` | 技能列表 + 签名 + 每个技能的 `mcpServers` |
+| GET | `/api/skills` | 三区技能列表（`source`）+ 签名 + `roots` + 每个技能的 `mcpServers` |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
 | GET | /api/mcp | skill 声明的 MCP（只读；UI 已不单独使用） |
 | POST | /api/mcp/:name/restart | 关闭指定的 MCP 服务器并重新连接（技能详情「刷新」按钮） |
@@ -397,12 +407,12 @@ UI 已不提供 export/import/rename 入口，但 API 仍然存在。
 
 ```text
 pnpm build  ✅
-pnpm test   ✅ 144/144
+pnpm test   ✅ 147/147
   kolor-agent-loop 42
   kolor-sessions   23
-  kolor-skills     12
+  kolor-skills     14
   kolor-frame       7
-  kolor-web        60   （原 38 + 记忆日记 9 + 记忆衔接 4 + 运行中的 turn 7 + 衔接兜底 2）
+  kolor-web        61   （原 38 + 记忆日记 9 + 记忆衔接 4 + 运行中的 turn 7 + 衔接兜底 2）
 ```
 
 CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工具、技能注入、提醒工具、定时任务、schedule_reminder、模型提供商、日记（文件格式、Previous Topic 衔接与拒绝后重试、注入去重、手动命令、静默自动整理）、以及运行中的 turn（断开继续、回放、409、取消、reset 不被写回）。
@@ -441,7 +451,7 @@ cd D:\code\kolorbot
 pnpm install
 pnpm test
 
-当前状态：144 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
+当前状态：147 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
 模型只来自「模型」页的提供商（OpenAI Chat Completions 协议），没有内置默认模型；
 只有显式设置 KOLOR_API_URL + KOLOR_API_MODEL + key 才会出现「环境变量」回退项；
 「记忆」页的日记开关可让对话静默 10 分钟后自动追加日记，发 /update-daily-memory 可立即整理；
@@ -479,6 +489,5 @@ pnpm test
 | `packages/kolor-web/public/styles.css` | 白色主题 + 思考三点 + 移动端抽屉 + 提供商 / 记忆样式 |
 | `packages/kolor-web/public/app.js` | UI 状态、turn 镜像/重连、跟随滚动、Markdown 渲染、思考指示、工具卡片、抽屉、提供商页、记忆页 |
 | `tsconfig.dev.json` | tsx 的 paths（`npm run web` 直接跑源码不 build） |
-| `examples/skills/deepseek-search/` | DeepSeek 搜索/抓取技能 |
-| `examples/skills/browseruse/` | 无头浏览器技能（`server.mjs` MCP + 实时画面 + WebMCP；`smoke.mjs` 自测） |
+| `inner/skills/browseruse/` | 内置无头浏览器技能（`server.mjs` MCP + 实时画面 + WebMCP；`smoke.mjs` 自测） |
 | `docs/` | 当前 UI 截图 |

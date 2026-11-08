@@ -13,6 +13,8 @@ export interface SkillSummary {
   description: string;
   /** Absolute path of SKILL.md. */
   path: string;
+  /** Which skills area the skill came from. */
+  source: SkillSource;
 }
 
 export interface SkillDetails extends SkillSummary {
@@ -21,6 +23,21 @@ export interface SkillDetails extends SkillSummary {
   /** Relative files inside the skill directory. */
   files: string[];
 }
+
+/** The three skills areas, in display order. */
+export type SkillSource = 'agents' | 'user' | 'builtin';
+
+/** One skills area: a directory plus the label the UI groups it under. */
+export interface SkillRoot {
+  source: SkillSource;
+  path: string;
+}
+
+export const SKILL_SOURCE_LABELS: Record<SkillSource, string> = {
+  agents: '兼容技能',
+  user: '专属技能',
+  builtin: '内置技能',
+};
 
 export class SkillError extends Error {
   override name = 'SkillError';
@@ -36,49 +53,50 @@ export function resolveSkillsRoot(env: NodeJS.ProcessEnv = process.env): string 
 /**
  * A read-only view over Claude-standard skills installed as
  * `<root>/<id>/SKILL.md` (plus optional supporting files).
+ *
+ * Multiple roots are supported (the web app passes the agents, user and
+ * built-in areas). Skills are merged by id; the first root that provides an id
+ * wins, so callers order `roots` from highest to lowest precedence.
  */
 export class SkillsRegistry {
-  readonly root: string;
+  readonly roots: SkillRoot[];
   readonly #env: NodeJS.ProcessEnv;
 
-  constructor(options: { root?: string; home?: string; env?: NodeJS.ProcessEnv } = {}) {
+  constructor(options: { roots?: SkillRoot[]; root?: string; home?: string; env?: NodeJS.ProcessEnv } = {}) {
     this.#env = options.env ?? process.env;
-    this.root =
-      options.root ??
-      (options.home === undefined ? resolveSkillsRoot(this.#env) : join(options.home, 'skills'));
+    if (options.roots !== undefined) {
+      this.roots = options.roots;
+    } else {
+      const path =
+        options.root ??
+        (options.home === undefined ? resolveSkillsRoot(this.#env) : join(options.home, 'skills'));
+      this.roots = [{ source: 'agents', path }];
+    }
+  }
+
+  /** First root, kept for single-root callers. */
+  get root(): string {
+    return this.roots[0]?.path ?? resolveSkillsRoot(this.#env);
   }
 
   /** Installed skills sorted by id; missing directories yield an empty list. */
   list(): SkillSummary[] {
-    let entries;
-    try {
-      entries = readdirSync(this.root, { withFileTypes: true });
-    } catch {
-      return [];
-    }
-
+    const seen = new Set<string>();
     const skills: SkillSummary[] = [];
-    for (const entry of entries) {
-      if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
-      const directory = join(this.root, entry.name);
-      const fileName = findSkillFile(directory);
-      if (fileName === undefined) continue;
-      const skillPath = join(directory, fileName);
-      let source: string;
-      try {
-        source = readFileSync(skillPath, 'utf8');
-      } catch {
-        continue;
+    for (const root of this.roots) {
+      for (const skill of listSkillsInRoot(root)) {
+        if (seen.has(skill.id)) continue;
+        seen.add(skill.id);
+        skills.push(skill);
       }
-      const { frontmatter, body } = parseSkillMarkdown(source);
-      const name = (frontmatter.name ?? '').trim() || entry.name;
-      const description = normalizeDescription(
-        frontmatter.description ?? firstParagraph(body),
-      );
-      skills.push({ id: entry.name, name, description, path: skillPath });
     }
-
     return skills.sort((left, right) => left.id.localeCompare(right.id));
+  }
+
+  /** Skills that belong to one area (no cross-root merge). */
+  listSource(source: SkillSource): SkillSummary[] {
+    const root = this.roots.find((entry) => entry.source === source);
+    return root === undefined ? [] : listSkillsInRoot(root);
   }
 
   /** Full skill details (SKILL.md + file list), or undefined when unknown. */
@@ -88,7 +106,7 @@ export class SkillsRegistry {
     return {
       ...summary,
       content: readFileSync(summary.path, 'utf8'),
-      files: listFiles(join(this.root, id)),
+      files: listFiles(dirname(summary.path)),
     };
   }
 
@@ -102,19 +120,20 @@ export class SkillsRegistry {
   /**
    * MCP servers declared by `kolor.json` files.
    *
-   * A file in the skills root is global; files inside individual skills belong
-   * to that skill. Root declarations win, then skills by id, so two skills
-   * cannot silently shadow each other's tools.
+   * A file in a skills root is global; files inside individual skills belong
+   * to that skill. Roots are visited in order, then skills by id, and the first
+   * declaration of a name wins, so two skills cannot silently shadow each
+   * other's tools.
    */
   mcpServers(): SkillMcpServer[] {
     const seen = new Set<string>();
     const servers: SkillMcpServer[] = [];
-    const all = [
-      ...readSkillMcpServers(this.root, '', this.#env),
-      ...this.list().flatMap((skill) =>
+    const all = this.roots.flatMap((root) => [
+      ...readSkillMcpServers(root.path, '', this.#env),
+      ...listSkillsInRoot(root).flatMap((skill) =>
         readSkillMcpServers(dirname(skill.path), skill.id, this.#env),
       ),
-    ];
+    ]);
     for (const server of all) {
       if (seen.has(server.name)) continue;
       seen.add(server.name);
@@ -123,14 +142,45 @@ export class SkillsRegistry {
     return servers;
   }
 
-  /** Stable fingerprint of id + description, used to detect changes. */
+  /** Stable fingerprint of id + description + source, used to detect changes. */
   signature(): string {
     const hash = createHash('sha1');
     for (const skill of this.list()) {
-      hash.update(`${skill.id}\u0000${skill.description}\u0001`);
+      hash.update(`${skill.id}\u0000${skill.description}\u0000${skill.source}\u0001`);
     }
-    return `v1:${hash.digest('hex')}`;
+    return `v2:${hash.digest('hex')}`;
   }
+}
+
+/** Read every skill directory inside one root, sorted by id. */
+function listSkillsInRoot(root: SkillRoot): SkillSummary[] {
+  let entries;
+  try {
+    entries = readdirSync(root.path, { withFileTypes: true });
+  } catch {
+    return [];
+  }
+
+  const skills: SkillSummary[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory() || entry.name.startsWith('.')) continue;
+    const directory = join(root.path, entry.name);
+    const fileName = findSkillFile(directory);
+    if (fileName === undefined) continue;
+    const skillPath = join(directory, fileName);
+    let source: string;
+    try {
+      source = readFileSync(skillPath, 'utf8');
+    } catch {
+      continue;
+    }
+    const { frontmatter, body } = parseSkillMarkdown(source);
+    const name = (frontmatter.name ?? '').trim() || entry.name;
+    const description = normalizeDescription(frontmatter.description ?? firstParagraph(body));
+    skills.push({ id: entry.name, name, description, path: skillPath, source: root.source });
+  }
+
+  return skills.sort((left, right) => left.id.localeCompare(right.id));
 }
 
 /** The block prepended to a user message when skills are injected. */

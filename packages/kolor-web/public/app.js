@@ -1216,25 +1216,43 @@ async function loadSkills() {
   }
 
   const skills = data?.skills ?? [];
-
-  for (const skill of skills) {
-    const servers = skill.mcpServers ?? [];
-    const item = el('div', 'list-item');
-    const grow = el('div', 'grow');
-    const name = el('div', 'list-name', skill.name);
-    if (servers.length > 0) name.appendChild(mcpBadge(servers.length));
-    grow.appendChild(name);
-    grow.appendChild(el('div', 'list-sub', skill.description));
-    item.appendChild(grow);
-    item.style.cursor = 'pointer';
-    item.addEventListener('click', async () => {
-      const loaded = await api(`/api/skills/${encodeURIComponent(skill.id)}`);
-      renderSkillMcp(loaded.skill?.mcpServers ?? servers);
-      detail.textContent = loaded.skill?.content ?? '';
-      detail.classList.remove('hidden');
-    });
-    list.appendChild(item);
+  const groups = Array.isArray(data?.roots) ? data.roots : [];
+  if (groups.length === 0) {
+    // Older server: flat list.
+    for (const skill of skills) list.appendChild(skillListItem(skill));
+  } else {
+    for (const group of groups) {
+      const groupSkills = skills.filter((skill) => skill.source === group.source);
+      const head = el('div', 'skill-group-head');
+      head.title = group.path ?? '';
+      head.appendChild(el('span', 'skill-group-title', group.label ?? group.source));
+      head.appendChild(el('span', 'skill-group-count', String(groupSkills.length)));
+      list.appendChild(head);
+      if (groupSkills.length === 0) {
+        list.appendChild(el('div', 'skill-group-empty', `（空）把技能放进 ${group.path ?? '这个目录'}`));
+      }
+      for (const skill of groupSkills) list.appendChild(skillListItem(skill));
+    }
   }
+}
+
+function skillListItem(skill) {
+  const servers = skill.mcpServers ?? [];
+  const item = el('div', 'list-item');
+  const grow = el('div', 'grow');
+  const name = el('div', 'list-name', skill.name);
+  if (servers.length > 0) name.appendChild(mcpBadge(servers.length));
+  grow.appendChild(name);
+  grow.appendChild(el('div', 'list-sub', skill.description));
+  item.appendChild(grow);
+  item.style.cursor = 'pointer';
+  item.addEventListener('click', async () => {
+    const loaded = await api(`/api/skills/${encodeURIComponent(skill.id)}`);
+    renderSkillMcp(loaded.skill?.mcpServers ?? servers);
+    $('#skill-detail').textContent = loaded.skill?.content ?? '';
+    $('#skill-detail').classList.remove('hidden');
+  });
+  return item;
 }
 
 /* ---------------- models & providers ---------------- */

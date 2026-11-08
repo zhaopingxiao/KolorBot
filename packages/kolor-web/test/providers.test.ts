@@ -226,6 +226,7 @@ async function makeApp(t: TestContext): Promise<AppHandle> {
     home,
     frameRoot: join(home, 'workspace'),
     skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
     port: 0,
     apiUrl: 'http://127.0.0.1:1/v1',
     apiModelName: 'env-model',
@@ -385,6 +386,8 @@ test('refuses to chat when no provider or environment key is configured', async 
   const home = mkdtempSync(join(tmpdir(), 'kolor-web-nomodel-'));
   const app = await createKolorWebServer({
     home,
+    skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
     port: 0,
     apiUrl: 'http://127.0.0.1:1/v1',
     apiKey: '',
@@ -416,6 +419,8 @@ test('a key alone is no longer a default model', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'kolor-web-keyonly-'));
   const app = await createKolorWebServer({
     home,
+    skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
     port: 0,
     apiKey: 'sk-only-a-key',
     startScheduler: false,

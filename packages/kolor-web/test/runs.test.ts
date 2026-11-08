@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -32,6 +32,7 @@ async function tempApp(
     home,
     frameRoot: join(home, 'workspace'),
     skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
     port: 0,
     apiUrl,
     apiModelName: 'test-model',

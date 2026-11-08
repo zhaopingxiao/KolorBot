@@ -1071,6 +1071,42 @@ button:focus-visible {
   flex: none;
 }
 
+.skill-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 12px 2px 4px;
+  color: var(--muted);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+
+.skill-group-head:first-child {
+  margin-top: 2px;
+}
+
+.skill-group-title {
+  font-weight: 600;
+}
+
+.skill-group-count {
+  min-width: 16px;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--bg-2);
+  color: var(--faint);
+  font-size: 10.5px;
+  text-align: center;
+}
+
+.skill-group-empty {
+  padding: 2px 4px 6px;
+  color: var(--faint);
+  font-size: 11px;
+  overflow-wrap: anywhere;
+}
+
 .skill-detail {
   margin: 12px 0 0;
   padding: 12px 14px;

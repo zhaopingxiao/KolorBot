@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +18,7 @@ async function makeApp(t: TestContext, overrides: Record<string, unknown> = {}):
     home,
     frameRoot,
     skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
     port: 0,
     apiUrl: 'http://127.0.0.1:1/v1',
     apiModelName: 'test-model',
@@ -99,7 +100,7 @@ test('lists installed skills and returns their details', async (t) => {
   assert.equal(skills.length, 1);
   assert.equal(skills[0]?.id, 'demo');
   assert.equal(skills[0]?.description, 'Demo skill');
-  assert.match(String(listed.data?.signature), /^v1:[0-9a-f]{40}$/);
+  assert.match(String(listed.data?.signature), /^v2:[0-9a-f]{40}$/);
 
   const detail = await call(app, '/api/skills/demo');
   assert.equal(detail.status, 200);
@@ -217,6 +218,17 @@ test('lists MCP servers from skill kolor.json files and is read-only', async (t)
   ]);
   assert.deepEqual(skills.data?.globalMcpServers, []);
 
+  const roots = skills.data?.roots as Array<{ source: string; label: string; count: number }>;
+  assert.deepEqual(
+    roots.map((root) => [root.source, root.label, root.count]),
+    [
+      ['agents', '兼容技能', 1],
+      ['user', '专属技能', 0],
+      ['builtin', '内置技能', 0],
+    ],
+  );
+  assert.equal((skills.data?.skills as Array<{ source: string }>)[0]?.source, 'agents');
+
   const detail = await call(app, '/api/skills/demo');
   assert.deepEqual((detail.data?.skill as { mcpServers: unknown }).mcpServers, [
     { name: 'echo', transport: 'stdio' },
@@ -243,6 +255,51 @@ test('lists MCP servers from skill kolor.json files and is read-only', async (t)
     body: JSON.stringify({ enabled: false }),
   });
   assert.equal(patched.status, 404);
+});
+
+test('groups skills into the agents, user and built-in areas', async (t) => {
+  const { app } = await makeApp(t);
+
+  const writeSkill = (dir: string, id: string, description: string): void => {
+    mkdirSync(join(dir, id), { recursive: true });
+    writeFileSync(
+      join(dir, id, 'SKILL.md'),
+      `---\nname: ${id}\ndescription: ${description}\n---\n# ${id}\n`,
+      'utf8',
+    );
+  };
+  writeSkill(app.config.skillsDir, 'compat-one', 'from agents');
+  writeSkill(app.config.userSkillsDir, 'user-one', 'from user');
+  writeSkill(app.config.builtinSkillsDir, 'builtin-one', 'from source');
+
+  const data = await call(app, '/api/skills');
+  const skills = data.data?.skills as Array<{ id: string; source: string }>;
+  assert.deepEqual(
+    skills.map((skill) => [skill.id, skill.source]),
+    [
+      ['builtin-one', 'builtin'],
+      ['compat-one', 'agents'],
+      ['user-one', 'user'],
+    ],
+  );
+
+  const roots = data.data?.roots as Array<{ source: string; count: number; path: string }>;
+  assert.deepEqual(
+    roots.map((root) => [root.source, root.count]),
+    [
+      ['agents', 1],
+      ['user', 1],
+      ['builtin', 1],
+    ],
+  );
+  assert.equal(roots[0]?.path, app.config.skillsDir);
+  assert.equal(roots[1]?.path, app.config.userSkillsDir);
+  assert.equal(roots[2]?.path, app.config.builtinSkillsDir);
+
+  // A skill from any area can be read by id.
+  const detail = await call(app, '/api/skills/builtin-one');
+  assert.equal(detail.status, 200);
+  assert.equal((detail.data?.skill as { source: string }).source, 'builtin');
 });
 
 test('stores a session topic and resets the context without losing it', async (t) => {
