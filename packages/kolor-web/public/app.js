@@ -1156,10 +1156,38 @@ function renderSkillMcp(servers) {
   for (const server of servers) {
     const row = el('div', 'skill-mcp-item');
     row.appendChild(el('span', 'skill-mcp-name', server.name));
-    row.appendChild(el('span', 'skill-mcp-transport', server.transport));
+    const actions = el('span', 'skill-mcp-actions');
+    actions.appendChild(el('span', 'skill-mcp-transport', server.transport));
+    const refresh = el('button', 'text-button skill-mcp-refresh', '刷新');
+    refresh.type = 'button';
+    refresh.title = '关闭这个 MCP 服务器并重新连接';
+    refresh.addEventListener('click', () => void restartMcpServer(server, refresh));
+    actions.appendChild(refresh);
+    row.appendChild(actions);
     box.appendChild(row);
   }
   box.classList.remove('hidden');
+}
+
+async function restartMcpServer(server, button) {
+  button.disabled = true;
+  button.textContent = '重启中…';
+  try {
+    const data = await api(`/api/mcp/${encodeURIComponent(server.name)}/restart`, { method: 'POST' });
+    const ok = data?.status?.ok === true;
+    if (data?.status === null || data?.status === undefined) {
+      toast(`已重启 MCP 服务器：${server.name}（当前没有活跃连接）`);
+    } else if (ok) {
+      toast(`已重启 MCP 服务器：${server.name}`);
+    } else {
+      toast(`MCP 服务器 ${server.name} 重启失败：${data?.status?.error ?? '未知错误'}`, 'error');
+    }
+  } catch (error) {
+    toast(error.message, 'error');
+  } finally {
+    button.disabled = false;
+    button.textContent = '刷新';
+  }
 }
 
 async function loadSkills() {

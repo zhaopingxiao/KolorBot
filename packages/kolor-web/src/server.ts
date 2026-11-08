@@ -409,6 +409,18 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       return;
     }
 
+    // Refresh one MCP server: close its connection and reconnect it.
+    const mcpRestartMatch = /^\/api\/mcp\/([A-Za-z0-9_:%.-]+)\/restart$/.exec(pathname);
+    if (mcpRestartMatch !== null && method === 'POST') {
+      const name = decodeURIComponent(mcpRestartMatch[1] as string);
+      if (!skillsRegistry.mcpServers().some((server) => server.name === name)) {
+        throw new HttpError(404, `unknown MCP server "${name}"`);
+      }
+      const status = await pool.restartMcpServer(name);
+      sendJson(response, 200, { status: status ?? null, mcpStatus: pool.mcpStatus });
+      return;
+    }
+
     if (pathname === '/api/mcp') {
       if (method === 'GET') {
         sendJson(response, 200, {

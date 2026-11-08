@@ -82,6 +82,25 @@ export class McpManager {
     return [...this.#connections.values()].flatMap((connection) => connection.tools);
   }
 
+  /**
+   * Close one connection and reconnect it with the same config.
+   *
+   * Used by the "refresh MCP server" action: the subprocess (or HTTP session)
+   * is torn down and a brand-new one is attached, and the returned status is
+   * reported back to the caller.
+   */
+  async restart(config: McpServerConfig): Promise<McpServerStatus> {
+    const existing = this.#connections.get(config.name);
+    if (existing !== undefined) {
+      this.#connections.delete(config.name);
+      await existing.client.close().catch(() => undefined);
+    }
+    const status = await this.#connect(config);
+    if (status.ok) this.#options.onConnected?.(status);
+    else this.#options.onError?.(status);
+    return status;
+  }
+
   /** Tool count per server, for diagnostics. */
   get summary(): McpServerStatus[] {
     return [...this.#connections.values()].map((connection) => ({

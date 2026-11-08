@@ -152,6 +152,35 @@ export class KolorAgent {
     return this.#mcpStatus;
   }
 
+  /**
+   * Close one MCP server and reconnect it with the same config.
+   *
+   * The server's old tools are unregistered and the freshly discovered ones
+   * registered again, so tool calls keep working right after the refresh.
+   * Returns the new attach status, or `undefined` when the server is unknown
+   * or the agent was disposed.
+   */
+  async restartMcpServer(name: string): Promise<McpServerStatus | undefined> {
+    if (this.#disposed) return undefined;
+    const config = this.config.mcpServers.find((server) => server.name === name);
+    if (config === undefined) return undefined;
+
+    const status = await this.#mcp.restart(config);
+
+    for (const tool of this.#registry.list()) {
+      const meta = tool.meta as { server?: string } | undefined;
+      if (tool.source === 'mcp' && meta?.server === name) {
+        this.#registry.unregister(tool.name);
+      }
+    }
+    this.#attachMcpTools();
+
+    const index = this.#mcpStatus.findIndex((entry) => entry.name === name);
+    if (index >= 0) this.#mcpStatus[index] = status;
+    else this.#mcpStatus.push(status);
+    return status;
+  }
+
   /** Tools the model currently sees. */
   get tools(): ToolDefinition[] {
     return this.#registry.list();
@@ -403,6 +432,11 @@ export class KolorAgent {
     this.#started = true;
     if (this.config.mcpServers.length === 0) return;
     this.#mcpStatus = await this.#mcp.connectAll(this.config.mcpServers);
+    this.#attachMcpTools();
+  }
+
+  /** Register every MCP tool that does not collide with an existing one. */
+  #attachMcpTools(): void {
     for (const tool of this.#mcp.tools) {
       if (this.#registry.has(tool.name)) {
         this.#log(`MCP tool "${tool.name}" conflicts with an existing tool; keeping the local one`);

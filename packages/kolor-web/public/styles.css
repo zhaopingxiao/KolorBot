@@ -1097,7 +1097,7 @@ button:focus-visible {
 
 .skill-mcp-item {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: 10px;
   padding: 2px 0;
@@ -1110,9 +1110,20 @@ button:focus-visible {
   overflow-wrap: anywhere;
 }
 
-.skill-mcp-transport {
+.skill-mcp-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   flex: none;
+}
+
+.skill-mcp-transport {
   color: var(--faint);
+  font-size: 11px;
+}
+
+.skill-mcp-refresh {
+  padding: 1px 8px;
   font-size: 11px;
 }
 

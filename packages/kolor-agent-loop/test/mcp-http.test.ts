@@ -141,3 +141,58 @@ test('connects to a Streamable HTTP MCP server and calls a tool', async (t) => {
     assert.equal(toolMessage.isError, false);
   }
 });
+
+test('restarts one MCP server and keeps its tools working', async (t) => {
+  const mcpServer = await startHttpMcpServer();
+  t.after(() => mcpServer.close());
+
+  const modelServer = await startMockModelServer((context) => {
+    if (context.index % 2 === 0) {
+      context.send(
+        toolCallDelta({
+          id: `call_${context.index}`,
+          name: 'mcp__httpcalc__mul',
+          argumentsText: '{"a":2,"b":3}',
+        }),
+      );
+      for (const frame of finishWithUsage('tool_calls', { prompt: 5, completion: 5 })) {
+        context.send(frame);
+      }
+      context.fin();
+      return;
+    }
+    context.send(textDelta('computed'));
+    for (const frame of finishWithUsage('stop', { prompt: 4, completion: 2 })) context.send(frame);
+    context.fin();
+  });
+  t.after(() => modelServer.close());
+
+  const agent = await KolorAgent.create(
+    {
+      apiUrl: modelServer.url,
+      apiModelName: 'test-model',
+      apiKey: 'sk-test',
+      mcpServers: [{ name: 'httpcalc', transport: 'http', url: mcpServer.url }],
+    },
+    {},
+  );
+  t.after(() => agent.dispose());
+
+  assert.equal(agent.mcpServers[0]?.ok, true, agent.mcpServers[0]?.error);
+  assert.ok(agent.tools.some((tool) => tool.name === 'mcp__httpcalc__mul'));
+  assert.equal((await agent.run('multiply')).stopReason, 'completed');
+
+  assert.equal(await agent.restartMcpServer('missing'), undefined);
+  const status = await agent.restartMcpServer('httpcalc');
+  assert.equal(status?.ok, true, status?.error);
+  assert.ok(
+    agent.tools.some((tool) => tool.name === 'mcp__httpcalc__mul'),
+    'the tool is re-registered after the restart',
+  );
+
+  assert.equal((await agent.run('multiply again')).stopReason, 'completed');
+  const toolMessages = agent.session.messages.filter(
+    (message) => message.role === 'tool' && message.content === '6',
+  );
+  assert.equal(toolMessages.length, 2, 'the tool worked again after the restart');
+});

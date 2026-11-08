@@ -229,6 +229,15 @@ test('lists MCP servers from skill kolor.json files and is read-only', async (t)
   });
   assert.equal(added.status, 405);
 
+  // Restarting one MCP server: unknown names are rejected; known ones restart
+  // cleanly (with no live agent there is nothing to reconnect).
+  const restartUnknown = await call(app, '/api/mcp/nope/restart', { method: 'POST' });
+  assert.equal(restartUnknown.status, 404);
+
+  const restartEcho = await call(app, '/api/mcp/echo/restart', { method: 'POST' });
+  assert.equal(restartEcho.status, 200);
+  assert.equal(restartEcho.data?.status, null);
+
   const patched = await call(app, '/api/mcp/echo', {
     method: 'PATCH',
     body: JSON.stringify({ enabled: false }),

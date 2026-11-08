@@ -141,6 +141,27 @@ export class AgentPool {
     await Promise.allSettled(agents.map((agent) => agent.dispose()));
   }
 
+  /**
+   * Close one MCP server and reconnect it across every live agent.
+   *
+   * Returns the last attach status, or `undefined` when the server is not in
+   * the current configuration.
+   */
+  async restartMcpServer(name: string): Promise<McpServerStatus | undefined> {
+    if (this.#options.mcpConfigs().every((server) => server.name !== name)) return undefined;
+    let status: McpServerStatus | undefined;
+    for (const agent of this.#agents.values()) {
+      const result = await agent.restartMcpServer(name);
+      if (result !== undefined) status = result;
+    }
+    if (status !== undefined) {
+      const index = this.#lastMcpStatus.findIndex((entry) => entry.name === name);
+      if (index >= 0) this.#lastMcpStatus[index] = status;
+      else this.#lastMcpStatus.push(status);
+    }
+    return status;
+  }
+
   async close(): Promise<void> {
     await this.invalidate();
   }
