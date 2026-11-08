@@ -1,9 +1,9 @@
-# KolorBot 项目交接
+﻿# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（141 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（143 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
 
 ## 1. 这个项目是什么
 
@@ -216,12 +216,13 @@ mcp__kolor-frame__read_file
 - **开关**：`定时追加日记`，默认关；状态存在 `~/.kolor/memory.json`（`{ version: 1, diary: { autoAppend } }`）。
 - **自动整理**：一轮对话结束（`handleChat` / 定时任务）后开始计时，**10 分钟**内没有新用户消息就让这个会话跑一轮后台日记（无 SSE，和定时任务同一套路）。新消息会取消计时；重置/删除会话也会取消；日记轮次本身**不会**重新计时（否则会无限循环）。
 - **写入**：模型调用本地工具 `append_diary({ content, previous_topic? })`，工具负责路径、标题和小节，模型只写内容。文件是 `<workspace>/daily/YYYY-MM-DD.md`，本地时区，不存在时创建 `# YYYY-MM-DD`，然后追加 `## HH:mm` + 空行 + 内容。
-- **记忆衔接（2026-11-03 新增，2026-11-05 改成固定提示词）**：`<system-daily-memory-task>` 里是一段**固定英文提示词**，不再由服务端判断“当天第一条/有没有上一篇”，也不再把上一篇全文塞进上下文。提示词要求模型自己检查 `daily/YYYY-MM-DD.md`：不存在或为空就是当天第一条，要 `list daily/`、读最近一篇更早的日记、概括 2-4 条要点传 `previous_topic`；工具把它写成标题下的 `## Previous Topic` 小节，再写 `## HH:mm` 正文。同一天后续整理不会再写这段，`previous_topic` 也会被忽略。原 `MemoryStore.previousDiary()` / `isFirstEntryOfDay()` / `clipDiaryContent()` 已删除。
+- **记忆衔接（2026-11-03 新增，2026-11-05 改成固定提示词，2026-11-08 加工具侧兜底）**：`<system-daily-memory-task>` 里是一段**固定英文提示词**，不再由服务端判断“当天第一条/有没有上一篇”，也不再把上一篇全文塞进上下文。提示词要求模型自己检查 `daily/YYYY-MM-DD.md`：不存在或为空就是当天第一条，要 `list daily/`、读最近一篇更早的日记、概括 2-4 条要点传 `previous_topic`；工具把它写成标题下的 `## Previous Topic` 小节，再写 `## HH:mm` 正文。同一天后续整理不会再写这段，`previous_topic` 也会被忽略。原 `MemoryStore.previousDiary()` / `isFirstEntryOfDay()` / `clipDiaryContent()` 已删除（只保留了一个轻量的 `hasEarlierDiary()` 存在性检查）。
+- **工具侧兜底（2026-11-08）**：`MemoryStore.append` 在「当天文件不存在/为空」且 `daily/` 里有更早的日记、但没传 `previous_topic` 时抛 `KolorStateError`——错误作为 tool result 喂回模型，让它先读上一篇、概括后**重试**，被拒绝的调用不会写文件。没有更早日记、或当天已有内容时不拦。`DIARY_INSTRUCTION` 和 `append_diary` 的描述也写明 `REJECTS a first call`，要求先概括再调用。测试：`rejects a first entry that forgets previous_topic…`（单元）和 `the model retries with previous_topic after the tool rejects the first call`（端到端，第一次调用被拒、第二次带 previous_topic 成功）。
 - **注入**：每次发新消息时，如果当天日记非空，就在用户消息前加 `<system-daily-memory>…</system-daily-memory>`；会话表新增 `daily_signature` 记录上次发送的版本，**内容没变就不重复注入**；`reset()` 会清空签名（`markDailySent` / 迁移都跟 `skills_signature` 一致）。
 - **手动整理**：用户发 `/update-daily-memory`（大小写不敏感、必须整条消息），服务端换成**和自动触发完全相同**的消息：固定 `<system-daily-memory-task>` 提示词 + `It's <时间>. Update today's diary.`。UI 剥掉外壳后气泡里显示的就是那行时间戳，命令本身不再出现。
 - **提示词**：固定一段英文指令（`memory.ts` 的 `DIARY_INSTRUCTION`），自动和手动**用同一条消息、同一个末尾标签** `It's <时间>. Update today's diary.`；页面显示的就是这一行。指令要求回顾进展、决定、结论、待办，只写有信息量的内容、用对话语言、没新内容就回 `No new content.`。
 - **代码**：`memory.ts`（`MemoryStore`、日期/签名、固定提示词 `DIARY_INSTRUCTION`、`buildDiaryTaskMessage`）、`diary-idle.ts`（`IdleDiary` 计时器）、`diary-tool.ts`（`append_diary`，含 `previous_topic`）、`server.ts` 里的注入与 `runDiaryTurn`、`AgentPool.createDiary`。
-- **测试**：新增 14 个（`test/memory.test.ts` 13 个 + `kolor-sessions` 1 个），覆盖文件格式、固定提示词、Previous Topic 衔接、开关持久化、`/api/memory`、注入去重、重置后重注入、`/update-daily-memory`、以及静默后自动整理日记的端到端。
+- **测试**：新增 16 个（`test/memory.test.ts` 15 个 + `kolor-sessions` 1 个），覆盖文件格式、固定提示词、Previous Topic 衔接、**当天第一次必须有 `previous_topic` 的拒绝/重试（单元 + 端到端）**、开关持久化、`/api/memory`、注入去重、重置后重注入、`/update-daily-memory`、以及静默后自动整理日记的端到端。
 - **截图**：`docs/memory.png`（记忆页 + `## Previous Topic` + `append_diary` 工具卡片）。
 
 ### 3.13 运行中的 turn（`RunBroker`，2026-11-07 新增）
@@ -380,15 +381,15 @@ UI 已不提供 export/import/rename 入口，但 API 仍然存在。
 
 ```text
 pnpm build  ✅
-pnpm test   ✅ 141/141
+pnpm test   ✅ 143/143
   kolor-agent-loop 41
   kolor-sessions   23
   kolor-skills     12
   kolor-frame       7
-  kolor-web        58   （原 38 + 记忆日记 9 + 记忆衔接 4 + 运行中的 turn 7）
+  kolor-web        60   （原 38 + 记忆日记 9 + 记忆衔接 4 + 运行中的 turn 7 + 衔接兜底 2）
 ```
 
-CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工具、技能注入、提醒工具、定时任务、schedule_reminder、模型提供商、日记（文件格式、Previous Topic 衔接、注入去重、手动命令、静默自动整理）、以及运行中的 turn（断开继续、回放、409、取消、reset 不被写回）。
+CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工具、技能注入、提醒工具、定时任务、schedule_reminder、模型提供商、日记（文件格式、Previous Topic 衔接与拒绝后重试、注入去重、手动命令、静默自动整理）、以及运行中的 turn（断开继续、回放、409、取消、reset 不被写回）。
 
 ## 9. 已知限制 / 可以继续做的事
 
@@ -424,11 +425,11 @@ cd D:\code\kolorbot
 pnpm install
 pnpm test
 
-当前状态：141 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
+当前状态：143 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
 模型只来自「模型」页的提供商（OpenAI Chat Completions 协议），没有内置默认模型；
 只有显式设置 KOLOR_API_URL + KOLOR_API_MODEL + key 才会出现「环境变量」回退项；
 「记忆」页的日记开关可让对话静默 10 分钟后自动追加日记，发 /update-daily-memory 可立即整理；
-日记提示词是固定的英文文案，当天第一次整理会先写 ## Previous Topic 概括上一篇（记忆衔接）；
+日记提示词是固定的英文文案，当天第一次整理会先写 ## Previous Topic 概括上一篇（记忆衔接）；忘记传 previous_topic 时工具会拒绝并要求重试；
 一轮对话在服务端 RunBroker 里跑，断开页面会回放；只有离底部一行以内才自动跟随滚动；
 定时任务每种规则都支持 + 添加多个时间节点（时刻 / 日期 / 分钟），AI 回复边出边渲染 Markdown；
 代码已推送到 GitHub：https://github.com/zhaopingxiao/KolorBot.git。

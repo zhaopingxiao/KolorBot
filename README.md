@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 141 个测试
+pnpm test      # 143 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -376,6 +376,8 @@ KolorFrame 提供：
 
 **记忆衔接**：整理提示词是**固定的一段英文**（`<system-daily-memory-task>` 里），里面直接写了「如果今天还没有日记，就先看 `daily/` 里最近一篇更早的日记，概括成 2-4 条要点传 `previous_topic`」。模型自己判断是不是当天第一条并读上一篇，工具把 `previous_topic` 写成标题下的 `## Previous Topic` 小节，正文仍然是 `## 时:分`。同一天后续的整理不会再写这段，也不会接受新的 `previous_topic`。
 
+另外有**工具侧兜底**：当天第一次整理时，如果 `daily/` 里存在更早的日记，`append_diary` 会**拒绝**没带 `previous_topic` 的调用（错误作为工具结果喂回模型），模型必须先读上一篇、概括后再重试，所以 `## Previous Topic` 不会静默丢失；没有更早的日记时才允许不带。
+
 提示词外面那一行普通消息才是页面上显示的，自动和手动完全一样：`It's 2026/11/05 19:45:00 Thursday. Update today's diary.`。
 
 要点：
@@ -569,13 +571,13 @@ review - 按仓库规范审阅 diff……
 pnpm test
 ```
 
-共 141 个测试：
+共 143 个测试：
 
 - `kolor-agent-loop`（41）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
 - `kolor-sessions`（23）：CRUD、路径解析、持久化重开、导入导出、非法上下文、主题注入、重置、旧库迁移、定时规则/任务存储、技能签名、日记签名。
 - `kolor-skills`（12）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
 - `kolor-frame`（7）：读写、目录、bash、skills 工具、越界路径、错误映射。
-- `kolor-web`（58）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、固定的整理提示词、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
+- `kolor-web`（60）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、固定的整理提示词、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、当天第一次整理必须有 `previous_topic`（拒绝后重试）、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
 
 全部测试不需要网络和 API key。
 
