@@ -1,0 +1,12 @@
+{
+  "mcpServers": {
+    "browseruse": {
+      "command": "node",
+      "args": ["server.mjs"],
+      "env": {
+        "BROWSERUSE_VIEW_PORT": "${BROWSERUSE_VIEW_PORT}",
+        "BROWSERUSE_HEADLESS": "${BROWSERUSE_HEADLESS}"
+      }
+    }
+  }
+}

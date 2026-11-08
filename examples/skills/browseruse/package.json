@@ -1,0 +1,10 @@
+{
+  "name": "browseruse-skill",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "KolorBot skill: drive a real headless browser through MCP, with a live screen on a local URL.",
+  "dependencies": {
+    "playwright-core": "^1.55.0"
+  }
+}
