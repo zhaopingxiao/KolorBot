@@ -1,9 +1,9 @@
-# KolorBot 项目交接
+﻿# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（143 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（144 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
 
 ## 1. 这个项目是什么
 
@@ -133,7 +133,7 @@ It's 2026/10/27 20:16:00 Tuesday. Do: 任务名
 
 - **不再手动维护 `~/.kolor/mcp.json`**，旧文件已删除。
 - **Web 的 MCP 页面已删除**（2026-11-05）：MCP server 不再有独立面板，改在「技能」页展示——带 MCP 的技能旁边有 `MCP` 标识，点开技能详情能看到它声明的全部 server（名称 / transport）。`/api/mcp` 仍保留为只读 API，UI 不再调用。
-- 添加/删除/启用服务器 = 修改技能里的 `kolor.json`，下一轮对话会自动重连。
+- 添加/删除/启用服务器 = 修改技能里的 `kolor.json`，下一轮对话会自动重连。**单个服务器可以在技能详情里点「刷新」重启**（2026-11-08 新增）：`POST /api/mcp/:name/restart` → `AgentPool.restartMcpServer` → 每个存活 agent 的 `KolorAgent.restartMcpServer` → `McpManager.restart`（关闭旧连接、重新 `connect + listTools`、重新注册该服务器的工具，旧工具先 unregister）；无存活 agent 时返回 `status: null`。
 - 同名 server 先到先得；根配置优先，然后按技能 id 排序。
 
 ### 3.7 KolorFrame 的演变
@@ -382,7 +382,8 @@ CLI 优先级高于 `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT`。
 | POST | `/api/sessions/import` | 导入会话 |
 | GET | `/api/skills` | 技能列表 + 签名 + 每个技能的 `mcpServers` |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
-| GET | `/api/mcp` | skill 声明的 MCP（只读；UI 已不单独使用） |
+| GET | /api/mcp | skill 声明的 MCP（只读；UI 已不单独使用） |
+| POST | /api/mcp/:name/restart | 关闭指定的 MCP 服务器并重新连接（技能详情「刷新」按钮） |
 | POST | `/api/chat` | SSE 聊天流（turn 在 broker 里跑；同会话重复请求 409） |
 | POST | `/api/chat/cancel` | 取消当前轮次 |
 
@@ -394,8 +395,8 @@ UI 已不提供 export/import/rename 入口，但 API 仍然存在。
 
 ```text
 pnpm build  ✅
-pnpm test   ✅ 143/143
-  kolor-agent-loop 41
+pnpm test   ✅ 144/144
+  kolor-agent-loop 42
   kolor-sessions   23
   kolor-skills     12
   kolor-frame       7
@@ -438,7 +439,7 @@ cd D:\code\kolorbot
 pnpm install
 pnpm test
 
-当前状态：143 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
+当前状态：144 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
 模型只来自「模型」页的提供商（OpenAI Chat Completions 协议），没有内置默认模型；
 只有显式设置 KOLOR_API_URL + KOLOR_API_MODEL + key 才会出现「环境变量」回退项；
 「记忆」页的日记开关可让对话静默 10 分钟后自动追加日记，发 /update-daily-memory 可立即整理；
