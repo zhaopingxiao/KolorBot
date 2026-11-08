@@ -114,6 +114,43 @@ test('writes a Previous Topic section on the first entry of the day', (t) => {
   assert.match(content, /## 14:00\n\n下午又做了一件事/);
 });
 
+test('rejects a first entry that forgets previous_topic when an earlier diary exists', (t) => {
+  const home = tempDir(t);
+  const diaryDir = join(home, 'daily');
+  mkdirSync(diaryDir, { recursive: true });
+  writeFileSync(join(diaryDir, '2026-11-02.md'), '# 2026-11-02\n\n## 20:00\n\n昨天\n', 'utf8');
+  const store = new MemoryStore({ home, diaryDir });
+
+  assert.throws(
+    () => store.append('今天第一件事', new Date(2026, 10, 3, 6, 0)),
+    /previous_topic/,
+  );
+  assert.equal(
+    existsSync(join(diaryDir, '2026-11-03.md')),
+    false,
+    'a rejected call must not write the diary',
+  );
+
+  const result = store.append('今天第一件事', new Date(2026, 10, 3, 6, 0), {
+    previousTopic: '昨天：完成了提供商接入',
+  });
+  assert.equal(result.previousTopic, true);
+  assert.match(readFileSync(result.path, 'utf8'), /## Previous Topic\n\n昨天：完成了提供商接入/);
+
+  // Same-day later entries never need it.
+  const second = store.append('下午又做了一件事', new Date(2026, 10, 3, 14, 0));
+  assert.equal(second.created, false);
+
+  // A very first diary (no earlier file) is still allowed without it.
+  const fresh = new MemoryStore({
+    home: join(home, 'fresh'),
+    diaryDir: join(home, 'fresh', 'daily'),
+  });
+  const plain = fresh.append('第一篇', new Date(2026, 10, 4, 8, 0));
+  assert.equal(plain.created, true);
+  assert.equal(plain.previousTopic, false);
+});
+
 test('formats the injection block, the task message and recognises the command', () => {
   const block = formatDiaryBlock('# 2026-11-02\n\n## 09:05\n\n进展\n');
   assert.equal(
@@ -145,6 +182,7 @@ test('the diary task message is fixed: only the timestamp changes', () => {
   assert.match(instructionOf(first), /first memory of the day/);
   assert.match(instructionOf(first), /previous_topic/);
   assert.match(instructionOf(first), /## Previous Topic/);
+  assert.match(instructionOf(first), /REJECTS a first call/);
   assert.match(instructionOf(first), /No new content\./);
   assert.equal(instructionOf(first).includes('<previous-diary>'), false);
   assert.equal(instructionOf(first).includes('2026/11/02'), false, 'no timestamp inside the envelope');
@@ -433,6 +471,64 @@ test('the first diary of the day hands over from the previous diary', async (t) 
   const after = readFileSync(join(dailyDir, `${todayKey}.md`), 'utf8');
   assert.equal(after.match(/## Previous Topic/g)?.length, 1);
   assert.match(after, /## \d{2}:\d{2}\n\n今天第 2 次整理/);
+});
+
+test('the model retries with previous_topic after the tool rejects the first call', async (t) => {
+  const model = await startMockModelServer((context) => {
+    if (context.index === 0) {
+      context.send(
+        toolCall({
+          id: 'call_first',
+          name: 'append_diary',
+          arguments: JSON.stringify({ content: '今天第 1 次整理' }),
+        }),
+      );
+      for (const frame of finish('tool_calls')) context.send(frame);
+      context.fin();
+      return;
+    }
+    if (context.index === 1) {
+      context.send(
+        toolCall({
+          id: 'call_retry',
+          name: 'append_diary',
+          arguments: JSON.stringify({
+            content: '今天第 1 次整理',
+            previous_topic: '昨天：完成了记忆日记',
+          }),
+        }),
+      );
+      for (const frame of finish('tool_calls')) context.send(frame);
+      context.fin();
+      return;
+    }
+    reply('日记已整理')(context);
+  });
+  t.after(() => model.close());
+
+  const { app, frameRoot } = await makeApp(t, { apiUrl: model.url });
+  const dailyDir = join(frameRoot, 'daily');
+  mkdirSync(dailyDir, { recursive: true });
+  const now = new Date();
+  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+  const yesterdayKey = diaryDateKey(yesterday);
+  writeFileSync(
+    join(dailyDir, `${yesterdayKey}.md`),
+    `# ${yesterdayKey}\n\n## 20:00\n\n昨天做完了记忆日记\n`,
+    'utf8',
+  );
+
+  const sessionId = await createSession(app, '衔接重试');
+  await postChat(app, sessionId, '/update-daily-memory');
+
+  const todayKey = diaryDateKey(now);
+  const content = readFileSync(join(dailyDir, `${todayKey}.md`), 'utf8');
+  assert.match(
+    content,
+    new RegExp(
+      `^# ${todayKey}\\n\\n## Previous Topic\\n\\n昨天：完成了记忆日记\\n\\n## \\d{2}:\\d{2}\\n\\n今天第 1 次整理`,
+    ),
+  );
 });
 
 test('the idle timer appends the diary after the conversation goes quiet', async (t) => {

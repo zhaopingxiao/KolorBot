@@ -20,8 +20,10 @@ export function createDiaryTool(append: AppendDiary): ToolDefinition {
       'The tool creates the file with a `# YYYY-MM-DD` title if needed and adds a `## HH:mm` heading. ' +
       'Use it when asked to organize the daily memory, and write only what happened since the previous entry, ' +
       'in the language of the conversation, as short bullet points. ' +
-      'On the first entry of a day, pass `previous_topic` with a short summary of the previous diary; ' +
-      "the tool writes it as a `## Previous Topic` section before the first timestamp.",
+      'On the first entry of a day, `previous_topic` is REQUIRED whenever an earlier diary exists: ' +
+      'check daily/ first, and the tool REJECTS a first call without `previous_topic`, so retry with the ' +
+      '2-4 bullet summary instead of giving up. `previous_topic` is only optional when there is no earlier diary. ' +
+      "The tool writes it as a `## Previous Topic` section before the first timestamp.",
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -34,7 +36,7 @@ export function createDiaryTool(append: AppendDiary): ToolDefinition {
         previous_topic: {
           type: 'string',
           description:
-            'Only for the first entry of the day: a 2-4 bullet summary of the most recent previous diary (what was being worked on, where it stopped). Written as `## Previous Topic` right after the date title. Ignored when today already has entries.',
+            'Required on the first entry of the day when an earlier diary exists (the tool rejects a first call without it): a 2-4 bullet summary of the most recent previous diary (what was being worked on, where it stopped). Written as `## Previous Topic` right after the date title. Optional when there is no earlier diary; ignored when today already has entries.',
         },
       },
       required: ['content'],

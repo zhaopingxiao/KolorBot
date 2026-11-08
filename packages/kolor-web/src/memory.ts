@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
+  readdirSync,
   readFileSync,
   renameSync,
   writeFileSync,
@@ -122,12 +123,36 @@ export class MemoryStore {
   }
 
   /**
+   * True when at least one `YYYY-MM-DD.md` older than `at` exists, so a
+   * `## Previous Topic` hand-off is possible. Used to reject a first entry
+   * of the day that forgets `previous_topic`.
+   */
+  hasEarlierDiary(at: Date = this.#now()): boolean {
+    if (!existsSync(this.diaryDir)) return false;
+    const today = diaryDateKey(at);
+    try {
+      for (const entry of readdirSync(this.diaryDir)) {
+        const date = /^(\d{4}-\d{2}-\d{2})\.md$/.exec(entry)?.[1];
+        if (date !== undefined && date < today) return true;
+      }
+    } catch {
+      return false;
+    }
+    return false;
+  }
+
+  /**
    * Append `## HH:mm` + the note to today's diary, creating it with a
    * `# YYYY-MM-DD` title when needed.
    *
    * When the file is created and `options.previousTopic` is set, a
    * `## Previous Topic` section is written between the title and the first
    * timestamped entry, which is how one day hands over to the next.
+   *
+   * A first entry of the day is rejected without `previousTopic` whenever an
+   * earlier diary exists: the model gets the error as a tool result and must
+   * retry with the summary, which is what keeps the hand-off from being
+   * forgotten.
    */
   append(
     note: string,
@@ -144,8 +169,14 @@ export class MemoryStore {
     const exists = existsSync(path);
     const existing = exists ? readFileSync(path, 'utf8') : '';
 
-    mkdirSync(this.diaryDir, { recursive: true });
     const created = existing.trim() === '';
+    if (created && previousTopic === '' && this.hasEarlierDiary(at)) {
+      throw new KolorStateError(
+        'this is the first entry of the day and an earlier diary exists: pass `previous_topic` with a 2-4 bullet summary of the most recent previous diary (list daily/ and read it first, then retry)',
+      );
+    }
+
+    mkdirSync(this.diaryDir, { recursive: true });
     const previousTopicWritten = created && previousTopic !== '';
     let base = created ? `# ${date}\n\n` : existing;
     if (previousTopicWritten) base += `## Previous Topic\n\n${previousTopic}\n\n`;
@@ -226,7 +257,7 @@ const DIARY_INSTRUCTION = [
   '',
   'Requirements:',
   '1. Review what happened in this conversation since the last diary entry: what was done, what was decided, conclusions and todo.',
-  "2. Check whether today's diary (daily/YYYY-MM-DD.md) already has entries. If it is missing or empty, this is the first memory of the day: list daily/, read the most recent earlier diary, summarise what it was mainly doing and where it stopped in 2-4 bullet points, and pass that summary as `previous_topic`. The tool writes it as a leading `## Previous Topic` section. If today already has entries, skip `previous_topic`.",
+  '2. Check whether today\'s diary (daily/YYYY-MM-DD.md) already has entries. If it is missing or empty, this is the first memory of the day, and a hand-off is REQUIRED whenever any earlier diary exists: list daily/ and read the most recent earlier diary, summarise what it was mainly doing and where it stopped in 2-4 bullet points, and pass that summary as `previous_topic` — prepare it BEFORE calling. The tool writes it as a leading `## Previous Topic` section and REJECTS a first call without `previous_topic`, so a rejected call must be retried with the summary, not skipped. Only when daily/ contains no earlier diary may you call without `previous_topic`. If today already has entries, skip `previous_topic`.',
   "3. Call the append_diary tool with `content` for this conversation's progress. The tool owns the file path (daily/YYYY-MM-DD.md), the `# YYYY-MM-DD` title, `## Previous Topic` and the `## HH:mm` section — do not edit the diary file with write_file.",
   '4. Only record substantive content; write short bullet points in the language of the conversation, and do not repeat what the diary already records.',
   '5. If nothing new has happened since the last entry, do not call the tool and simply say "No new content."',
