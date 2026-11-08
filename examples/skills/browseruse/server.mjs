@@ -436,7 +436,7 @@ async function snapshotPage({ instructions = true } = {}) {
     '## Screenshot',
     `![page screenshot](${shot.url})`,
     `Screenshot file: ${shot.file}`,
-    'Include the markdown image line above verbatim in your reply so the user can see the page (do this every time you receive a screenshot).',
+    'You may paste the markdown image line above into your reply to show the page (e.g. when the user asks for a screenshot); it is optional for every action.',
     'Only look at the image itself (or ask for another snapshot) when the text snapshot is not enough to understand the page.',
   );
   return clip(lines.join('\n'), 24_000);
@@ -460,7 +460,7 @@ const TOOLS = [
     description:
       'Open a URL in the real browser (http/https, or a data: URL). Returns the page title, URL and the live view URL — ' +
       'mention the live view URL to the user once after opening a page, and repeat it only when the user asks for it. ' +
-      'The result ends with an automatic snapshot (page text + a markdown screenshot line); include that image line in your reply.',
+      'The result ends with an automatic snapshot (page text + an optional markdown screenshot line); show the image when useful.',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -474,9 +474,9 @@ const TOOLS = [
     name: 'browser_snapshot',
     description:
       'Readable snapshot of the current page: title, URL, visible text, every interactive element with an index, ' +
-      'plus a freshly captured screenshot saved in the skill directory. The result contains a markdown image line ' +
-      '(![page screenshot](http://...)) and the screenshot file path — after calling this tool, ALWAYS include ' +
-      'that markdown image line verbatim in your reply. Indexes change when the page changes, ' +
+      'plus a freshly captured screenshot saved in the skill directory. The result contains an optional markdown image line ' +
+      '(![page screenshot](http://...)) and the screenshot file path; paste it into your reply only when the user asks ' +
+      'for a screenshot or it helps. Indexes change when the page changes, ' +
       'so re-snapshot before clicking again. Only look at the image itself when the text snapshot is not enough.',
     inputSchema: { type: 'object', additionalProperties: false, properties: {} },
   },
@@ -484,7 +484,7 @@ const TOOLS = [
     name: 'browser_click',
     description:
       'Click the element with the given index from the last browser_snapshot. The result ends with an automatic ' +
-      'snapshot (page text and a fresh screenshot); include its markdown image line in your reply.',
+      'snapshot (page text and a fresh screenshot, shown only if useful).',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -499,7 +499,7 @@ const TOOLS = [
     description:
       'Type text into the input/textarea with the given index from the last browser_snapshot. ' +
       'Replaces the existing value and fires a real input event, so React-style forms work. The result ends with ' +
-      'an automatic snapshot; include its markdown image line in your reply.',
+      'an automatic snapshot (screenshot optional).',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -514,7 +514,7 @@ const TOOLS = [
     name: 'browser_press',
     description:
       'Press a keyboard key on the page, e.g. "Enter", "Escape", "Tab", "ArrowDown". The result ends with an ' +
-      'automatic snapshot; include its markdown image line in your reply.',
+      'automatic snapshot (screenshot optional).',
     inputSchema: {
       type: 'object',
       additionalProperties: false,
@@ -528,7 +528,7 @@ const TOOLS = [
     name: 'browser_evaluate',
     description:
       'Run a JavaScript expression in the page and return its JSON result. Use it to read data the snapshot misses; ' +
-      'keep side effects minimal. The result ends with an automatic snapshot; include its markdown image line in your reply.',
+      'keep side effects minimal. The result ends with an automatic snapshot (screenshot optional).',
     inputSchema: {
       type: 'object',
       additionalProperties: false,

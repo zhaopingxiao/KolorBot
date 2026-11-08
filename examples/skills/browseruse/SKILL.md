@@ -10,7 +10,7 @@ description: 用真实浏览器（无头 Edge）操控网页并实时看到画�
 ## 回答要求（重要）
 
 - **实时画面地址只在打开新网页后给一次**（`browser_open` 的返回里带有 `Live view: ...`），或者用户主动询问时再给；其他操作后的回复里不要再重复这个地址。
-- **每次拿到截图都必须在回复里展示**：把返回里的 `![page screenshot](http://...)` 这一行原样放进回复（KolorBot 的 Markdown 会把它渲染成截图），并附上返回的截图文件路径。
+- **截图不需要每次都展示**：只有用户要截图、需要让用户看清页面、或截图有助于说明时才把返回里的 `![page screenshot](http://...)` 贴进回复；普通操作只汇报结果即可。
 - **每个操作都会自动附带一次 snapshot**：`browser_open` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 的返回末尾都有 `## Auto snapshot after this action`（最新页面文本 + 新截图），不需要为了看结果再手动调 `browser_snapshot`；需要更完整的页面信息时再手动 snapshot。
 - snapshot 的**文本**（标题、URL、正文、元素序号）已经够理解页面时，就不要再读图片；只有文本不够清楚时，才需要用图片核对，或直接让用户看截图/实时画面。
 - 页面变化后旧序号失效：自动快照里的序号就是最新的，可直接用于下一次点击/输入。
@@ -38,8 +38,8 @@ description: 用真实浏览器（无头 Edge）操控网页并实时看到画�
 ## 标准流程
 
 1. `browser_open("https://example.com")`：返回标题、URL、实时地址（这次回复里给用户一次），以及自动快照；
-2. 把自动快照里的 Markdown 图片行贴进回复；
-3. `browser_type(0, "hello")` / `browser_click(2)` / `browser_press("Enter")`：每个操作又会自动带回最新快照和截图，继续展示；
+2. 需要展示页面（用户要截图/看不清）时，再把自动快照里的 Markdown 图片行贴进回复；
+3. `browser_type(0, "hello")` / `browser_click(2)` / `browser_press("Enter")`：每个操作又会自动带回最新快照，按需展示；
 4. 自动快照里的序号可以直接用，页面变化后不需要手动重新 snapshot；
 5. 文本够用就别额外读图；需要细节时看截图文件，或让用户看实时画面（用户主动问再把地址给他）。
 
