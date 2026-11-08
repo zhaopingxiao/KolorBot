@@ -45,7 +45,7 @@ function inlineMarkdown(text) {
   // Inline code first so its content is left alone, then images, links and emphasis.
   html = html.replace(/`([^`\n]+)`/g, '<code class="inline">$1</code>');
   html = html.replace(
-    /!\[([^\]]*)\]\(((?:https?:\/\/|\/api\/images\/)[^\s)]+)\)/g,
+    /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
     '<img class="md-image" src="$2" alt="$1" loading="lazy">',
   );
   html = html.replace(

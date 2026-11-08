@@ -17,8 +17,6 @@ export interface AgentPoolOptions {
   mcpConfigs: () => McpServerConfig[];
   /** Built-in frame tools settings (workspace + skills root). */
   kolorFrame?: KolorFrameOptions;
-  /** Serve an image file to the UI and return its URL (used by `read_image`). */
-  registerImage?: (absolutePath: string) => string;
   /** Persist a reminder created by the model. */
   createReminder?: CreateReminder;
   /** Append a note to today's diary (enables the `append_diary` tool). */
@@ -97,14 +95,7 @@ export class AgentPool {
         ...(tools.length === 0 ? {} : { tools }),
         ...(this.#options.kolorFrame === undefined
           ? {}
-          : {
-              kolorFrame: {
-                ...this.#options.kolorFrame,
-                ...(this.#options.registerImage === undefined
-                  ? {}
-                  : { registerImage: this.#options.registerImage }),
-              },
-            }),
+          : { kolorFrame: this.#options.kolorFrame }),
         ...(this.#options.logger === undefined ? {} : { logger: this.#options.logger }),
         ...(this.#options.onEvent === undefined
           ? {}
