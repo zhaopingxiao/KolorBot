@@ -244,7 +244,7 @@ mcp__kolor-frame__read_file
 一个**挂在 MCP 上的真实浏览器**，只是技能、不是内置功能。源码 `examples/skills/browseruse/`，已安装到 `~/.agents/skills/browseruse/`（含 `node_modules`）。
 
 - **入口**：`kolor.json` 声明 stdio MCP `browseruse` → `node server.mjs`；依赖只有 `playwright-core`，驱动**系统 Edge**（`channel: 'msedge'`）的无头实例，不用下载浏览器内核。
-- **实时画面**：server 内置一个小 HTTP 服务，默认 `http://127.0.0.1:9223/`（`BROWSERUSE_VIEW_PORT` 可改；`BROWSERUSE_HEADLESS=false` 显示真实窗口），`/screen.mjpg` 用 MJPEG 实时流屏幕，`/screen.png` 取单帧，`/` 是观看页。每次工具操作后自动截图；有人观看时每 250ms 补帧。
+- **实时画面**：server 内置一个小 HTTP 服务，默认 `http://127.0.0.1:9223/`（`BROWSERUSE_VIEW_PORT` 可改；`BROWSERUSE_HEADLESS=false` 显示真实窗口），`/screen.mjpg` 用 MJPEG 实时流屏幕，`/screen.png` 取单帧，`/` 是观看页。每次工具操作后自动截图；有人观看时每 250ms 补帧。**页面可手动操作**：观看页把鼠标点击/双击/右键、滚轮、键盘经 `POST /input` 转发到真实页面（坐标按截图比例映射到视口，键盘带修饰键，中文走顶部输入框回车 → `insertText`），所以人和 AI 可以同时操作同一个浏览器。
 - **工具**（模型看到的是 `mcp__browseruse__browser_*`）：`browser_open(url)`、`browser_snapshot()`（标题/URL/正文/带序号的可交互元素）、`browser_click(index)`、`browser_type(index, text)`（原生 setter + input 事件，兼容 React 表单）、`browser_press(key)`、`browser_evaluate(expression)`、`browser_screenshot()`（存技能目录 `shots/`）。
 - **WebMCP**：`browser_webmcp_list()` / `browser_webmcp_call(name, input)` 通过 CDP `Page.listWebMCPTools` / `Page.invokeWebMCPTool` 调用**网页自己注册的** WebMCP 工具；启动参数带了 `--enable-features=WebMCP,WebMCPTesting,DevToolsWebMCPSupport`。需要 Chrome ≥ 149；当前系统 Edge 157 还没开放该 CDP 命令，工具会返回明确的「不支持」错误，换支持它的浏览器即可用。
 - **生命周期**：MCP 进程随会话 agent 存在，所以浏览器页面和实时画面在**同一会话的多轮之间保留**；会话删除/重置或模型切换重建 agent 时进程退出、画面地址失效。

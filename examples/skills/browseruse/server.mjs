@@ -51,19 +51,61 @@ let viewerCount = 0;
 
 /* ------------------------------------------------------------------ view */
 
-const viewServer = createServer((request, response) => {
+const viewServer = createServer(async (request, response) => {
   const pathname = new URL(request.url ?? '/', 'http://127.0.0.1').pathname;
   if (pathname === '/' || pathname === '/index.html') {
     const html = `<!doctype html>
 <html lang="zh-CN"><head><meta charset="utf-8"><title>BrowserUse 实时画面</title>
 <style>
-  body { margin: 0; background: #111; color: #eee; font-family: system-ui, sans-serif; }
-  header { padding: 10px 14px; font-size: 13px; color: #aaa; }
-  img { display: block; width: 100%; height: calc(100vh - 44px); object-fit: contain; }
+  body { margin: 0; background: #111; color: #eee; font-family: system-ui, sans-serif; overflow: hidden; }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; font-size: 13px; color: #aaa; }
+  header .grow { flex: 1; }
+  header input { flex: 0 0 260px; padding: 5px 9px; border: 0; border-radius: 7px; background: #222; color: #eee; font-size: 13px; }
+  #stage { position: relative; display: flex; justify-content: center; align-items: flex-start; height: calc(100vh - 40px); }
+  #frame { max-width: 100%; max-height: 100%; cursor: crosshair; }
+  #hint { position: fixed; left: 14px; bottom: 10px; font-size: 11px; color: #888; }
 </style></head>
 <body>
-  <header>BrowserUse · 无头浏览器实时画面 · ${viewAddress()} · 页面由 AI 操控，随操作自动刷新</header>
-  <img src="/screen.mjpg" alt="browser screen">
+  <header>
+    <span>BrowserUse · 实时画面（鼠标点击 / 滚轮 / 键盘直接操作浏览器）</span>
+    <span class="grow"></span>
+    <input id="textbox" placeholder="中文/文字输入：回车发送到网页" autocomplete="off">
+  </header>
+  <div id="stage"><img id="frame" src="/screen.mjpg" alt="browser screen"></div>
+  <div id="hint">点击 = 点击网页 · 滚轮 = 滚动 · 键盘 = 键入（先点一下画面让网页获得焦点） · ${viewAddress()}</div>
+<script>
+const frame = document.getElementById('frame');
+const textbox = document.getElementById('textbox');
+const rel = (event) => {
+  const rect = frame.getBoundingClientRect();
+  return { x: (event.clientX - rect.left) / rect.width, y: (event.clientY - rect.top) / rect.height };
+};
+const send = (payload) => fetch('/input', {
+  method: 'POST',
+  headers: { 'content-type': 'application/json' },
+  body: JSON.stringify(payload),
+}).catch(() => {});
+frame.addEventListener('click', (event) => send({ type: 'click', ...rel(event), button: event.button }));
+frame.addEventListener('dblclick', (event) => send({ type: 'dblclick', ...rel(event) }));
+frame.addEventListener('contextmenu', (event) => { event.preventDefault(); send({ type: 'click', ...rel(event), button: 2 }); });
+frame.addEventListener('wheel', (event) => { event.preventDefault(); send({ type: 'wheel', deltaX: event.deltaX, deltaY: event.deltaY }); });
+let moveTimer = 0;
+frame.addEventListener('mousemove', (event) => {
+  clearTimeout(moveTimer);
+  moveTimer = setTimeout(() => send({ type: 'move', ...rel(event) }), 30);
+});
+document.addEventListener('keydown', (event) => {
+  if (event.target === textbox) return;
+  event.preventDefault();
+  send({ type: 'key', key: event.key, ctrl: event.ctrlKey, shift: event.shiftKey, alt: event.altKey, meta: event.metaKey });
+});
+textbox.addEventListener('keydown', (event) => {
+  if (event.key !== 'Enter') return;
+  event.preventDefault();
+  send({ type: 'text', text: textbox.value });
+  textbox.value = '';
+});
+</script>
 </body></html>`;
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     response.end(html);
@@ -102,6 +144,23 @@ const viewServer = createServer((request, response) => {
       clearInterval(timer);
       viewerCount = Math.max(0, viewerCount - 1);
     });
+    return;
+  }
+  if (pathname === '/input' && request.method === 'POST') {
+    const body = await new Promise((resolve, reject) => {
+      const parts = [];
+      request.on('data', (chunk) => parts.push(Buffer.from(chunk)));
+      request.on('end', () => resolve(Buffer.concat(parts).toString('utf8')));
+      request.on('error', reject);
+    });
+    try {
+      await applyInput(JSON.parse(body || '{}'));
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end('{"ok":true}');
+    } catch (error) {
+      response.writeHead(400, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+    }
     return;
   }
   response.writeHead(404).end('not found');
@@ -152,14 +211,14 @@ async function ensureBrowser() {
         'Install Edge or run `npm install playwright` to download a browser instead.',
     );
   }
-  page = await browser.newPage();
+  page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   page.setDefaultTimeout(30_000);
 }
 
 async function requirePage() {
   await ensureBrowser();
   if (page === null || page.isClosed()) {
-    page = await browser.newPage();
+    page = await browser.newPage({ viewport: { width: 1280, height: 720 } });
   }
   return page;
 }
@@ -179,6 +238,86 @@ async function captureFrame() {
 const frameTimer = setInterval(() => {
   if (viewerCount > 0) void captureFrame();
 }, 250);
+
+/* ------------------------------------------------- manual control ---- */
+
+/**
+ * Forward mouse / keyboard events from the live-view page to the real page.
+ * Coordinates are relative (0..1) inside the displayed screenshot and are
+ * scaled to the browser viewport.
+ */
+async function applyInput(payload) {
+  if (!isRecord(payload)) throw new Error('input payload must be an object');
+  const current = await requirePage();
+  const size = current.viewportSize() ?? { width: 1280, height: 720 };
+  const x = (value) => clamp01(typeof value === 'number' ? value : 0) * size.width;
+  const y = (value) => clamp01(typeof value === 'number' ? value : 0) * size.height;
+  const button = (name) =>
+    name === 1 ? 'middle' : name === 2 ? 'right' : 'left';
+
+  switch (payload.type) {
+    case 'move':
+      await current.mouse.move(x(payload.x), y(payload.y));
+      break;
+    case 'click':
+      await current.mouse.click(x(payload.x), y(payload.y), { button: button(payload.button) });
+      break;
+    case 'dblclick':
+      await current.mouse.dblclick(x(payload.x), y(payload.y));
+      break;
+    case 'wheel':
+      await current.mouse.wheel(clamp(payload.deltaX, -600, 600), clamp(payload.deltaY, -600, 600));
+      break;
+    case 'key':
+      await current.keyboard.press(keyCombo(payload));
+      break;
+    case 'text':
+      await current.keyboard.insertText(String(payload.text ?? ''));
+      break;
+    default:
+      throw new Error(`unknown input type ${JSON.stringify(payload.type)}`);
+  }
+  void captureFrame();
+}
+
+const KEY_ALIASES = {
+  ' ': 'Space',
+  ArrowUp: 'ArrowUp',
+  ArrowDown: 'ArrowDown',
+  ArrowLeft: 'ArrowLeft',
+  ArrowRight: 'ArrowRight',
+  Enter: 'Enter',
+  Escape: 'Escape',
+  Tab: 'Tab',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
+  Home: 'Home',
+  End: 'End',
+  PageUp: 'PageUp',
+  PageDown: 'PageDown',
+};
+
+function keyCombo(payload) {
+  const raw = typeof payload.key === 'string' ? payload.key : '';
+  const parts = [];
+  if (payload.ctrl === true) parts.push('Control');
+  if (payload.shift === true) parts.push('Shift');
+  if (payload.alt === true) parts.push('Alt');
+  if (payload.meta === true) parts.push('Meta');
+  if (raw.length === 1) parts.push(raw);
+  else parts.push(KEY_ALIASES[raw] ?? raw);
+  if (parts.length === 0) throw new Error('key is required');
+  return parts.join('+');
+}
+
+function clamp(value, min, max) {
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(min, Math.min(max, value));
+}
+
+function clamp01(value) {
+  return clamp(value, 0, 1);
+}
 
 /* ------------------------------------------------------------- snapshot */
 

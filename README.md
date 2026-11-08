@@ -1,4 +1,4 @@
-# KolorBot
+﻿# KolorBot
 
 <img src="packages/kolor-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -528,7 +528,7 @@ review - 按仓库规范审阅 diff……
 
 示例：[`examples/skills/deepseek-search`](examples/skills/deepseek-search) 是一个带 MCP 的搜索/抓取 skill，模型可以调用 `search` 搜索网页、`fetch` 读取 Markdown 正文；它通过 `kolor.json` 的 `${DEEPSEEK_API_KEY}` 占位符拿到宿主进程的 key。
 
-另一个示例：[`examples/skills/browseruse`](examples/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` / `browser_screenshot` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示；还带 `browser_webmcp_list` / `browser_webmcp_call` 两个工具，调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
+另一个示例：[`examples/skills/browseruse`](examples/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` / `browser_screenshot` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示；还带 `browser_webmcp_list` / `browser_webmcp_call` 两个工具，调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
 
 ## Web HTTP API
 

@@ -4,6 +4,13 @@ import { join } from 'node:path';
 const server = join(process.cwd(), 'server.mjs');
 const child = spawn(process.execPath, [server], { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'inherit'] });
 
+process.on('unhandledRejection', (reason) => {
+  console.log('UNHANDLED REJECTION:', reason instanceof Error ? reason.stack : reason);
+});
+process.on('uncaughtException', (error) => {
+  console.log('UNCAUGHT EXCEPTION:', error?.stack ?? error);
+});
+
 const requests = [
   { id: 1, method: 'initialize', params: { protocolVersion: '2024-11-05' } },
   { id: 2, method: 'tools/list', params: {} },
@@ -12,7 +19,9 @@ const requests = [
     method: 'tools/call',
     params: {
       name: 'browser_open',
-      arguments: { url: 'data:text/html,<h1>Hi BrowserUse</h1><button>Go</button><input id="name">' },
+      arguments: {
+        url: 'data:text/html,%3Cbody onclick=%22window.clicked=(window.clicked%7C%7C0)%2B1%22%3E%3Ch1%3EHi%20BrowserUse%3C/h1%3E%3Cbutton%3EGo%3C/button%3E%3Cinput id=%22name%22%3E%3C/body%3E',
+      },
     },
   },
   { id: 4, method: 'tools/call', params: { name: 'browser_snapshot', arguments: {} } },
@@ -67,7 +76,7 @@ for (const request of requests) {
   const png = await fetch(`${base}/screen.png`);
   const bytes = Buffer.from(await png.arrayBuffer());
   console.log(
-    `view html: ${html.includes('screen.mjpg') ? 'ok' : 'MISSING'} | screen.png: ${bytes.length} bytes, jpeg=${bytes[0] === 0xff && bytes[1] === 0xd8}`,
+    `view html: ${html.includes('screen.mjpg') ? 'ok' : 'MISSING'} | manual: ${html.includes('/input') ? 'ok' : 'MISSING'} | screen.png: ${bytes.length} bytes, jpeg=${bytes[0] === 0xff && bytes[1] === 0xd8}`,
   );
   try {
     const mjpeg = await fetch(`${base}/screen.mjpg`);
@@ -79,6 +88,25 @@ for (const request of requests) {
   } catch (error) {
     console.log(`mjpeg: ${error.message}`);
   }
+
+  // Manual control: forward text and a click through /input, then read back.
+  const input = (payload) =>
+    fetch(`${base}/input`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    }).then((response) => response.json());
+  console.log('input text:', JSON.stringify(await input({ type: 'text', text: '你好' })));
+  console.log('input click:', JSON.stringify(await input({ type: 'click', x: 0.05, y: 0.05 })));
+
+  child.stdin.write(
+    `${JSON.stringify({ id: 10, method: 'tools/call', params: { name: 'browser_evaluate', arguments: { expression: 'JSON.stringify({ name: document.querySelector("#name").value, clicked: window.clicked ?? 0 })' } } })}\n`,
+  );
+  const deadline = Date.now() + 60_000;
+  while (!done.has(10) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  requests.push({ id: 10, method: 'tools/call', params: { name: 'browser_evaluate' } });
 }
 
 async function report() {
