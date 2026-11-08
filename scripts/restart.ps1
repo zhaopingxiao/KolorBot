@@ -1,4 +1,4 @@
-﻿# KolorBot 启停脚本：停掉正在跑的实例，然后后台拉起新的。
+# KolorBot 启停脚本：停掉正在跑的实例，然后后台拉起新的。
 #
 #   .\restart.cmd                      # 重启（默认 host 100.87.104.6:3399）
 #   .\restart.cmd stop                 # 只停
@@ -90,7 +90,12 @@ function Stop-Kolor {
   foreach ($procId in $targets) {
     Write-Host "· 停止 PID $procId"
     # /T 带上 tsx 和 cmd 的子进程树，/F 强制
-    & taskkill.exe /PID $procId /T /F 2>&1 | Out-Null
+    try {
+      & taskkill.exe /PID $procId /T /F 2>&1 | Out-Null
+    } catch {
+      # 枚举之后进程可能已经退出；不存在就当已经停了。
+      Write-Host "· PID $procId 已退出，跳过"
+    }
   }
 
   # 等端口真正释放（TIME_WAIT 不影响监听，只看 LISTENING）
