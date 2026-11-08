@@ -5,12 +5,11 @@
  *
  * Tools:
  *   - browser_open(url)            navigate the browser to a page
- *   - browser_snapshot()           readable page outline with click/type indexes
+ *   - browser_snapshot()           page outline + click/type indexes + saved screenshot
  *   - browser_click(index)         click an element from the last snapshot
  *   - browser_type(index, text)    fill an input/textarea from the snapshot
  *   - browser_press(key)           press a keyboard key (e.g. Enter, Escape)
  *   - browser_evaluate(expression) run JavaScript in the page
- *   - browser_screenshot()         save a JPEG and return its path
  *   - browser_webmcp_list()        list WebMCP tools registered by the page
  *   - browser_webmcp_call(name)    invoke a page-registered WebMCP tool
  *
@@ -25,7 +24,7 @@
  */
 import { createInterface } from 'node:readline';
 import { createServer } from 'node:http';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright-core';
@@ -118,6 +117,25 @@ textbox.addEventListener('keydown', (event) => {
       'cache-control': 'no-store',
     });
     response.end(latestFrame);
+    return;
+  }
+  if (pathname.startsWith('/shot/')) {
+    const name = decodeURIComponent(pathname.slice('/shot/'.length));
+    if (!/^[A-Za-z0-9._-]+\.jpeg$/.test(name)) {
+      response.writeHead(400).end('bad screenshot name');
+      return;
+    }
+    try {
+      const file = readFileSync(join(SHOTS_DIR, name));
+      response.writeHead(200, {
+        'content-type': 'image/jpeg',
+        'content-length': file.length,
+        'cache-control': 'no-store',
+      });
+      response.end(file);
+    } catch {
+      response.writeHead(404).end('not found');
+    }
     return;
   }
   if (pathname === '/screen.mjpg') {
@@ -385,10 +403,18 @@ async function snapshotPage() {
   if (parsed.text.trim() !== '') {
     lines.push('', '## Page text', parsed.text);
   }
+
+  const shot = saveFrame();
   lines.push(
     '',
     'Use browser_click(i) / browser_type(i, text) with these indexes. Re-snapshot after the page changes.',
     `Live view: ${viewAddress()}`,
+    '',
+    '## Screenshot',
+    `![page screenshot](${shot.url})`,
+    `Screenshot file: ${shot.file}`,
+    'Include the markdown image line above verbatim in your reply so the user can see the page.',
+    'Only look at the image itself (or ask for another snapshot) when the text snapshot is not enough to understand the page.',
   );
   return clip(lines.join('\n'), 24_000);
 }
@@ -413,8 +439,11 @@ const TOOLS = [
   {
     name: 'browser_snapshot',
     description:
-      'Readable snapshot of the current page: title, URL, visible text and every interactive element with an index. ' +
-      'Click or type by index afterwards; indexes change when the page changes, so re-snapshot first.',
+      'Readable snapshot of the current page: title, URL, visible text, every interactive element with an index, ' +
+      'plus a freshly captured screenshot saved in the skill directory. The result contains a markdown image line ' +
+      '(![page screenshot](http://...)) and the screenshot file path — after calling this tool, ALWAYS include ' +
+      'that markdown image line and the live view URL verbatim in your reply. Indexes change when the page changes, ' +
+      'so re-snapshot before clicking again. Only look at the image itself when the text snapshot is not enough.',
     inputSchema: { type: 'object', additionalProperties: false, properties: {} },
   },
   {
@@ -471,13 +500,6 @@ const TOOLS = [
     },
   },
   {
-    name: 'browser_screenshot',
-    description:
-      'Capture the current browser screen to a JPEG file under the skill directory and return its path. ' +
-      'The same picture is streamed at the local view URL for humans.',
-    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
-  },
-  {
     name: 'browser_webmcp_list',
     description:
       'List WebMCP tools registered by the current page (Chrome/Edge >= 149). Returns their names, ' +
@@ -527,9 +549,6 @@ async function handleToolCall(id, params) {
         break;
       case 'browser_evaluate':
         text = await evaluateJs(args);
-        break;
-      case 'browser_screenshot':
-        text = await saveScreenshot();
         break;
       case 'browser_webmcp_list':
         text = await listWebMcpTools();
@@ -632,12 +651,12 @@ async function evaluateJs(args) {
   return `Result:\n${clip(rendered, EVAL_RESULT_CHARS)}`;
 }
 
-async function saveScreenshot() {
-  await requirePage();
-  await captureFrame();
-  const file = join(SHOTS_DIR, `screen-${Date.now()}.jpeg`);
+/** Save the latest frame under the skill directory and return its file + URL. */
+function saveFrame(prefix = 'snapshot') {
+  const name = `${prefix}-${Date.now()}.jpeg`;
+  const file = join(SHOTS_DIR, name);
   writeFileSync(file, latestFrame);
-  return `Saved ${file} (${latestFrame.length} bytes).\nLive view: ${viewAddress()}`;
+  return { file, url: `${viewAddress()}shot/${name}` };
 }
 
 /* ------------------------------------------------------------------ WebMCP */

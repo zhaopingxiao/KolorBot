@@ -128,7 +128,7 @@ npm run web -- --host 0.0.0.0
 - 定时任务：会话设置里给单个会话挂任务，到点自动发送 `It's 2026/10/27 20:16:00 Tuesday. Do: 任务名` 并正常跑一轮；支持每天 / 每周（多选）/ 每月 / 每小时，每种规则都可以用 `+` 添加多个时间节点（多个时刻 / 日期 / 分钟）。模型也可以用 `schedule_reminder` 工具自己创建提醒；任务名要求 1-4 个词、最多 40 字符，只需要 AI 自己能识别。
 - 技能：侧栏「技能」查看 `~/.agents/skills` 的 Claude 标准技能；对话开始、重置、或列表变化时，下一条消息前会带 `<system-skills>`，AI 用 `skills(id)` 工具读详情。
 - 技能里的 MCP：有 MCP 的技能在列表里带一个 **MCP** 标识，点开技能详情就能看到它通过 `kolor.json` 声明的所有 MCP 服务器（名称 + transport）；**每个服务器旁边有「刷新」按钮，点击会关闭该 MCP 服务器并重新连接**；单独的 MCP 页面已经去掉。
-- 聊天：流式输出、工具调用卡片（参数 / 结果 / 状态，可折叠）、停止按钮、思考时的三个点。AI 回复**边出边渲染 Markdown**（标题、表格、列表、代码块、引用、链接、加粗、行内代码等）：最新一段文字保持淡入动画，其余已接收的部分立即转成渲染结果，不用等整条回复结束。
+- 聊天：流式输出、工具调用卡片（参数 / 结果 / 状态，可折叠）、停止按钮、思考时的三个点。AI 回复**边出边渲染 Markdown**（标题、表格、列表、代码块、引用、链接、图片、加粗、行内代码等）：最新一段文字保持淡入动画，其余已接收的部分立即转成渲染结果，不用等整条回复结束。
 - 断线不丢回答：一轮对话在服务端跑，关闭标签页、刷新、切网都只是断开镜像；回来时会从服务端缓冲回放整轮，会话列表里正在跑的会话带一个跳动的点。同一会话同时只允许一轮，重复发送会返回 409 并自动接上看得到的那轮。
 - 跟随滚动：只有当你离消息列表底部**一行字以内**时，新输出才会自动把视图拉到最底；往上翻读历史时不会被拽走，轮次结束重建消息也不会改变你的位置。
 - 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` 由 agent-loop 直接注册，和 MCP 无关；额外 MCP 只能写在技能目录的 `kolor.json` 里。
@@ -528,7 +528,7 @@ review - 按仓库规范审阅 diff……
 
 示例：[`examples/skills/deepseek-search`](examples/skills/deepseek-search) 是一个带 MCP 的搜索/抓取 skill，模型可以调用 `search` 搜索网页、`fetch` 读取 Markdown 正文；它通过 `kolor.json` 的 `${DEEPSEEK_API_KEY}` 占位符拿到宿主进程的 key。
 
-另一个示例：[`examples/skills/browseruse`](examples/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` / `browser_screenshot` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示；还带 `browser_webmcp_list` / `browser_webmcp_call` 两个工具，调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
+另一个示例：[`examples/skills/browseruse`](examples/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径；技能要求 AI 把实时地址和这张 Markdown 图片一起贴进回复（文本够用时不额外读图）。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
 
 ## Web HTTP API
 

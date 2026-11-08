@@ -42,8 +42,12 @@ function escapeHtml(value) {
 
 function inlineMarkdown(text) {
   let html = escapeHtml(text);
-  // Inline code first so its content is left alone, then links and emphasis.
+  // Inline code first so its content is left alone, then images, links and emphasis.
   html = html.replace(/`([^`\n]+)`/g, '<code class="inline">$1</code>');
+  html = html.replace(
+    /!\[([^\]]*)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<img class="md-image" src="$2" alt="$1" loading="lazy">',
+  );
   html = html.replace(
     /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener">$1</a>',

@@ -28,7 +28,6 @@ const requests = [
   { id: 5, method: 'tools/call', params: { name: 'browser_click', arguments: { index: 0 } } },
   { id: 6, method: 'tools/call', params: { name: 'browser_type', arguments: { index: 1, text: 'hello' } } },
   { id: 7, method: 'tools/call', params: { name: 'browser_evaluate', arguments: { expression: 'document.title + "|" + document.querySelector("#name").value' } } },
-  { id: 8, method: 'tools/call', params: { name: 'browser_screenshot', arguments: {} } },
   { id: 9, method: 'tools/call', params: { name: 'browser_webmcp_list', arguments: {} } },
 ];
 
@@ -87,6 +86,19 @@ for (const request of requests) {
     console.log(`mjpeg first chunk: ${head.includes('Content-Type: image/jpeg') ? 'ok' : `unexpected: ${head}`}`);
   } catch (error) {
     console.log(`mjpeg: ${error.message}`);
+  }
+
+  // Snapshot is text + screenshot: the markdown image and /shot/ URL must work.
+  const snapshotText = done.get(4)?.result?.content?.[0]?.text ?? '';
+  const image = /!\[[^\]]*\]\((http[^)]+\/shot\/[^)]+)\)/.exec(snapshotText);
+  const shotFile = /Screenshot file: (.+)/.exec(snapshotText)?.[1] ?? '';
+  console.log(
+    `snapshot image: ${image ? 'ok' : 'MISSING'} | live view line: ${snapshotText.includes('Live view:') ? 'ok' : 'MISSING'} | file: ${shotFile}`,
+  );
+  if (image) {
+    const shot = await fetch(image[1]);
+    const bytes = Buffer.from(await shot.arrayBuffer());
+    console.log(`shot url: ${shot.status}, ${bytes.length} bytes, jpeg=${bytes[0] === 0xff && bytes[1] === 0xd8}`);
   }
 
   // Manual control: forward text and a click through /input, then read back.
