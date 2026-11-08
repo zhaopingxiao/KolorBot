@@ -1,4 +1,4 @@
-﻿# KolorBot
+# KolorBot
 
 <img src="packages/kolor-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -553,7 +553,8 @@ review - 按仓库规范审阅 diff……
 | POST | `/api/sessions/:id/reset` | 重置：清空上下文，保留名称与主题；正在跑的 turn 会被丢弃（不写回上下文） |
 | GET | `/api/sessions/:id/export` | 导出 JSON（含主题） |
 | POST | `/api/sessions/import` | 从 JSON 新建 |
-| GET | `/api/mcp` | skill 声明的 MCP 列表（只读；Web UI 已不再单独使用，信息并入技能详情） |\n| POST | `/api/mcp/:name/restart` | 关闭指定的 MCP 服务器并重新连接（技能详情里「刷新」按钮用） |
+| GET | `/api/mcp` | skill 声明的 MCP 列表（只读；Web UI 已不再单独使用，信息并入技能详情） |
+| POST | `/api/mcp/:name/restart` | 关闭指定的 MCP 服务器并重新连接（技能详情里「刷新」按钮用） |
 | POST | `/api/chat` | SSE 事件流（`ready`、`topic/applied`、循环事件、`session/saved`、`run/cancelled`）；turn 在 broker 里跑，断开不影响；同会话重复请求返回 409 |
 | POST | `/api/chat/cancel` | 停止当前轮次 |
 
