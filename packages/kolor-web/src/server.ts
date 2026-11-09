@@ -3,7 +3,13 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import type { AgentMessage, KolorAgent, KolorEvent, McpServerConfig } from 'kolor-agent-loop';
+import {
+  DEFAULT_SYSTEM_PROMPT,
+  type AgentMessage,
+  type KolorAgent,
+  type KolorEvent,
+  type McpServerConfig,
+} from 'kolor-agent-loop';
 import { SKILL_SOURCE_LABELS, SkillsRegistry, formatSkillsBlock } from 'kolor-skills';
 import {
   SessionStore,
@@ -42,6 +48,18 @@ import { VERSION } from './version.js';
 
 /** Default quiet period before the automatic diary turn. */
 const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
+
+/**
+ * System prompt: the generic agent-loop prompt plus a pointer to the built-in
+ * `kolor` skill, which carries the framework documentation (three skill areas,
+ * writing skills, MCP config, diary location and prompts).
+ */
+const KOLOR_SYSTEM_PROMPT = [
+  DEFAULT_SYSTEM_PROMPT,
+  '',
+  'KolorBot framework knowledge lives in the built-in skill "kolor": the three skill areas, how to write a skill, MCP configuration, the diary (where it is stored and the prompt injected when it is organized), sessions, providers and the HTTP API.',
+  'When the user asks how KolorBot itself works, call the `skills` tool with id "kolor" and read it instead of guessing. Do not load it for ordinary coding, browsing or office tasks.',
+].join('\n');
 
 export interface KolorWebOptions extends WebConfigOverrides {
   /** Inject a store (tests); defaults to the configured database path. */
@@ -174,7 +192,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   const pool = new AgentPool({
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
     createReminder: (sessionId, input) => store.createTask(sessionId, input),
-    createDiary: (note, options) => memory.append(note, undefined, options),
+    systemPrompt: KOLOR_SYSTEM_PROMPT,
     kolorFrame: {
       root: config.frameRoot,
       skillsRoot: config.skillsDir,

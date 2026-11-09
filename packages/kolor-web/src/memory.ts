@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+﻿import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -248,20 +248,31 @@ export function formatDiaryBlock(content: string): string {
 /**
  * The fixed instruction wrapped in `<system-daily-memory-task>`.
  *
- * It is deliberately identical for every diary turn and carries the
- * first-entry-of-the-day rule itself, so the model decides from `daily/`
- * instead of the server pre-computing it.
+ * It is deliberately identical for every diary turn and carries the file
+ * format, the first-entry-of-the-day rule and the write_file/read_file flow,
+ * so the model works from `daily/` directly instead of a dedicated diary tool.
  */
 const DIARY_INSTRUCTION = [
   "Update today's diary (daily memory) from this conversation.",
   '',
   'Requirements:',
   '1. Review what happened in this conversation since the last diary entry: what was done, what was decided, conclusions and todo.',
-  '2. Check whether today\'s diary (daily/YYYY-MM-DD.md) already has entries. If it is missing or empty, this is the first memory of the day, and a hand-off is REQUIRED whenever any earlier diary exists: list daily/ and read the most recent earlier diary, summarise what it was mainly doing and where it stopped in 2-4 bullet points, and pass that summary as `previous_topic` — prepare it BEFORE calling. The tool writes it as a leading `## Previous Topic` section and REJECTS a first call without `previous_topic`, so a rejected call must be retried with the summary, not skipped. Only when daily/ contains no earlier diary may you call without `previous_topic`. If today already has entries, skip `previous_topic`.',
-  "3. Call the append_diary tool with `content` for this conversation's progress. The tool owns the file path (daily/YYYY-MM-DD.md), the `# YYYY-MM-DD` title, `## Previous Topic` and the `## HH:mm` section — do not edit the diary file with write_file.",
-  '4. Only record substantive content; write short bullet points in the language of the conversation, and do not repeat what the diary already records.',
-  '5. If nothing new has happened since the last entry, do not call the tool and simply say "No new content."',
-  '6. Reply with one sentence when you are done.',
+  "2. The diary is the markdown file daily/YYYY-MM-DD.md inside the workspace (today's local date). Use the file tools directly: list_files, read_file, write_file.",
+  '3. File format:',
+  '   # YYYY-MM-DD',
+  '',
+  '   ## Previous Topic',
+  '',
+  '   - 2-4 bullets summarising the most recent earlier diary',
+  '',
+  '   ## HH:mm',
+  '',
+  '   - short bullets for this conversation',
+  "4. First entry of the day (today's file is missing or empty) and any earlier diary exists: list daily/, read the most recent earlier diary, and write the whole file with write_file — the leading `## Previous Topic` section is REQUIRED in this case. Only when daily/ has no earlier diary may the first entry start directly with `## HH:mm`.",
+  '5. Later entries: append with write_file and `append: true`, adding only a new `## HH:mm` block; never add a second `## Previous Topic`.',
+  '6. Only record substantive content; write short bullet points in the language of the conversation, and do not repeat what the diary already records.',
+  '7. If nothing new has happened since the last entry, do not write the file and simply say "No new content."',
+  '8. Reply with one sentence when you are done.',
 ].join('\n');
 
 /** The instruction the model receives when it is asked to update the diary. */

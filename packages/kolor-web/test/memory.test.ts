@@ -160,7 +160,7 @@ test('formats the injection block, the task message and recognises the command',
 
   const message = buildDiaryTaskMessage(new Date(2026, 10, 2, 21, 0));
   assert.match(message, /^<system-daily-memory-task>\n/);
-  assert.match(message, /append_diary/);
+  assert.match(message, /write_file/);
   assert.match(message, /It's 2026\/11\/02 21:00:00/);
   assert.match(message, /Update today's diary\.$/);
 
@@ -179,10 +179,11 @@ test('the diary task message is fixed: only the timestamp changes', () => {
     message.slice(message.indexOf('\n') + 1, message.indexOf('</system-daily-memory-task>'));
   assert.equal(instructionOf(first), instructionOf(second), 'the envelope content is identical');
 
-  assert.match(instructionOf(first), /first memory of the day/);
-  assert.match(instructionOf(first), /previous_topic/);
+  assert.match(instructionOf(first), /First entry of the day/);
   assert.match(instructionOf(first), /## Previous Topic/);
-  assert.match(instructionOf(first), /REJECTS a first call/);
+  assert.match(instructionOf(first), /write_file/);
+  assert.match(instructionOf(first), /read_file/);
+  assert.equal(instructionOf(first).includes('append_diary'), false);
   assert.match(instructionOf(first), /No new content\./);
   assert.equal(instructionOf(first).includes('<previous-diary>'), false);
   assert.equal(instructionOf(first).includes('2026/11/02'), false, 'no timestamp inside the envelope');
@@ -404,7 +405,7 @@ test('/update-daily-memory sends the same message as an idle trigger', async (t)
 
   const content = lastUserContent(model, 0);
   assert.match(content, /^<system-daily-memory-task>\n/);
-  assert.match(content, /append_diary/);
+  assert.match(content, /write_file/);
   assert.match(content, /It's \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \w+\. Update today's diary\.$/);
   assert.equal(content.includes('/update-daily-memory'), false);
 
@@ -415,17 +416,25 @@ test('/update-daily-memory sends the same message as an idle trigger', async (t)
   assert.match(userMessages.at(-1)?.content ?? '', /^<system-daily-memory-task>/);
 });
 
-test('the first diary of the day hands over from the previous diary', async (t) => {
+test('the first diary of the day writes the file with write_file', async (t) => {
   const model = await startMockModelServer((context) => {
+    const now = new Date();
+    const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+    const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
     if (context.index % 2 === 0) {
       const round = context.index / 2 + 1;
+      const content =
+        round === 1
+          ? `# ${date}\n\n## Previous Topic\n\n昨天：完成了记忆衔接\n\n## ${time}\n\n今天第 1 次整理\n`
+          : `## ${time}\n\n今天第 2 次整理\n`;
       context.send(
         toolCall({
           id: `call_diary_${round}`,
-          name: 'append_diary',
+          name: 'write_file',
           arguments: JSON.stringify({
-            content: `今天第 ${round} 次整理`,
-            previous_topic: '昨天：完成了记忆衔接',
+            path: `daily/${date}.md`,
+            content,
+            ...(round === 1 ? {} : { append: true }),
           }),
         }),
       );
@@ -453,8 +462,7 @@ test('the first diary of the day hands over from the previous diary', async (t) 
   await postChat(app, sessionId, '/update-daily-memory');
 
   const trigger = lastUserContent(model, 0);
-  assert.match(trigger, /first memory of the day/);
-  assert.match(trigger, /previous_topic/);
+  assert.match(trigger, /First entry of the day/);
   assert.match(trigger, /## Previous Topic/);
   assert.equal(trigger.includes('<previous-diary>'), false);
 
@@ -474,62 +482,18 @@ test('the first diary of the day hands over from the previous diary', async (t) 
   assert.match(after, /## \d{2}:\d{2}\n\n今天第 2 次整理/);
 });
 
-test('the model retries with previous_topic after the tool rejects the first call', async (t) => {
-  const model = await startMockModelServer((context) => {
-    if (context.index === 0) {
-      context.send(
-        toolCall({
-          id: 'call_first',
-          name: 'append_diary',
-          arguments: JSON.stringify({ content: '今天第 1 次整理' }),
-        }),
-      );
-      for (const frame of finish('tool_calls')) context.send(frame);
-      context.fin();
-      return;
-    }
-    if (context.index === 1) {
-      context.send(
-        toolCall({
-          id: 'call_retry',
-          name: 'append_diary',
-          arguments: JSON.stringify({
-            content: '今天第 1 次整理',
-            previous_topic: '昨天：完成了记忆日记',
-          }),
-        }),
-      );
-      for (const frame of finish('tool_calls')) context.send(frame);
-      context.fin();
-      return;
-    }
-    reply('日记已整理')(context);
-  });
-  t.after(() => model.close());
-
-  const { app, frameRoot } = await makeApp(t, { apiUrl: model.url });
-  const dailyDir = join(frameRoot, 'daily');
-  mkdirSync(dailyDir, { recursive: true });
-  const now = new Date();
-  const yesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
-  const yesterdayKey = diaryDateKey(yesterday);
-  writeFileSync(
-    join(dailyDir, `${yesterdayKey}.md`),
-    `# ${yesterdayKey}\n\n## 20:00\n\n昨天做完了记忆日记\n`,
-    'utf8',
+test('the diary prompt tells the model to write with the file tools', () => {
+  const message = buildDiaryTaskMessage(new Date(2026, 10, 9, 20, 54));
+  const instruction = message.slice(
+    message.indexOf('\n') + 1,
+    message.indexOf('</system-daily-memory-task>'),
   );
-
-  const sessionId = await createSession(app, '衔接重试');
-  await postChat(app, sessionId, '/update-daily-memory');
-
-  const todayKey = diaryDateKey(now);
-  const content = readFileSync(join(dailyDir, `${todayKey}.md`), 'utf8');
-  assert.match(
-    content,
-    new RegExp(
-      `^# ${todayKey}\\n\\n## Previous Topic\\n\\n昨天：完成了记忆日记\\n\\n## \\d{2}:\\d{2}\\n\\n今天第 1 次整理`,
-    ),
-  );
+  assert.match(instruction, /list_files/);
+  assert.match(instruction, /read_file/);
+  assert.match(instruction, /write_file/);
+  assert.match(instruction, /append: true/);
+  assert.match(instruction, /## Previous Topic/);
+  assert.equal(instruction.includes('append_diary'), false);
 });
 
 test('the idle timer appends the diary after the conversation goes quiet', async (t) => {
@@ -539,11 +503,17 @@ test('the idle timer appends the diary after the conversation goes quiet', async
       return;
     }
     if (context.index === 1) {
+      const now = new Date();
+      const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+      const time = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
       context.send(
         toolCall({
           id: 'call_diary',
-          name: 'append_diary',
-          arguments: JSON.stringify({ content: '自动整理：用户在测试定时日记' }),
+          name: 'write_file',
+          arguments: JSON.stringify({
+            path: `daily/${date}.md`,
+            content: `# ${date}\n\n## ${time}\n\n自动整理：用户在测试定时日记\n`,
+          }),
         }),
       );
       for (const frame of finish('tool_calls')) context.send(frame);

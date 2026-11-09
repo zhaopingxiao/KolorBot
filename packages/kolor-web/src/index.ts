@@ -39,8 +39,6 @@ export type {
   MemorySettings,
   MemoryStoreOptions,
 } from './memory.js';
-export { createDiaryTool } from './diary-tool.js';
-export type { AppendDiary } from './diary-tool.js';
 export { IdleDiary } from './diary-idle.js';
 export type { IdleDiaryOptions } from './diary-idle.js';
 export { CliError, cliUsage, parseCliArgs } from './cli.js';

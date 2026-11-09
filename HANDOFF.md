@@ -36,6 +36,7 @@ D:\code\kolorbot\
 ├── scripts/restart.ps1       # 启停脚本（restart.cmd 调用）
 ├── restart.cmd               # 启停脚本入口
 ├── inner/skills/browseruse/  # 内置技能：无头浏览器（MCP + 实时画面 + WebMCP）
+├── inner/skills/kolor/       # 内置技能：KolorBot 框架说明
 ├── docs/                     # UI 截图
 ├── README.md
 ├── HANDOFF.md
@@ -111,13 +112,13 @@ It's 2026/10/27 20:16:00 Tuesday. Do: 任务名
   | --- | --- | --- |
   | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR`） | Claude 标准兼容区 |
   | 专属技能 | `<frameRoot>/skills`（`KOLOR_USER_SKILLS_DIR`） | KolorBot 自己的区，默认 `~/.kolor/workspace/skills` |
-  | 内置技能 | `<repo>/inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR`） | 随源码分发，`browseruse` 在这里 |
+  | 内置技能 | `<repo>/inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR`） | 随源码分发，`browseruse` / `kolor` 在这里 |
 
 - 每个区都按 `<区>/<id>/SKILL.md` 读，Claude 标准 frontmatter；同名技能按 **专属 → 兼容 → 内置** 取第一个，三个区的 `kolor.json` 都收集、同名 MCP server 同样按这个优先级。
 - `SkillsRegistry({ roots })` 接收 `SkillRoot[]`（`source` + `path`）；`list()` 合并去重、`listSource(source)` 保留分区、`get(id)` 从实际路径读文件；`signature()` 是 `v2:<sha1>`（包含 id/描述/来源），来源变化会重新注入。
 - 生成 `<system-skills>` 列表，格式 `id - description`。
 - 对话开始、重置、或技能列表指纹变化时注入；发送后记录 `skills_signature`。
-- 内置 `skills(id)` 工具读取完整 `SKILL.md` 和文件列表（`kolorFrame.extraSkillRoots` 让三个区都能查）。
+- 内置 `skills(id)` 工具读取完整 `SKILL.md` 和文件列表（`kolorFrame.extraSkillRoots` 让三个区都能查）。`inner/skills/kolor` 就是框架说明书：三个技能区、制作 skill、MCP 配置方法、日记位置/格式/完整整理提示词。`server.ts` 的 `KOLOR_SYSTEM_PROMPT` = agent-loop 默认提示词 + 「框架知识在内置技能 kolor，遇到框架问题先 `skills("kolor")`」，通过 `AgentPool.systemPrompt` 传给 `KolorAgent.create`。
 - Web 侧栏「技能」面板按三个区分组展示（标题 + 数量 + 空区目录提示），有 MCP 的技能带 **MCP** 标识，点开详情能看到它声明的所有 server（名称 + transport）。`/api/skills` 返回 `roots: [{ source, label, path, count }]`。
 - 每技能可用 `kolor.json` 声明 MCP：
 
@@ -224,15 +225,14 @@ mcp__kolor-frame__read_file
 - **入口**：侧栏底部「记忆」按钮（与「技能」「模型」并列），打开记忆页；目前只有「日记」一个板块：开关 + 今日日记预览 + 刷新。
 - **开关**：`定时追加日记`，默认关；状态存在 `~/.kolor/memory.json`（`{ version: 1, diary: { autoAppend } }`）。
 - **自动整理**：一轮对话结束（`handleChat` / 定时任务）后开始计时，**10 分钟**内没有新用户消息就让这个会话跑一轮后台日记（无 SSE，和定时任务同一套路）。新消息会取消计时；重置/删除会话也会取消；日记轮次本身**不会**重新计时（否则会无限循环）。
-- **写入**：模型调用本地工具 `append_diary({ content, previous_topic? })`，工具负责路径、标题和小节，模型只写内容。文件是 `<workspace>/daily/YYYY-MM-DD.md`，本地时区，不存在时创建 `# YYYY-MM-DD`，然后追加 `## HH:mm` + 空行 + 内容。
-- **记忆衔接（2026-11-03 新增，2026-11-05 改成固定提示词，2026-11-08 加工具侧兜底）**：`<system-daily-memory-task>` 里是一段**固定英文提示词**，不再由服务端判断“当天第一条/有没有上一篇”，也不再把上一篇全文塞进上下文。提示词要求模型自己检查 `daily/YYYY-MM-DD.md`：不存在或为空就是当天第一条，要 `list daily/`、读最近一篇更早的日记、概括 2-4 条要点传 `previous_topic`；工具把它写成标题下的 `## Previous Topic` 小节，再写 `## HH:mm` 正文。同一天后续整理不会再写这段，`previous_topic` 也会被忽略。原 `MemoryStore.previousDiary()` / `isFirstEntryOfDay()` / `clipDiaryContent()` 已删除（只保留了一个轻量的 `hasEarlierDiary()` 存在性检查）。
-- **工具侧兜底（2026-11-08）**：`MemoryStore.append` 在「当天文件不存在/为空」且 `daily/` 里有更早的日记、但没传 `previous_topic` 时抛 `KolorStateError`——错误作为 tool result 喂回模型，让它先读上一篇、概括后**重试**，被拒绝的调用不会写文件。没有更早日记、或当天已有内容时不拦。`DIARY_INSTRUCTION` 和 `append_diary` 的描述也写明 `REJECTS a first call`，要求先概括再调用。测试：`rejects a first entry that forgets previous_topic…`（单元）和 `the model retries with previous_topic after the tool rejects the first call`（端到端，第一次调用被拒、第二次带 previous_topic 成功）。
+- **写入（2026-11-09 改为文件工具）**：模型用内置文件工具 `list_files` / `read_file` / `write_file` 直接读写 `<workspace>/daily/YYYY-MM-DD.md`（本地时区）。第一次写当天文件用 `write_file` 写整份内容（`# YYYY-MM-DD` + 可选 `## Previous Topic` + `## HH:mm` + 内容）；后续用 `write_file` 的 `append: true` 只追加新的 `## HH:mm` 块。专门的 `append_diary` 工具已删除（`diary-tool.ts` 移除，`AgentPool.createDiary` / `server.ts` 的接线一起删）；`MemoryStore.append` 保留为内部/测试用的文件写入 helper，不再注册给模型。
+- **记忆衔接**：`<system-daily-memory-task>` 里是一段**固定英文提示词**（`memory.ts` 的 `DIARY_INSTRUCTION`，全文也放在内置技能 `kolor` 里），服务端不预计算“当天第一条/有没有上一篇”。提示词要求：当天文件不存在/为空且 `daily/` 有更早日记时，先 `list_files daily/`、`read_file` 最近一篇，概括 2-4 条写进 `## Previous Topic`，再写 `## HH:mm`；当天已有内容时只追加 `## HH:mm`，不再写第二个 `## Previous Topic`。
 - **注入**：每次发新消息时，如果当天日记非空，就在用户消息前加 `<system-daily-memory>…</system-daily-memory>`；会话表新增 `daily_signature` 记录上次发送的版本，**内容没变就不重复注入**；`reset()` 会清空签名（`markDailySent` / 迁移都跟 `skills_signature` 一致）。
 - **手动整理**：用户发 `/update-daily-memory`（大小写不敏感、必须整条消息），服务端换成**和自动触发完全相同**的消息：固定 `<system-daily-memory-task>` 提示词 + `It's <时间>. Update today's diary.`。UI 剥掉外壳后气泡里显示的就是那行时间戳，命令本身不再出现。
-- **提示词**：固定一段英文指令（`memory.ts` 的 `DIARY_INSTRUCTION`），自动和手动**用同一条消息、同一个末尾标签** `It's <时间>. Update today's diary.`；页面显示的就是这一行。指令要求回顾进展、决定、结论、待办，只写有信息量的内容、用对话语言、没新内容就回 `No new content.`。
-- **代码**：`memory.ts`（`MemoryStore`、日期/签名、固定提示词 `DIARY_INSTRUCTION`、`buildDiaryTaskMessage`）、`diary-idle.ts`（`IdleDiary` 计时器）、`diary-tool.ts`（`append_diary`，含 `previous_topic`）、`server.ts` 里的注入与 `runDiaryTurn`、`AgentPool.createDiary`。
-- **测试**：新增 16 个（`test/memory.test.ts` 15 个 + `kolor-sessions` 1 个），覆盖文件格式、固定提示词、Previous Topic 衔接、**当天第一次必须有 `previous_topic` 的拒绝/重试（单元 + 端到端）**、开关持久化、`/api/memory`、注入去重、重置后重注入、`/update-daily-memory`、以及静默后自动整理日记的端到端。
-- **截图**：`docs/memory.png`（记忆页 + `## Previous Topic` + `append_diary` 工具卡片）。
+- **提示词**：固定一段英文指令，自动和手动**用同一条消息、同一个末尾标签** `It's <时间>. Update today's diary.`；页面显示的就是这一行。指令要求回顾进展、决定、结论、待办，只写有信息量的内容、用对话语言、没新内容就回 `No new content.`。
+- **代码**：`memory.ts`（`MemoryStore`、日期/签名、固定提示词 `DIARY_INSTRUCTION`、`buildDiaryTaskMessage`）、`diary-idle.ts`（`IdleDiary` 计时器）、`server.ts` 里的注入与 `runDiaryTurn`。内置技能 `kolor` 记录日记位置、格式与完整提示词。
+- **测试**：16 个（`test/memory.test.ts` 15 个 + `kolor-sessions` 1 个），覆盖文件格式、固定提示词（含改用 `read_file`/`write_file` 的断言）、`## Previous Topic` 衔接、开关持久化、`/api/memory`、注入去重、重置后重注入、`/update-daily-memory`、以及静默后自动整理日记的端到端。
+- **截图**：`docs/memory.png`（记忆页 + `## Previous Topic`）。
 
 ### 3.13 运行中的 turn（`RunBroker`，2026-11-07 新增）
 
@@ -362,7 +362,7 @@ CLI 优先级高于 `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT`。
 
 ~/.agents/skills/     # 兼容技能区（当前 3 个：deepseek-search / email / ppt-master）
 ~/.kolor/workspace/skills/  # 专属技能区（默认空）
-<repo>/inner/skills/  # 内置技能区（browseruse）
+<repo>/inner/skills/  # 内置技能区（browseruse / kolor）
 ```
 
 - 迁移项目目录**不会**自动迁移这些数据。
@@ -433,7 +433,7 @@ CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工�
 - 没有对模型能力做区分（是否支持 tools / 流式）；不支持的模型会由上游返回错误，错误会经 SSE 显示。
 - 记忆只有「日记」一个板块，没有事实库、用户画像、检索召回；注入的是当天整天日记（不小，日记长了要考虑只注入最近 N 条）。
 - 记忆衔接只由模型概括上一篇；如果它不传 `previous_topic`，当天第一篇就只写正文，不会自动补。
-- 自动整理依赖模型乖乖调用 `append_diary`；没调用时只会写日志，不会服务端兜底生成日记。
+- 自动整理依赖模型按提示词用 `write_file` 写日记；没写时只会写日志，不会服务端兜底生成日记。
 - 10 分钟是写死的默认值（`KolorWebOptions.diaryIdleMs` 可改，测试就是靠它）；没有 UI 配置项。
 - 日记轮次和定时任务一样会占用该会话，期间用户发消息会收到 409「正在运行」。需要的话可以改成排队或跳过。
 
@@ -477,7 +477,6 @@ pnpm test
 | `packages/kolor-web/src/providers.ts` | 提供商存储（`providers.json`）、`/models` 发现、active 模型解析 |
 | `packages/kolor-web/src/memory.ts` | 记忆设置（`memory.json`）、日记读写/签名、日记提示词 |
 | `packages/kolor-web/src/diary-idle.ts` | 「对话静默 N 分钟」计时器 |
-| `packages/kolor-web/src/diary-tool.ts` | `append_diary` 本地工具 |
 | `packages/kolor-web/src/server.ts` | HTTP、SSE、API、broker 接线、调度器/日记、注入 |
 | `packages/kolor-web/src/runs.ts` | `RunBroker`：turn 生命周期、事件缓冲/回放、取消原因 |
 | `packages/kolor-web/src/http.ts` | JSON/SSE 响应、`sendJsonText`（回放不重复序列化） |
@@ -489,5 +488,6 @@ pnpm test
 | `packages/kolor-web/public/styles.css` | 白色主题 + 思考三点 + 移动端抽屉 + 提供商 / 记忆样式 |
 | `packages/kolor-web/public/app.js` | UI 状态、turn 镜像/重连、跟随滚动、Markdown 渲染、思考指示、工具卡片、抽屉、提供商页、记忆页 |
 | `tsconfig.dev.json` | tsx 的 paths（`npm run web` 直接跑源码不 build） |
-| `inner/skills/browseruse/` | 内置无头浏览器技能（`server.mjs` MCP + 实时画面 + WebMCP；`smoke.mjs` 自测） |
+| inner/skills/browseruse/ | 内置无头浏览器技能（`server.mjs` MCP + 实时画面 + WebMCP；`smoke.mjs` 自测） |
+| inner/skills/kolor/ | 内置框架说明技能（三个技能区、制作 skill、MCP 配置、日记位置与提示词） |
 | `docs/` | 当前 UI 截图 |

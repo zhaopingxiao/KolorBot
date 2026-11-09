@@ -9,7 +9,6 @@ import {
   type ToolDefinition,
 } from 'kolor-agent-loop';
 import type { ModelTarget } from './providers.js';
-import { createDiaryTool, type AppendDiary } from './diary-tool.js';
 import { createReminderTool, type CreateReminder } from './reminder-tool.js';
 
 export interface AgentPoolOptions {
@@ -19,8 +18,8 @@ export interface AgentPoolOptions {
   kolorFrame?: KolorFrameOptions;
   /** Persist a reminder created by the model. */
   createReminder?: CreateReminder;
-  /** Append a note to today's diary (enables the `append_diary` tool). */
-  createDiary?: AppendDiary;
+  /** System prompt for every agent (defaults to the agent-loop one). */
+  systemPrompt?: string;
   onEvent?: (sessionId: string, event: KolorEvent) => void;
   logger?: (message: string, error?: unknown) => void;
 }
@@ -78,9 +77,6 @@ export class AgentPool {
     if (this.#options.createReminder !== undefined) {
       tools.push(createReminderTool(sessionId, this.#options.createReminder));
     }
-    if (this.#options.createDiary !== undefined) {
-      tools.push(createDiaryTool(this.#options.createDiary));
-    }
 
     const creation = KolorAgent.create(
       {
@@ -89,6 +85,9 @@ export class AgentPool {
         apiKey: target.apiKey,
         agentId: sessionId,
         mcpServers: this.#options.mcpConfigs(),
+        ...(this.#options.systemPrompt === undefined
+          ? {}
+          : { systemPrompt: this.#options.systemPrompt }),
       },
       {
         id: sessionId,

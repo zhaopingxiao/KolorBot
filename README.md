@@ -30,6 +30,7 @@ kolorbot/
 ├── docs/tool-call.png           # 工具调用详情截图
 ├── docs/mobile.png              # 移动端抽屉截图
 ├── inner/skills/browseruse/     # 内置技能：带 MCP 的无头浏览器（实时画面 + WebMCP）
+├── inner/skills/kolor/          # 内置技能：KolorBot 框架说明（技能区 / MCP / 日记）
 ├── packages/
 │   ├── kolor-agent-loop/        # 主循环
 │   │   ├── src/agent.ts         # KolorAgent：turn/step、事件、取消、上下文导入
@@ -347,7 +348,7 @@ KolorFrame 提供：
 侧栏「记忆」是记忆功能的入口，第一个板块是**日记**。开关「定时追加日记」打开后：
 
 1. 一轮对话结束后开始计时；**10 分钟内没有新消息**就替这个会话跑一轮「整理日记」，跟定时任务一样是没有 SSE 客户端的后台轮次。
-2. 模型调用 `append_diary` 工具，把这段时间发生的事追加到当天的日记文件。
+2. 模型用内置文件工具（`list_files` / `read_file` / `write_file`）直接读写当天的日记文件；没有专门的日记工具（`append_diary` 已移除）。
 3. 之后每次发新消息，当天日记都会以 `<system-daily-memory>…</system-daily-memory>` 注入到用户消息前面；**和上次发送的版本没差异就不重复注入**（签名记在会话的 `daily_signature` 里，重置后清空，所以重置后的第一条会重新带上）。
 
 也可以在输入框直接发送 `/update-daily-memory`：它会被替换成和自动触发**完全相同**的那条消息（同一段 `<system-daily-memory-task>` 提示词 + 同一行时间戳），所以页面上显示出来的也是 `It's 2026/11/05 19:45:00 Thursday. Update today's diary.`，不再显示命令本身。
@@ -358,7 +359,7 @@ KolorFrame 提供：
 ~/.kolor/workspace/daily/2026-11-02.md
 ```
 
-文件不存在时由工具创建，格式固定：
+文件由模型用 `write_file` 创建/追加，格式固定：
 
 ```markdown
 # 2026-11-03
@@ -378,21 +379,20 @@ KolorFrame 提供：
 又补了一轮：确认第二天第一次整理会自动衔接。
 ```
 
-**记忆衔接**：整理提示词是**固定的一段英文**（`<system-daily-memory-task>` 里），里面直接写了「如果今天还没有日记，就先看 `daily/` 里最近一篇更早的日记，概括成 2-4 条要点传 `previous_topic`」。模型自己判断是不是当天第一条并读上一篇，工具把 `previous_topic` 写成标题下的 `## Previous Topic` 小节，正文仍然是 `## 时:分`。同一天后续的整理不会再写这段，也不会接受新的 `previous_topic`。
-
-另外有**工具侧兜底**：当天第一次整理时，如果 `daily/` 里存在更早的日记，`append_diary` 会**拒绝**没带 `previous_topic` 的调用（错误作为工具结果喂回模型），模型必须先读上一篇、概括后再重试，所以 `## Previous Topic` 不会静默丢失；没有更早的日记时才允许不带。
+**记忆衔接**：整理提示词是**固定的一段英文**（`<system-daily-memory-task>` 里），其中写明了：当天第一次整理时，如果 `daily/` 里存在更早的日记，先 `read_file` 最近一篇并概括 2-4 条写进 `## Previous Topic`；当天已有内容时只用 `write_file` + `append: true` 追加新的 `## HH:mm`，不再写第二个 `## Previous Topic`。完整提示词也放在内置技能 `kolor` 里（`inner/skills/kolor/SKILL.md`）。
 
 提示词外面那一行普通消息才是页面上显示的，自动和手动完全一样：`It's 2026/11/05 19:45:00 Thursday. Update today's diary.`。
 
 要点：
 
-- 工具负责路径、`# 年-月-日` 标题、`## Previous Topic` 和 `## 时:分` 小节，模型只需要写内容；它不能把日记写到别的路径。
+- 提示词负责约定路径、`# 年-月-日` 标题、`## Previous Topic` 和 `## 时:分` 小节的格式；模型通过文件工具写入。
 - 「上一篇」由模型按文件名日期自己找当前日期之前最近的一个 `YYYY-MM-DD.md`，不要求一定是昨天；一篇都没有时只写正文。
-- 一次整理只追加一节，不会覆盖旧内容；文件是普通 Markdown，可以自己编辑、用 Git 管理或同步。
+- 一次整理只追加一节（`write_file` 的 `append: true`），不会覆盖旧内容；文件是普通 Markdown，可以自己编辑、用 Git 管理或同步。
 - 开关状态存在 `~/.kolor/memory.json`（`{ "version": 1, "diary": { "autoAppend": true } }`）。
 - 没有新内容时提示词要求模型不写空小节（直接回复 `No new content.`）；如果模型确实什么都没写，服务端日志会记一条 `the diary turn finished without appending anything`。
 - 计时只在 Web 进程存活时有效，重启后从下一轮对话重新开始；自动整理不会自我循环（日记轮次结束后不再触发下一次）。
 - 定时任务、手动消息、日记轮次都会重新开始计时。
+- 日记相关的框架细节（三个技能区、制作 skill、MCP 配置、日记）集中在内置技能 `kolor` 里；系统提示词要求模型遇到框架问题时先读它。
 
 ## 会话存储
 
@@ -533,13 +533,15 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | --- | --- | --- |
 | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR` 可覆盖） | Claude 标准的兼容区，原来的安装位置 |
 | 专属技能 | `<workspace>/skills`，默认 `~/.kolor/workspace/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
-| 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` 放在这里 |
+| 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` / `kolor` 放在这里 |
 
 - 三个区都按 `<区>/<id>/SKILL.md` 组织；同名技能按 **专属 → 兼容 → 内置** 的优先级取第一个，不会重复注入。
 - 三个区的 `kolor.json` 都会被收集；同名 MCP server 同样按这个优先级取第一个。
 - 改完技能文件不需要重启：下一轮对话重新读列表（列表指纹变化会触发重新注入和 MCP 重连）。
 
 内置技能 [`inner/skills/browseruse`](inner/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径。**每个操作（打开/点击/输入/按键/执行 JS）都会自动附带一次 snapshot 和新截图**，截图按需展示（用户要截图或需要说明页面时才贴出来）；实时画面地址只在打开新网页后给一次（或用户主动问），文本快照够用时不额外读图。预览页支持鼠标/键盘/滚轮，**按住鼠标可以拖动网页元素**（滑块、画布、拖拽排序），触摸屏上单指上下滑动会滚动网页。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、按住拖动、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
+
+内置技能 [`inner/skills/kolor`](inner/skills/kolor) 是**框架说明书**：三个技能区、怎么写 skill、MCP 配置方法、日记位置/格式/整理提示词都在这；系统提示词要求模型遇到 KolorBot 自身的问题时先调用 `skills("kolor")` 读它，而不是凭记忆猜。
 
 ## Web HTTP API
 
