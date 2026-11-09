@@ -1,4 +1,4 @@
-export { createKolorWebServer } from './server.js';
+﻿export { createKolorWebServer } from './server.js';
 export type { KolorWebOptions, KolorWebServer } from './server.js';
 export { resolveWebConfig } from './config.js';
 export type { WebConfig, WebConfigOverrides } from './config.js';
@@ -24,7 +24,6 @@ export { createReminderTool } from './reminder-tool.js';
 export type { CreateReminder } from './reminder-tool.js';
 export {
   MemoryStore,
-  buildDiaryInstruction,
   buildDiaryTaskMessage,
   diaryDateKey,
   diarySignature,

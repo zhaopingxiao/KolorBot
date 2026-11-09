@@ -1,4 +1,4 @@
-﻿# KolorBot 项目交接
+# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
@@ -226,12 +226,12 @@ mcp__kolor-frame__read_file
 - **开关**：`定时追加日记`，默认关；状态存在 `~/.kolor/memory.json`（`{ version: 1, diary: { autoAppend } }`）。
 - **自动整理**：一轮对话结束（`handleChat` / 定时任务）后开始计时，**10 分钟**内没有新用户消息就让这个会话跑一轮后台日记（无 SSE，和定时任务同一套路）。新消息会取消计时；重置/删除会话也会取消；日记轮次本身**不会**重新计时（否则会无限循环）。
 - **写入（2026-11-09 改为文件工具）**：模型用内置文件工具 `list_files` / `read_file` / `write_file` 直接读写 `<workspace>/daily/YYYY-MM-DD.md`（本地时区）。第一次写当天文件用 `write_file` 写整份内容（`# YYYY-MM-DD` + 可选 `## Previous Topic` + `## HH:mm` + 内容）；后续用 `write_file` 的 `append: true` 只追加新的 `## HH:mm` 块。专门的 `append_diary` 工具已删除（`diary-tool.ts` 移除，`AgentPool.createDiary` / `server.ts` 的接线一起删）；`MemoryStore.append` 保留为内部/测试用的文件写入 helper，不再注册给模型。
-- **记忆衔接**：`<system-daily-memory-task>` 里是一段**固定英文提示词**（`memory.ts` 的 `DIARY_INSTRUCTION`，全文也放在内置技能 `kolor` 里），服务端不预计算“当天第一条/有没有上一篇”。提示词要求：当天文件不存在/为空且 `daily/` 有更早日记时，先 `list_files daily/`、`read_file` 最近一篇，概括 2-4 条写进 `## Previous Topic`，再写 `## HH:mm`；当天已有内容时只追加 `## HH:mm`，不再写第二个 `## Previous Topic`。
+- **记忆衔接（2026-11-09 起规则只在 kolor 技能里）**：服务端**不再注入**完整提示词；触发消息只有一行 `It's <时间>. Update today's diary. Use the built-in kolor skill (skills("kolor")) for the diary rules and file format.`，完整规则（位置、格式、`## Previous Topic`、write_file/append）写在 `inner/skills/kolor/SKILL.md` 第 4 节。规则要求：当天文件不存在/为空且 `daily/` 有更早日记时，先 `list_files daily/`、`read_file` 最近一篇，概括 2-4 条写进 `## Previous Topic`，再写 `## HH:mm`；当天已有内容时只追加 `## HH:mm`，不再写第二个 `## Previous Topic`。
 - **注入**：每次发新消息时，如果当天日记非空，就在用户消息前加 `<system-daily-memory>…</system-daily-memory>`；会话表新增 `daily_signature` 记录上次发送的版本，**内容没变就不重复注入**；`reset()` 会清空签名（`markDailySent` / 迁移都跟 `skills_signature` 一致）。
-- **手动整理**：用户发 `/update-daily-memory`（大小写不敏感、必须整条消息），服务端换成**和自动触发完全相同**的消息：固定 `<system-daily-memory-task>` 提示词 + `It's <时间>. Update today's diary.`。UI 剥掉外壳后气泡里显示的就是那行时间戳，命令本身不再出现。
-- **提示词**：固定一段英文指令，自动和手动**用同一条消息、同一个末尾标签** `It's <时间>. Update today's diary.`；页面显示的就是这一行。指令要求回顾进展、决定、结论、待办，只写有信息量的内容、用对话语言、没新内容就回 `No new content.`。
-- **代码**：`memory.ts`（`MemoryStore`、日期/签名、固定提示词 `DIARY_INSTRUCTION`、`buildDiaryTaskMessage`）、`diary-idle.ts`（`IdleDiary` 计时器）、`server.ts` 里的注入与 `runDiaryTurn`。内置技能 `kolor` 记录日记位置、格式与完整提示词。
-- **测试**：16 个（`test/memory.test.ts` 15 个 + `kolor-sessions` 1 个），覆盖文件格式、固定提示词（含改用 `read_file`/`write_file` 的断言）、`## Previous Topic` 衔接、开关持久化、`/api/memory`、注入去重、重置后重注入、`/update-daily-memory`、以及静默后自动整理日记的端到端。
+- **手动整理**：用户发 `/update-daily-memory`（大小写不敏感、必须整条消息），服务端换成**和自动触发完全相同**的一行消息（时间戳 + 指向 kolor 技能），命令本身不再出现。
+- **提示词**：没有独立的整理提示词了；`memory.ts` 只负责 `buildDiaryTaskMessage` 生成那一行，规则维护在 kolor 技能里。
+- **代码**：`memory.ts`（`MemoryStore`、日期/签名、`buildDiaryTaskMessage`）、`diary-idle.ts`（`IdleDiary` 计时器）、`server.ts` 里的注入与 `runDiaryTurn`。内置技能 `kolor` 记录日记位置、格式与完整规则。
+- **测试**：16 个（`test/memory.test.ts` 15 个 + `kolor-sessions` 1 个），覆盖文件格式、触发消息只有一行且指向 kolor、`## Previous Topic` 衔接、开关持久化、`/api/memory`、注入去重、重置后重注入、`/update-daily-memory`、以及静默后自动整理日记的端到端。
 - **截图**：`docs/memory.png`（记忆页 + `## Previous Topic`）。
 
 ### 3.13 运行中的 turn（`RunBroker`，2026-11-07 新增）

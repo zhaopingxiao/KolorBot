@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -151,7 +151,7 @@ test('rejects a first entry that forgets previous_topic when an earlier diary ex
   assert.equal(plain.previousTopic, false);
 });
 
-test('formats the injection block, the task message and recognises the command', () => {
+test('formats the injection block, the trigger message and recognises the command', () => {
   const block = formatDiaryBlock('# 2026-11-02\n\n## 09:05\n\n进展\n');
   assert.equal(
     block,
@@ -159,10 +159,9 @@ test('formats the injection block, the task message and recognises the command',
   );
 
   const message = buildDiaryTaskMessage(new Date(2026, 10, 2, 21, 0));
-  assert.match(message, /^<system-daily-memory-task>\n/);
-  assert.match(message, /write_file/);
-  assert.match(message, /It's 2026\/11\/02 21:00:00/);
-  assert.match(message, /Update today's diary\.$/);
+  assert.match(message, /^It's 2026\/11\/02 21:00:00 \w+\. Update today's diary\./);
+  assert.match(message, /kolor/);
+  assert.equal(message.includes('<system-daily-memory-task>'), false);
 
   assert.equal(isDiaryCommand('/update-daily-memory'), true);
   assert.equal(isDiaryCommand('  /update-daily-memory  '), true);
@@ -171,31 +170,22 @@ test('formats the injection block, the task message and recognises the command',
   assert.equal(isDiaryCommand('写日记'), false);
 });
 
-test('the diary task message is fixed: only the timestamp changes', () => {
+test('the diary trigger is one short line that only points at the kolor skill', () => {
   const first = buildDiaryTaskMessage(new Date(2026, 10, 2, 21, 0));
   const second = buildDiaryTaskMessage(new Date(2026, 11, 5, 19, 45));
 
-  const instructionOf = (message: string): string =>
-    message.slice(message.indexOf('\n') + 1, message.indexOf('</system-daily-memory-task>'));
-  assert.equal(instructionOf(first), instructionOf(second), 'the envelope content is identical');
-
-  assert.match(instructionOf(first), /First entry of the day/);
-  assert.match(instructionOf(first), /## Previous Topic/);
-  assert.match(instructionOf(first), /write_file/);
-  assert.match(instructionOf(first), /read_file/);
-  assert.equal(instructionOf(first).includes('append_diary'), false);
-  assert.match(instructionOf(first), /No new content\./);
-  assert.equal(instructionOf(first).includes('<previous-diary>'), false);
-  assert.equal(instructionOf(first).includes('2026/11/02'), false, 'no timestamp inside the envelope');
-
-  assert.match(
-    first,
-    /<\/system-daily-memory-task>\n\nIt's 2026\/11\/02 21:00:00 \w+\. Update today's diary\.$/,
+  assert.match(first, /^It's 2026\/11\/02 21:00:00 \w+\. Update today's diary\./);
+  assert.match(second, /^It's 2026\/12\/05 19:45:00 \w+\. Update today's diary\./);
+  assert.equal(
+    first.replace(/^It's [^.]+\./, ''),
+    second.replace(/^It's [^.]+\./, ''),
+    'only the timestamp changes',
   );
-  assert.match(
-    second,
-    /<\/system-daily-memory-task>\n\nIt's 2026\/12\/05 19:45:00 \w+\. Update today's diary\.$/,
-  );
+  assert.match(first, /kolor/);
+  assert.equal(first.includes('<system-daily-memory-task>'), false);
+  assert.equal(first.includes('Requirements'), false);
+  assert.equal(first.includes('## Previous Topic'), false);
+  assert.ok(first.length < 220, 'the rules are not injected anymore');
 });
 
 test('the idle timer fires once, can be cancelled and respects the switch', async () => {
@@ -404,16 +394,16 @@ test('/update-daily-memory sends the same message as an idle trigger', async (t)
   await postChat(app, sessionId, '/update-daily-memory');
 
   const content = lastUserContent(model, 0);
-  assert.match(content, /^<system-daily-memory-task>\n/);
-  assert.match(content, /write_file/);
-  assert.match(content, /It's \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \w+\. Update today's diary\.$/);
+  assert.match(content, /^It's \d{4}\/\d{2}\/\d{2} \d{2}:\d{2}:\d{2} \w+\. Update today's diary\./);
+  assert.match(content, /kolor/);
+  assert.equal(content.includes('<system-daily-memory-task>'), false);
   assert.equal(content.includes('/update-daily-memory'), false);
 
   const record = (await call(app, `/api/sessions/${sessionId}`)).data?.session as {
     context: Array<{ role: string; content: string }>;
   };
   const userMessages = record.context.filter((message) => message.role === 'user');
-  assert.match(userMessages.at(-1)?.content ?? '', /^<system-daily-memory-task>/);
+  assert.match(userMessages.at(-1)?.content ?? '', /^It's .*Update today's diary\./);
 });
 
 test('the first diary of the day writes the file with write_file', async (t) => {
@@ -462,8 +452,8 @@ test('the first diary of the day writes the file with write_file', async (t) => 
   await postChat(app, sessionId, '/update-daily-memory');
 
   const trigger = lastUserContent(model, 0);
-  assert.match(trigger, /First entry of the day/);
-  assert.match(trigger, /## Previous Topic/);
+  assert.match(trigger, /Update today's diary\./);
+  assert.match(trigger, /kolor/);
   assert.equal(trigger.includes('<previous-diary>'), false);
 
   const todayKey = diaryDateKey(now);
@@ -482,18 +472,13 @@ test('the first diary of the day writes the file with write_file', async (t) => 
   assert.match(after, /## \d{2}:\d{2}\n\n今天第 2 次整理/);
 });
 
-test('the diary prompt tells the model to write with the file tools', () => {
+test('the diary trigger does not carry the rules itself', () => {
   const message = buildDiaryTaskMessage(new Date(2026, 10, 9, 20, 54));
-  const instruction = message.slice(
-    message.indexOf('\n') + 1,
-    message.indexOf('</system-daily-memory-task>'),
-  );
-  assert.match(instruction, /list_files/);
-  assert.match(instruction, /read_file/);
-  assert.match(instruction, /write_file/);
-  assert.match(instruction, /append: true/);
-  assert.match(instruction, /## Previous Topic/);
-  assert.equal(instruction.includes('append_diary'), false);
+  assert.match(message, /kolor/);
+  assert.equal(message.includes('Requirements'), false);
+  assert.equal(message.includes('## Previous Topic'), false);
+  assert.equal(message.includes('write_file'), false);
+  assert.equal(message.includes('append_diary'), false);
 });
 
 test('the idle timer appends the diary after the conversation goes quiet', async (t) => {
@@ -553,7 +538,7 @@ test('the idle timer appends the diary after the conversation goes quiet', async
   };
   assert.ok(record.messageCount >= 4);
   const trigger = record.context.find(
-    (message) => message.role === 'user' && message.content.includes('<system-daily-memory-task>'),
+    (message) => message.role === 'user' && message.content.includes("Update today's diary."),
   );
   assert.ok(trigger, 'the diary trigger is stored in the conversation');
 });

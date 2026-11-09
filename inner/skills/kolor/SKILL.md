@@ -134,29 +134,33 @@ process.stdin.on('data', (chunk) => {
 - **写日记用什么工具**：内置文件工具 `list_files` / `read_file` / `write_file`。第一次写当天文件用 `write_file` 覆盖整个文件；后续追加用 `write_file` 加 `append: true`，只写新的 `## HH:mm` 块。**没有 `append_diary` 工具**，不要调用它。
 - **自动触发**：一次对话结束后开始计时，10 分钟没有新用户消息就为该会话跑一轮后台日记（和定时任务一样走 broker，可看实时进度）。新用户消息会重置计时；重置/删除会话会取消；日记轮次本身不再计时。
 - **手动触发**：发送固定命令 `/update-daily-memory`（大小写不敏感、必须整条消息），服务端换成和自动触发完全相同的消息。
-- **注入给模型的整理提示词**（固定英文，`kolor-web/src/memory.ts` 的 `DIARY_INSTRUCTION`，外层包 `<system-daily-memory-task>`，末尾是 `It's <本地时间>. Update today's diary.`）：
+- **触发消息只有一行**（服务端不再注入完整提示词，规则只放在本技能里）：
 
 ```text
-Update today's diary (daily memory) from this conversation.
+It's <本地时间>. Update today's diary. Use the built-in kolor skill (skills("kolor")) for the diary rules and file format.
+```
 
-Requirements:
-1. Review what happened in this conversation since the last diary entry: what was done, what was decided, conclusions and todo.
-2. The diary is the markdown file daily/YYYY-MM-DD.md inside the workspace (today's local date). Use the file tools directly: list_files, read_file, write_file. There is no append_diary tool.
-3. File format:
+- **整理日记的完整规则**（自动/手动触发后按这里执行）：
+
+```text
+整理今天（本地日期）的日记：
+1. 回顾这次对话自上一篇日记以来的进展、决定、结论和待办。
+2. 日记是 workspace 里的 daily/YYYY-MM-DD.md（今天的本地日期），直接用 list_files / read_file / write_file。
+3. 文件格式：
    # YYYY-MM-DD
 
    ## Previous Topic
 
-   - 2-4 bullets summarising the most recent earlier diary
+   - 2-4 条概括最近一篇更早的日记
 
    ## HH:mm
 
-   - short bullets for this conversation
-4. First entry of the day (today's file is missing or empty) and any earlier diary exists: list daily/, read the most recent earlier diary, and write the whole file with write_file — the leading `## Previous Topic` section is REQUIRED in this case. Only when daily/ has no earlier diary may the first entry start directly with `## HH:mm`.
-5. Later entries: append with write_file and `append: true`, adding only a new `## HH:mm` block; never add a second `## Previous Topic`.
-6. Only record substantive content; write short bullet points in the language of the conversation, and do not repeat what the diary already records.
-7. If nothing new has happened since the last entry, do not write the file and simply say "No new content."
-8. Reply with one sentence when you are done.
+   - 这次对话的要点
+4. 当天第一条（今天文件不存在或为空）且 daily/ 里有更早的日记：先 list daily/、read 最近一篇，把概括写进 `## Previous Topic`（这种情况必需），再用 write_file 写整份文件。只有 daily/ 里没有任何更早日记时，首条才可以直接从 `## HH:mm` 开始。
+5. 当天后续整理：用 write_file + `append: true` 只追加新的 `## HH:mm` 块，绝不再写第二个 `## Previous Topic`。
+6. 只记录有信息量的内容，用对话语言写短条目，不重复日记里已有的内容。
+7. 没有新内容就不要写文件，直接回复 "No new content."。
+8. 写完后用一句话回复。
 ```
 
 - **日常注入**：每条用户消息前，如果当天日记非空，就注入 `<system-daily-memory>…当天日记全文…</system-daily-memory>`；内容没变不重复注入，重置会话后重新注入。这部分不用改。

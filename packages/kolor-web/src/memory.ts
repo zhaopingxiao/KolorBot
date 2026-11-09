@@ -1,4 +1,4 @@
-﻿import { createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -246,50 +246,16 @@ export function formatDiaryBlock(content: string): string {
 }
 
 /**
- * The fixed instruction wrapped in `<system-daily-memory-task>`.
- *
- * It is deliberately identical for every diary turn and carries the file
- * format, the first-entry-of-the-day rule and the write_file/read_file flow,
- * so the model works from `daily/` directly instead of a dedicated diary tool.
- */
-const DIARY_INSTRUCTION = [
-  "Update today's diary (daily memory) from this conversation.",
-  '',
-  'Requirements:',
-  '1. Review what happened in this conversation since the last diary entry: what was done, what was decided, conclusions and todo.',
-  "2. The diary is the markdown file daily/YYYY-MM-DD.md inside the workspace (today's local date). Use the file tools directly: list_files, read_file, write_file.",
-  '3. File format:',
-  '   # YYYY-MM-DD',
-  '',
-  '   ## Previous Topic',
-  '',
-  '   - 2-4 bullets summarising the most recent earlier diary',
-  '',
-  '   ## HH:mm',
-  '',
-  '   - short bullets for this conversation',
-  "4. First entry of the day (today's file is missing or empty) and any earlier diary exists: list daily/, read the most recent earlier diary, and write the whole file with write_file — the leading `## Previous Topic` section is REQUIRED in this case. Only when daily/ has no earlier diary may the first entry start directly with `## HH:mm`.",
-  '5. Later entries: append with write_file and `append: true`, adding only a new `## HH:mm` block; never add a second `## Previous Topic`.',
-  '6. Only record substantive content; write short bullet points in the language of the conversation, and do not repeat what the diary already records.',
-  '7. If nothing new has happened since the last entry, do not write the file and simply say "No new content."',
-  '8. Reply with one sentence when you are done.',
-].join('\n');
-
-/** The instruction the model receives when it is asked to update the diary. */
-export function buildDiaryInstruction(): string {
-  return DIARY_INSTRUCTION;
-}
-
-/**
  * The user message that triggers a diary turn.
  *
- * The fixed task envelope comes first (the UI strips it); the plain line after
- * it is what the page shows. Manual `/update-daily-memory` turns into exactly
- * the same message as the automatic trigger, so both look identical.
+ * The diary rules (location, format, `## Previous Topic`, write_file/append)
+ * live in the built-in `kolor` skill; the trigger only states the task and
+ * points at that skill, so the full prompt is not injected every time. Manual
+ * `/update-daily-memory` produces exactly the same message as the automatic
+ * trigger.
  */
 export function buildDiaryTaskMessage(now: Date): string {
-  const label = `It's ${formatTimestamp(now)}. Update today's diary.`;
-  return `<system-daily-memory-task>\n${DIARY_INSTRUCTION}\n</system-daily-memory-task>\n\n${label}`;
+  return `It's ${formatTimestamp(now)}. Update today's diary. Use the built-in kolor skill (skills("kolor")) for the diary rules and file format.`;
 }
 
 /** True when the text is the manual "organize the diary now" command. */

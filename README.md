@@ -351,7 +351,7 @@ KolorFrame 提供：
 2. 模型用内置文件工具（`list_files` / `read_file` / `write_file`）直接读写当天的日记文件；没有专门的日记工具（`append_diary` 已移除）。
 3. 之后每次发新消息，当天日记都会以 `<system-daily-memory>…</system-daily-memory>` 注入到用户消息前面；**和上次发送的版本没差异就不重复注入**（签名记在会话的 `daily_signature` 里，重置后清空，所以重置后的第一条会重新带上）。
 
-也可以在输入框直接发送 `/update-daily-memory`：它会被替换成和自动触发**完全相同**的那条消息（同一段 `<system-daily-memory-task>` 提示词 + 同一行时间戳），所以页面上显示出来的也是 `It's 2026/11/05 19:45:00 Thursday. Update today's diary.`，不再显示命令本身。
+也可以在输入框直接发送 `/update-daily-memory`：它会被替换成和自动触发**完全相同**的那条消息（只有一行时间戳 + 指向内置技能 `kolor` 的提示），所以页面上显示出来的也是 `It's 2026/11/05 19:45:00 Thursday. Update today's diary. Use the built-in kolor skill ...`，不再显示命令本身。
 
 日记文件在 workspace 下，按本地日期一天一个文件：
 
@@ -379,7 +379,7 @@ KolorFrame 提供：
 又补了一轮：确认第二天第一次整理会自动衔接。
 ```
 
-**记忆衔接**：整理提示词是**固定的一段英文**（`<system-daily-memory-task>` 里），其中写明了：当天第一次整理时，如果 `daily/` 里存在更早的日记，先 `read_file` 最近一篇并概括 2-4 条写进 `## Previous Topic`；当天已有内容时只用 `write_file` + `append: true` 追加新的 `## HH:mm`，不再写第二个 `## Previous Topic`。完整提示词也放在内置技能 `kolor` 里（`inner/skills/kolor/SKILL.md`）。
+**记忆衔接**：整理规则只放在内置技能 `kolor` 里（`inner/skills/kolor/SKILL.md` 第 4 节），服务端**不再注入**完整提示词，触发消息只有一行：`It's <本地时间>. Update today's diary.` 加一句「用内置 kolor 技能（`skills("kolor")`）看日记规则和文件格式」。规则要求：当天第一次整理时，如果 `daily/` 里存在更早的日记，先 `read_file` 最近一篇并概括 2-4 条写进 `## Previous Topic`；当天已有内容时只用 `write_file` + `append: true` 追加新的 `## HH:mm`，不再写第二个 `## Previous Topic`。
 
 提示词外面那一行普通消息才是页面上显示的，自动和手动完全一样：`It's 2026/11/05 19:45:00 Thursday. Update today's diary.`。
 

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+﻿import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -57,7 +57,7 @@ const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
 const KOLOR_SYSTEM_PROMPT = [
   DEFAULT_SYSTEM_PROMPT,
   '',
-  'KolorBot framework knowledge lives in the built-in skill "kolor": the three skill areas, how to write a skill, MCP configuration, the diary (where it is stored and the prompt injected when it is organized), sessions, providers and the HTTP API.',
+  'KolorBot framework knowledge lives in the built-in skill "kolor": the three skill areas, how to write a skill, MCP configuration, the diary (where it is stored and the rules to update it), sessions, providers and the HTTP API.',
   'When the user asks how KolorBot itself works, call the `skills` tool with id "kolor" and read it instead of guessing. Do not load it for ordinary coding, browsing or office tasks.',
 ].join('\n');
 
