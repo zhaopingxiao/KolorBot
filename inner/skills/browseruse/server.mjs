@@ -61,7 +61,7 @@ const viewServer = createServer(async (request, response) => {
   header .grow { flex: 1; }
   header input { flex: 0 0 260px; padding: 5px 9px; border: 0; border-radius: 7px; background: #222; color: #eee; font-size: 13px; }
   #stage { position: relative; display: flex; justify-content: center; align-items: flex-start; height: calc(100vh - 40px); }
-  #frame { max-width: 100%; max-height: 100%; cursor: crosshair; touch-action: none; }
+  #frame { max-width: 100%; max-height: 100%; cursor: crosshair; touch-action: none; user-select: none; -webkit-user-drag: none; }
   #hint { position: fixed; left: 14px; bottom: 10px; font-size: 11px; color: #888; }
 </style></head>
 <body>
@@ -71,7 +71,7 @@ const viewServer = createServer(async (request, response) => {
     <input id="textbox" placeholder="中文/文字输入：回车发送到网页" autocomplete="off">
   </header>
   <div id="stage"><img id="frame" src="/screen.mjpg" alt="browser screen"></div>
-  <div id="hint">点击 = 点击网页 · 滚轮 = 滚动 · 键盘 = 键入（先点一下画面让网页获得焦点） · ${viewAddress()}</div>
+  <div id="hint">点击 = 点击网页 · 按住拖动 = 拖拽网页元素 · 滚轮 = 滚动 · 键盘 = 键入（先点一下画面让网页获得焦点） · ${viewAddress()}</div>
 <script>
 const frame = document.getElementById('frame');
 const textbox = document.getElementById('textbox');
@@ -84,9 +84,6 @@ const send = (payload) => fetch('/input', {
   headers: { 'content-type': 'application/json' },
   body: JSON.stringify(payload),
 }).catch(() => {});
-frame.addEventListener('click', (event) => send({ type: 'click', ...rel(event), button: event.button }));
-frame.addEventListener('dblclick', (event) => send({ type: 'dblclick', ...rel(event) }));
-frame.addEventListener('contextmenu', (event) => { event.preventDefault(); send({ type: 'click', ...rel(event), button: 2 }); });
 frame.addEventListener('wheel', (event) => { event.preventDefault(); send({ type: 'wheel', deltaX: event.deltaX, deltaY: event.deltaY }); });
 // Touch scrolling: a single-finger vertical swipe scrolls the real page.
 let touchY = null;
@@ -104,11 +101,29 @@ frame.addEventListener('touchmove', (event) => {
   }
 }, { passive: false });
 frame.addEventListener('touchend', () => { touchY = null; }, { passive: true });
+
+// Drag support: mousedown starts a drag, mousemove streams the move while the
+// button is held, mouseup finishes it (even when the pointer leaves the image).
+// Simple clicks still work natively because the browser turns down+up into a click.
+let pointerDown = null;
 let moveTimer = 0;
+frame.addEventListener('mousedown', (event) => {
+  if (event.button > 2) return;
+  event.preventDefault();
+  pointerDown = { button: event.button, startX: event.clientX, startY: event.clientY };
+  send({ type: 'down', ...rel(event), button: event.button });
+});
 frame.addEventListener('mousemove', (event) => {
   clearTimeout(moveTimer);
-  moveTimer = setTimeout(() => send({ type: 'move', ...rel(event) }), 30);
+  moveTimer = setTimeout(() => send({ type: 'move', ...rel(event) }), pointerDown === null ? 30 : 16);
 });
+window.addEventListener('mouseup', (event) => {
+  if (pointerDown === null) return;
+  send({ type: 'up', ...rel(event), button: pointerDown.button });
+  pointerDown = null;
+});
+frame.addEventListener('contextmenu', (event) => event.preventDefault());
+frame.addEventListener('dragstart', (event) => event.preventDefault());
 document.addEventListener('keydown', (event) => {
   if (event.target === textbox) return;
   event.preventDefault();
@@ -292,6 +307,14 @@ async function applyInput(payload) {
   switch (payload.type) {
     case 'move':
       await current.mouse.move(x(payload.x), y(payload.y));
+      break;
+    case 'down':
+      await current.mouse.move(x(payload.x), y(payload.y));
+      await current.mouse.down({ button: button(payload.button) });
+      break;
+    case 'up':
+      await current.mouse.move(x(payload.x), y(payload.y));
+      await current.mouse.up({ button: button(payload.button) });
       break;
     case 'click':
       await current.mouse.click(x(payload.x), y(payload.y), { button: button(payload.button) });

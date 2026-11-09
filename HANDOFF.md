@@ -258,7 +258,7 @@ mcp__kolor-frame__read_file
 - **实时地址只在打开新页面后给一次**：`browser_open` 的返回里带 `Live view:`，其他工具（含自动快照）不再输出地址；用户主动问时才重复。
 - **WebMCP**：`browser_webmcp_list()` / `browser_webmcp_call(name, input)` 通过 CDP `Page.listWebMCPTools` / `Page.invokeWebMCPTool` 调用**网页自己注册的** WebMCP 工具；启动参数带了 `--enable-features=WebMCP,WebMCPTesting,DevToolsWebMCPSupport`。需要 Chrome ≥ 149；当前系统 Edge 157 还没开放该 CDP 命令，工具会返回明确的「不支持」错误，换支持它的浏览器即可用。
 - **生命周期**：MCP 进程随会话 agent 存在，所以浏览器页面和实时画面在**同一会话的多轮之间保留**；会话删除/重置或模型切换重建 agent 时进程退出、画面地址失效。
-- **验证**：`inner/skills/browseruse/smoke.mjs` 直接对 server.mjs 打 JSON-RPC（open/snapshot/click/type/evaluate/webmcp_list + 实时画面三个端点 + `/input` 手动操作 + 滚轮滚动）；检查每个操作的返回都带自动快照和 `![...]` 图片、只有 `browser_open` 带 `Live view:`、`/shot/<file>` 可下载 JPEG、wheel 后 `scrollY > 0`。另在线上实例用真实模型实测：只调用 `browser_open` + `browser_click`，回复里出现 **2 张截图** 且实时地址只出现一次；UI 侧确认 Markdown 图片渲染成 `<img class="md-image">`。
+- **验证**：`inner/skills/browseruse/smoke.mjs` 直接对 server.mjs 打 JSON-RPC（open/snapshot/click/type/evaluate/webmcp_list + 实时画面三个端点 + `/input` 手动操作（点击/拖动 down-move-up/滚轮/触摸滑动））；检查每个操作的返回都带自动快照和 `![...]` 图片、只有 `browser_open` 带 `Live view:`、`/shot/<file>` 可下载 JPEG、wheel 后 `scrollY > 0`。另在线上实例用真实模型实测：只调用 `browser_open` + `browser_click`，回复里出现 **2 张截图** 且实时地址只出现一次；UI 侧确认 Markdown 图片渲染成 `<img class="md-image">`。
 - **注意**：这是浏览器自动化，网页里能登录、能执行任意 JS；敏感操作前先确认用户。单窗口单页面，没有多标签。
 
 ## 4. 关键约束 / 容易踩的坑

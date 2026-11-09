@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 const PORT = process.env.BROWSERUSE_VIEW_PORT || '9223';
 
@@ -16,8 +17,13 @@ try {
   // free port, continue
 }
 
-const server = join(process.cwd(), 'server.mjs');
-const child = spawn(process.execPath, [server], { cwd: process.cwd(), stdio: ['pipe', 'pipe', 'inherit'] });
+// Resolve the server next to this script so the smoke test runs from anywhere.
+const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
+const server = join(SERVER_DIR, 'server.mjs');
+const child = spawn(process.execPath, [server], {
+  cwd: SERVER_DIR,
+  stdio: ['pipe', 'pipe', 'inherit'],
+});
 
 process.on('unhandledRejection', (reason) => {
   console.log('UNHANDLED REJECTION:', reason instanceof Error ? reason.stack : reason);
@@ -167,6 +173,39 @@ for (const request of requests) {
   await call(12, 'browser_evaluate', { expression: 'String(window.scrollY)' });
   const scrollY = done.get(12)?.result?.content?.[0]?.text ?? '';
   console.log(`wheel scrolled page: ${/Result:\s*[1-9]\d*/.test(scrollY) ? 'ok' : `MISSING (${scrollY.replace(/\s+/g, ' ').slice(0, 80)})`}`);
+
+  // Drag forwarding: mousedown -> moves -> mouseup must reach the page, and a
+  // plain down+up at the same point must still count as a click.
+  const dragPage =
+    'data:text/html,' +
+    encodeURIComponent(
+      '<body style="margin:0;height:100vh;background:#eef"><script>' +
+        'window.events={down:0,move:0,up:0,click:0};' +
+        'document.addEventListener("mousedown",()=>events.down++);' +
+        'document.addEventListener("mousemove",()=>events.move++);' +
+        'document.addEventListener("mouseup",()=>events.up++);' +
+        'document.addEventListener("click",()=>events.click++);' +
+        '</script></body>',
+    );
+  await call(13, 'browser_open', { url: dragPage });
+  await new Promise((resolve) => setTimeout(resolve, 400));
+  await input({ type: 'down', x: 0.3, y: 0.3 });
+  await input({ type: 'move', x: 0.45, y: 0.45 });
+  await input({ type: 'move', x: 0.6, y: 0.6 });
+  await input({ type: 'up', x: 0.6, y: 0.6 });
+  await new Promise((resolve) => setTimeout(resolve, 300));
+  await call(14, 'browser_evaluate', { expression: 'JSON.stringify(window.events)' });
+  const afterDrag = done.get(14)?.result?.content?.[0]?.text ?? '';
+  const dragEvents = /Result:\s*(\{.*\})/s.exec(afterDrag)?.[1] ?? '';
+  console.log(`drag events: ${dragEvents || `MISSING (${afterDrag.slice(0, 80)})`}`);
+
+  await input({ type: 'down', x: 0.2, y: 0.2 });
+  await input({ type: 'up', x: 0.2, y: 0.2 });
+  await new Promise((resolve) => setTimeout(resolve, 250));
+  await call(15, 'browser_evaluate', { expression: 'JSON.stringify(window.events)' });
+  const afterClick = done.get(15)?.result?.content?.[0]?.text ?? '';
+  const clickEvents = /Result:\s*(\{.*\})/s.exec(afterClick)?.[1] ?? '';
+  console.log(`down+up click: ${clickEvents || `MISSING (${afterClick.slice(0, 80)})`}`);
 }
 
 async function report() {

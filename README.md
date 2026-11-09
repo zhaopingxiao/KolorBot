@@ -1,4 +1,4 @@
-# KolorBot
+﻿# KolorBot
 
 <img src="packages/kolor-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -539,7 +539,7 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 - 三个区的 `kolor.json` 都会被收集；同名 MCP server 同样按这个优先级取第一个。
 - 改完技能文件不需要重启：下一轮对话重新读列表（列表指纹变化会触发重新注入和 MCP 重连）。
 
-内置技能 [`inner/skills/browseruse`](inner/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径。**每个操作（打开/点击/输入/按键/执行 JS）都会自动附带一次 snapshot 和新截图**，截图按需展示（用户要截图或需要说明页面时才贴出来）；实时画面地址只在打开新网页后给一次（或用户主动问），文本快照够用时不额外读图。预览页支持鼠标/键盘/滚轮，触摸屏上单指上下滑动会滚动网页。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
+内置技能 [`inner/skills/browseruse`](inner/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径。**每个操作（打开/点击/输入/按键/执行 JS）都会自动附带一次 snapshot 和新截图**，截图按需展示（用户要截图或需要说明页面时才贴出来）；实时画面地址只在打开新网页后给一次（或用户主动问），文本快照够用时不额外读图。预览页支持鼠标/键盘/滚轮，**按住鼠标可以拖动网页元素**（滑块、画布、拖拽排序），触摸屏上单指上下滑动会滚动网页。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、按住拖动、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
 
 ## Web HTTP API
 
