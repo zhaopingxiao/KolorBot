@@ -1,4 +1,4 @@
-import { exec } from 'node:child_process';
+﻿import { exec } from 'node:child_process';
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
@@ -14,9 +14,17 @@ export interface FrameContext {
   extraSkillRoots?: string[];
 }
 
+/** An image the agent loop attaches to the next model request. */
+export interface FrameImage {
+  mimeType: string;
+  data: string;
+}
+
 export interface FrameToolResult {
   content: string;
   isError?: boolean;
+  /** Images the model should see, attached by the agent loop. */
+  images?: FrameImage[];
 }
 
 export type JsonSchema = Record<string, unknown>;
@@ -33,6 +41,7 @@ export class FrameError extends Error {
 }
 
 const MAX_READ_BYTES = 2 * 1024 * 1024;
+const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_WRITE_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_CHARS = 100_000;
 const MAX_LIST_ENTRIES = 1000;
@@ -106,6 +115,23 @@ export const FRAME_TOOLS: FrameToolDefinition[] = [
       required: ['id'],
     },
   },
+  {
+    name: 'read_image',
+    description:
+      'Read a local image (PNG, JPEG, GIF, WebP or BMP) inside the workspace or the skills areas and actually look at it: ' +
+      'the image is attached to the conversation when the current model supports image input. Also returns its format, ' +
+      'size and pixel dimensions. Use it to inspect screenshots, diagrams or photos by path.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        path: {
+          type: 'string',
+          description: 'Image path relative to the workspace, or an absolute path inside the workspace / skills areas',
+        },
+      },
+      required: ['path'],
+    },
+  },
 ];
 
 /** Dispatch one tool call; never throws, failures become `isError` results. */
@@ -127,6 +153,8 @@ export async function callFrameTool(
         return await bashTool(args, context);
       case 'skills':
         return skillsTool(args, context);
+      case 'read_image':
+        return await readImageTool(args, context);
       default:
         return { content: `Error: unknown KolorFrame tool "${name}"`, isError: true };
     }
@@ -324,6 +352,173 @@ function skillsTool(args: Record<string, unknown>, context: FrameContext): Frame
     };
   }
   throw new SkillError(`unknown skill "${id}"`);
+}
+
+interface ImageInfo {
+  mime: string;
+  format: string;
+  width?: number;
+  height?: number;
+}
+
+/** Identify an image by its magic bytes and read its pixel dimensions. */
+export function detectImage(buffer: Buffer): ImageInfo | undefined {
+  if (buffer.length >= 24 && buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4e && buffer[3] === 0x47) {
+    return {
+      mime: 'image/png',
+      format: 'PNG',
+      width: buffer.readUInt32BE(16),
+      height: buffer.readUInt32BE(20),
+    };
+  }
+  if (buffer.length >= 4 && buffer[0] === 0xff && buffer[1] === 0xd8) {
+    let offset = 2;
+    while (offset + 9 < buffer.length) {
+      if (buffer[offset] !== 0xff) {
+        offset += 1;
+        continue;
+      }
+      const marker = buffer[offset + 1] as number;
+      offset += 2;
+      if (marker === 0xd8 || marker === 0xd9) continue;
+      if (offset + 2 > buffer.length) break;
+      const length = buffer.readUInt16BE(offset);
+      if (length < 2) break;
+      const isStartOfFrame =
+        (marker >= 0xc0 && marker <= 0xc3) ||
+        (marker >= 0xc5 && marker <= 0xc7) ||
+        (marker >= 0xc9 && marker <= 0xcb) ||
+        (marker >= 0xcd && marker <= 0xcf);
+      if (isStartOfFrame && offset + 7 < buffer.length) {
+        return {
+          mime: 'image/jpeg',
+          format: 'JPEG',
+          height: buffer.readUInt16BE(offset + 3),
+          width: buffer.readUInt16BE(offset + 5),
+        };
+      }
+      offset += length;
+    }
+    return { mime: 'image/jpeg', format: 'JPEG' };
+  }
+  if (buffer.length >= 10 && buffer.subarray(0, 3).toString('ascii') === 'GIF') {
+    return {
+      mime: 'image/gif',
+      format: 'GIF',
+      width: buffer.readUInt16LE(6),
+      height: buffer.readUInt16LE(8),
+    };
+  }
+  if (
+    buffer.length >= 30 &&
+    buffer.subarray(0, 4).toString('ascii') === 'RIFF' &&
+    buffer.subarray(8, 12).toString('ascii') === 'WEBP'
+  ) {
+    const kind = buffer.subarray(12, 16).toString('ascii');
+    if (kind === 'VP8X') {
+      return {
+        mime: 'image/webp',
+        format: 'WebP',
+        width: 1 + (buffer[24] as number) + ((buffer[25] as number) << 8) + ((buffer[26] as number) << 16),
+        height: 1 + (buffer[27] as number) + ((buffer[28] as number) << 8) + ((buffer[29] as number) << 16),
+      };
+    }
+    if (kind === 'VP8 ') {
+      return {
+        mime: 'image/webp',
+        format: 'WebP',
+        width: (buffer.readUInt16LE(26) as number) & 0x3fff,
+        height: (buffer.readUInt16LE(28) as number) & 0x3fff,
+      };
+    }
+    if (kind === 'VP8L') {
+      const bits =
+        ((buffer[21] as number) | ((buffer[22] as number) << 8) | ((buffer[23] as number) << 16) | ((buffer[24] as number) << 24)) >>> 0;
+      return {
+        mime: 'image/webp',
+        format: 'WebP',
+        width: (bits & 0x3fff) + 1,
+        height: ((bits >>> 14) & 0x3fff) + 1,
+      };
+    }
+    return { mime: 'image/webp', format: 'WebP' };
+  }
+  if (buffer.length >= 26 && buffer.subarray(0, 2).toString('ascii') === 'BM') {
+    return {
+      mime: 'image/bmp',
+      format: 'BMP',
+      width: buffer.readInt32LE(18),
+      height: Math.abs(buffer.readInt32LE(22)),
+    };
+  }
+  return undefined;
+}
+
+/** Resolve an image path that may live in the workspace or any skills area. */
+async function resolveImagePath(context: FrameContext, input: string): Promise<string> {
+  const roots = [context.root, context.skillsRoot, ...(context.extraSkillRoots ?? [])].filter(
+    (root): root is string => root !== undefined && root.trim() !== '',
+  );
+  const candidates = isAbsolute(input)
+    ? [resolve(input)]
+    : roots.map((root) => resolve(root, input));
+
+  const inside = (candidate: string): boolean =>
+    roots.some((root) => {
+      const rel = relative(resolve(root), candidate);
+      return rel === '' || (!rel.startsWith('..') && !isAbsolute(rel));
+    });
+
+  for (const candidate of candidates) {
+    if (!inside(candidate)) continue;
+    const info = await stat(candidate).catch(() => undefined);
+    if (info?.isFile() === true) return candidate;
+  }
+
+  if (!candidates.some(inside)) {
+    throw new FrameError(`path escapes the workspace and skills areas: ${input}`);
+  }
+  throw new FrameError(`image not found: ${input}`);
+}
+
+async function readImageTool(args: Record<string, unknown>, context: FrameContext): Promise<FrameToolResult> {
+  const input = requireString(args, 'path');
+  const absolute = await resolveImagePath(context, input);
+  const info = await stat(absolute).catch(() => undefined);
+  if (info === undefined || !info.isFile()) {
+    return { content: `Error: image not found: ${input}`, isError: true };
+  }
+  if (info.size > MAX_IMAGE_BYTES) {
+    return {
+      content: `Error: image is ${info.size} bytes, larger than the ${MAX_IMAGE_BYTES} byte limit`,
+      isError: true,
+    };
+  }
+
+  const buffer = await readFile(absolute);
+  const image = detectImage(buffer);
+  if (image === undefined) {
+    return {
+      content: `Error: not a supported image (PNG, JPEG, GIF, WebP, BMP): ${input}`,
+      isError: true,
+    };
+  }
+
+  const dimensions =
+    image.width !== undefined && image.height !== undefined ? `${image.width}x${image.height}` : 'unknown';
+  const lines = [
+    `Image: ${absolute}`,
+    `Format: ${image.mime} (${image.format})`,
+    `Size: ${info.size} bytes`,
+    `Dimensions: ${dimensions}`,
+    '',
+    'If this model accepts image input, the image is attached to the next message — look at it and answer from what you see.',
+    'Otherwise only this metadata is available.',
+  ];
+  return {
+    content: lines.join('\n'),
+    images: [{ mimeType: image.mime, data: buffer.toString('base64') }],
+  };
 }
 
 function formatBashResult(

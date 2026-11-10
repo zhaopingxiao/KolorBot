@@ -29,6 +29,14 @@ export interface ToolCall {
   arguments: string;
 }
 
+/** An image a tool wants the model to actually see. */
+export interface ToolImage {
+  /** MIME type, e.g. `image/png`. */
+  mimeType: string;
+  /** Base64 payload, without a `data:` prefix. */
+  data: string;
+}
+
 /** What a tool hands back to the loop. */
 export interface ToolOutcome {
   /** Text the model will read as the tool result. */
@@ -39,6 +47,13 @@ export interface ToolOutcome {
   details?: unknown;
   /** Ends the turn after this result is committed (useful for `submit`-style tools). */
   concludeTurn?: boolean;
+  /**
+   * Images to attach to the next model request.
+   *
+   * Only used when the model accepts image input; otherwise the loop retries
+   * the request without them.
+   */
+  images?: ToolImage[];
 }
 
 /** A tool may return a plain string as shorthand for `{ content }`. */
@@ -121,9 +136,22 @@ export interface ProviderToolCall {
   };
 }
 
+export interface ProviderTextPart {
+  type: 'text';
+  text: string;
+}
+
+export interface ProviderImagePart {
+  type: 'image_url';
+  image_url: { url: string };
+}
+
+/** Array content is only used for transient image messages. */
+export type ProviderUserContent = string | Array<ProviderTextPart | ProviderImagePart>;
+
 export type ProviderMessage =
   | { role: 'system'; content: string }
-  | { role: 'user'; content: string }
+  | { role: 'user'; content: ProviderUserContent }
   | { role: 'assistant'; content: string | null; tool_calls?: ProviderToolCall[] }
   | { role: 'tool'; tool_call_id: string; content: string };
 

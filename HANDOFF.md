@@ -1,9 +1,9 @@
-# KolorBot 项目交接
+﻿# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（147 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（150 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
 
 ## 1. 这个项目是什么
 
@@ -155,6 +155,7 @@ write_file
 list_files
 bash
 skills
+read_image
 ```
 
 不再是：
@@ -165,6 +166,8 @@ mcp__kolor-frame__read_file
 ```
 
 `kolor-frame` 包现在只是一个本地工具库，没有 MCP server / bin / SDK 依赖；`KolorAgent` 默认注册这些工具，传 `{ kolorFrame: false }` 可关闭。
+
+**`read_image`（2026-11-10）**：按本地路径读取 PNG/JPEG/GIF/WebP/BMP（工作区 + 三个技能区），返回格式、字节数、像素尺寸，并把图片以 `ToolImage` 附到**下一次模型请求**：`KolorAgent` 在 `#buildRequest` 里追加一条 content 数组的 user 消息（text + `image_url` 的 data URL）。模型侧两档：模型名命中 `deepseek|text-|embedding|rerank|moderation` 视为不支持视觉，只给元数据；其他模型先尝试带图，若 provider 返回 400/415/422 且提到 image/vision 等，就在还没产生任何输出时丢掉图片重试一次，并记住该 agent 不支持视觉。图片只在本次请求内有效，不写进会话历史。
 
 ### 3.8 Web UI（`kolor-web`）
 
@@ -407,11 +410,11 @@ UI 已不提供 export/import/rename 入口，但 API 仍然存在。
 
 ```text
 pnpm build  ✅
-pnpm test   ✅ 147/147
-  kolor-agent-loop 42
+pnpm test   ✅ 150/150
+  kolor-agent-loop 44
   kolor-sessions   23
   kolor-skills     14
-  kolor-frame       7
+  kolor-frame       8
   kolor-web        61   （原 38 + 记忆日记 9 + 记忆衔接 4 + 运行中的 turn 7 + 衔接兜底 2）
 ```
 
@@ -451,7 +454,7 @@ cd D:\code\kolorbot
 pnpm install
 pnpm test
 
-当前状态：147 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
+当前状态：150 个测试全部通过，Web 可用 npm run web 启动（或 restart.cmd）；
 模型只来自「模型」页的提供商（OpenAI Chat Completions 协议），没有内置默认模型；
 只有显式设置 KOLOR_API_URL + KOLOR_API_MODEL + key 才会出现「环境变量」回退项；
 「记忆」页的日记开关可让对话静默 10 分钟后自动追加日记，发 /update-daily-memory 可立即整理；
@@ -473,7 +476,7 @@ pnpm test
 | `packages/kolor-sessions/src/schedule.ts` | 调度规则（多时间节点 `times`/`days`/`minutes`）、`nextRunAt`、`describeSchedule` |
 | `packages/kolor-skills/src/skills.ts` | 技能发现、签名、`<system-skills>` |
 | `packages/kolor-skills/src/mcp.ts` | `kolor.json` MCP 解析、`${VAR}` 展开 |
-| `packages/kolor-frame/src/tools.ts` | 文件/bash/skills 工具实现 |
+| `packages/kolor-frame/src/tools.ts` | 文件/bash/skills/read_image 工具实现 |
 | `packages/kolor-web/src/providers.ts` | 提供商存储（`providers.json`）、`/models` 发现、active 模型解析 |
 | `packages/kolor-web/src/memory.ts` | 记忆设置（`memory.json`）、日记读写/签名、日记提示词 |
 | `packages/kolor-web/src/diary-idle.ts` | 「对话静默 N 分钟」计时器 |

@@ -1,4 +1,4 @@
-import type { KolorEvent } from '../events.js';
+﻿import type { KolorEvent } from '../events.js';
 import type { AgentIdentity, ConcurrencyMode, ToolCall, ToolDefinition, ToolOutcome } from '../types.js';
 import { toError } from '../util/errors.js';
 import type { ToolRegistry } from './registry.js';
@@ -106,6 +106,7 @@ async function* runGroup(
         content: settled.outcome.content,
         isError: settled.outcome.isError === true,
         durationMs: settled.durationMs,
+        ...(settled.outcome.images === undefined ? {} : { images: settled.outcome.images }),
       };
       committed++;
     }

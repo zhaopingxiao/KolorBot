@@ -63,7 +63,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 147 个测试
+pnpm test      # 150 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -131,7 +131,7 @@ npm run web -- --host 0.0.0.0
 - 聊天：流式输出、工具调用卡片（参数 / 结果 / 状态，可折叠）、停止按钮、思考时的三个点。AI 回复**边出边渲染 Markdown**（标题、表格、列表、代码块、引用、链接、图片、加粗、行内代码等）：最新一段文字保持淡入动画，其余已接收的部分立即转成渲染结果，不用等整条回复结束。
 - 断线不丢回答：一轮对话在服务端跑，关闭标签页、刷新、切网都只是断开镜像；回来时会从服务端缓冲回放整轮，会话列表里正在跑的会话带一个跳动的点。同一会话同时只允许一轮，重复发送会返回 409 并自动接上看得到的那轮。
 - 跟随滚动：只有当你离消息列表底部**一行字以内**时，新输出才会自动把视图拉到最底；往上翻读历史时不会被拽走，轮次结束重建消息也不会改变你的位置。
-- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` 由 agent-loop 直接注册，和 MCP 无关；额外 MCP 只能写在技能目录的 `kolor.json` 里。
+- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image` 由 agent-loop 直接注册，和 MCP 无关；额外 MCP 只能写在技能目录的 `kolor.json` 里。
 
 | 环境变量 | 默认值 | 作用 |
 | --- | --- | --- |
@@ -289,12 +289,13 @@ KolorFrame 提供：
 | 工具 | 说明 |
 | --- | --- |
 | `read_file` | 按行读 UTF-8 文本 |
+| `read_image` | 读本地图片（PNG/JPEG/GIF/WebP/BMP），返回格式/尺寸；**支持视觉的模型会真正收到图片**（非视觉模型只拿到元数据，服务端自动降级） |
 | `write_file` | 写/追加，自动建目录 |
 | `list_files` | 递归列目录 |
 | `bash` | 在工作区执行 shell 命令 |
 | `skills` | 读取 `~/.agents/skills/<id>/SKILL.md` 和文件列表 |
 
-文件工具只能在 `KOLOR_FRAME_ROOT` 内活动；`bash` 不沙箱（本地可信环境使用）。
+文件工具只能在 `KOLOR_FRAME_ROOT` 内活动（`read_image` 也可以读三个技能区，方便看截图）；`bash` 不沙箱（本地可信环境使用）。
 
 ## 模型提供商
 
@@ -590,13 +591,13 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 147 个测试：
+共 150 个测试：
 
-- `kolor-agent-loop`（42）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
+- `kolor-agent-loop`（44）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
 - `kolor-sessions`（23）：CRUD、路径解析、持久化重开、导入导出、非法上下文、主题注入、重置、旧库迁移、定时规则/任务存储、技能签名、日记签名。
 - `kolor-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
-- `kolor-frame`（7）：读写、目录、bash、skills 工具、越界路径、错误映射。
-- `kolor-web`（61）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、固定的整理提示词、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、当天第一次整理必须有 `previous_topic`（拒绝后重试）、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
+- `kolor-frame`（8）：读写、目录、bash、skills、`read_image`（格式/尺寸识别、图片字节、技能区访问、越界/非图片拒绝）、越界路径、错误映射。
+- `kolor-web`（61）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、一行式触发消息（指向 kolor 技能，不再注入完整提示词）、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
 
 全部测试不需要网络和 API key。
 

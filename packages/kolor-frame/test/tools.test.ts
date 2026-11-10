@@ -132,3 +132,51 @@ test('unknown tools and bad arguments become errors', async (t) => {
   assert.equal(bad.isError, true);
   assert.match(bad.content, /content must be a string/);
 });
+
+function tinyPng(width: number, height: number): Buffer {
+  const signature = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]);
+  const ihdr = Buffer.alloc(4 + 4 + 13 + 4);
+  ihdr.writeUInt32BE(13, 0);
+  ihdr.write('IHDR', 4, 'ascii');
+  ihdr.writeUInt32BE(width, 8);
+  ihdr.writeUInt32BE(height, 12);
+  ihdr[16] = 8;
+  ihdr[17] = 6;
+  return Buffer.concat([signature, ihdr]);
+}
+
+test('read_image returns metadata and the image bytes for the model', async (t) => {
+  const root = tempRoot(t);
+  const skillsRoot = tempRoot(t);
+  mkdirSync(join(root, 'shots'), { recursive: true });
+  writeFileSync(join(root, 'shots', 'pic.png'), tinyPng(8, 6));
+  writeFileSync(join(skillsRoot, 'shot.png'), tinyPng(4, 2));
+
+  const result = await callFrameTool('read_image', { path: 'shots/pic.png' }, { root });
+  assert.equal(result.isError, undefined);
+  assert.match(result.content, /Format: image\/png \(PNG\)/);
+  assert.match(result.content, /Dimensions: 8x6/);
+  assert.equal(result.images?.length, 1);
+  assert.equal(result.images?.[0]?.mimeType, 'image/png');
+  assert.deepEqual(Buffer.from(result.images?.[0]?.data ?? '', 'base64'), tinyPng(8, 6));
+
+  const fromSkills = await callFrameTool(
+    'read_image',
+    { path: join(skillsRoot, 'shot.png') },
+    { root, extraSkillRoots: [skillsRoot] },
+  );
+  assert.match(fromSkills.content, /Dimensions: 4x2/);
+
+  const hidden = await callFrameTool('read_image', { path: join(skillsRoot, 'shot.png') }, { root });
+  assert.equal(hidden.isError, true);
+  assert.match(hidden.content, /escapes/);
+
+  writeFileSync(join(root, 'note.txt'), 'hello');
+  const notImage = await callFrameTool('read_image', { path: 'note.txt' }, { root });
+  assert.equal(notImage.isError, true);
+  assert.match(notImage.content, /not a supported image/);
+
+  const escape = await callFrameTool('read_image', { path: '../outside.png' }, { root });
+  assert.equal(escape.isError, true);
+  assert.match(escape.content, /escapes/);
+});

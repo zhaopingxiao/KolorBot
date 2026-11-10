@@ -14,9 +14,11 @@ import {
   type ModelClient,
   type ModelRequest,
   type ModelResponse,
+  type ProviderUserContent,
   type StopReason,
   type TokenUsage,
   type ToolDefinition,
+  type ToolImage,
   type TurnResult,
 } from './types.js';
 import { KolorAbortError, KolorStateError, isAbortError, toError } from './util/errors.js';
@@ -100,6 +102,12 @@ export class KolorAgent {
   #turn = 0;
   #lastResult: TurnResult | undefined;
   #mcpStatus: McpServerStatus[] = [];
+  /** Images from tool results, waiting for the next model request. */
+  #pendingImages: ToolImage[] = [];
+  /** Images actually attached to the request currently in flight. */
+  #requestImages: ToolImage[] = [];
+  /** Set after the provider proves it cannot take image content. */
+  #visionUnsupported = false;
 
   private constructor(config: KolorConfig, options: KolorAgentOptions) {
     this.config = resolveConfig(config);
@@ -137,6 +145,7 @@ export class KolorAgent {
       },
     });
 
+    this.#visionUnsupported = !providerAcceptsImages(this.config.apiModelName);
     for (const tool of options.tools ?? []) this.#registry.register(tool);
     this.#registerFrameTools();
     if (options.context !== undefined) {
@@ -333,6 +342,15 @@ export class KolorAgent {
               content: event.content,
               isError: event.isError,
             });
+            if (event.images !== undefined && event.images.length > 0) {
+              if (this.#visionUnsupported) {
+                this.#log(
+                  `skipped ${event.images.length} image(s) from ${event.name}: the model does not accept images`,
+                );
+              } else {
+                this.#pendingImages.push(...event.images);
+              }
+            }
           } else if (event.type === 'tool/skipped') {
             this.session.appendToolResult({
               callId: event.callId,
@@ -427,7 +445,14 @@ export class KolorAgent {
         name,
         description: definition.description,
         inputSchema: definition.inputSchema,
-        execute: (input) => callFrameTool(name, input, context),
+        execute: async (input) => {
+          const result = await callFrameTool(name, input, context);
+          return {
+            content: result.content,
+            ...(result.isError === true ? { isError: true } : {}),
+            ...(result.images === undefined ? {} : { images: result.images }),
+          };
+        },
       });
     }
   }
@@ -457,22 +482,46 @@ export class KolorAgent {
     signal: AbortSignal,
     state: TurnState,
   ): AsyncGenerator<KolorEvent, ModelResponse, void> {
-    const request = this.#buildRequest();
-    const stream = this.#model.stream(request, signal);
     let response: ModelResponse | undefined;
+    let attempts = 0;
 
     while (true) {
-      const next = await stream.next();
-      if (next.done) {
-        response = next.value;
+      const request = this.#buildRequest();
+      const stream = this.#model.stream(request, signal);
+      let produced = false;
+      try {
+        while (true) {
+          const next = await stream.next();
+          if (next.done) {
+            response = next.value;
+            break;
+          }
+          produced = true;
+          const delta = next.value;
+          if (delta.type === 'text-delta') {
+            state.text += delta.text;
+            yield this.#publish({ type: 'text/delta', turn, step, text: delta.text });
+          } else {
+            yield this.#publish({ type: 'reasoning/delta', turn, step, text: delta.text });
+          }
+        }
         break;
-      }
-      const delta = next.value;
-      if (delta.type === 'text-delta') {
-        state.text += delta.text;
-        yield this.#publish({ type: 'text/delta', turn, step, text: delta.text });
-      } else {
-        yield this.#publish({ type: 'reasoning/delta', turn, step, text: delta.text });
+      } catch (error) {
+        // A text-only model rejects image content. Drop the images, remember
+        // the limitation for this agent and retry once as a plain text request.
+        if (
+          !produced &&
+          attempts === 0 &&
+          this.#requestImages.length > 0 &&
+          isImageUnsupported(error)
+        ) {
+          attempts += 1;
+          this.#visionUnsupported = true;
+          this.#requestImages = [];
+          this.#log('the model rejected image input; retrying without the image');
+          continue;
+        }
+        throw error;
       }
     }
 
@@ -491,9 +540,28 @@ export class KolorAgent {
   }
 
   #buildRequest(): ModelRequest {
+    const messages = this.session.toProviderMessages(this.config.systemPrompt);
+    this.#requestImages = [];
+    if (this.#pendingImages.length > 0) {
+      const images = this.#pendingImages.splice(0);
+      if (!this.#visionUnsupported) {
+        this.#requestImages = images;
+        const content: ProviderUserContent = [
+          {
+            type: 'text',
+            text: 'The following image(s) were read from local files with read_image and are attached for you to look at.',
+          },
+          ...images.map((image) => ({
+            type: 'image_url' as const,
+            image_url: { url: `data:${image.mimeType};base64,${image.data}` },
+          })),
+        ];
+        messages.push({ role: 'user', content });
+      }
+    }
     return {
       model: this.config.apiModelName,
-      messages: this.session.toProviderMessages(this.config.systemPrompt),
+      messages,
       tools: this.#registry.toModelSchemas(),
       ...(this.config.temperature === undefined ? {} : { temperature: this.config.temperature }),
       ...(this.config.maxTokens === undefined ? {} : { maxTokens: this.config.maxTokens }),
@@ -571,4 +639,27 @@ export class KolorAgent {
   #log(message: string, error?: unknown): void {
     this.#options.logger?.(message, error);
   }
+}
+
+/**
+ * Best-effort guess whether a model accepts image input.
+ *
+ * Known text-only families are skipped outright (so a text model never sees a
+ * bogus image part); every other model is tried and falls back through
+ * {@link isImageUnsupported} if the provider rejects the image.
+ */
+function providerAcceptsImages(model: string): boolean {
+  return !/deepseek|text-|embedding|rerank|moderation/.test(model.toLowerCase());
+}
+
+/** True when an error looks like the provider refusing image content. */
+function isImageUnsupported(error: unknown): boolean {
+  if (typeof error !== 'object' || error === null) return false;
+  const candidate = error as { status?: unknown; message?: unknown; body?: unknown };
+  const status = typeof candidate.status === 'number' ? candidate.status : undefined;
+  const text = `${typeof candidate.message === 'string' ? candidate.message : ''} ${
+    typeof candidate.body === 'string' ? candidate.body : ''
+  }`.toLowerCase();
+  if (!/image|vision|multimodal|image_url|content type/.test(text)) return false;
+  return status === undefined || status === 400 || status === 415 || status === 422;
 }

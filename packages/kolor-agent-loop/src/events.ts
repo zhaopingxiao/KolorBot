@@ -1,4 +1,4 @@
-import type { AssistantMessage, TurnResult } from './types.js';
+﻿import type { AssistantMessage, ToolImage, TurnResult } from './types.js';
 
 /** Every event the loop emits, in the order the loop produces them. */
 export type KolorEvent =
@@ -17,6 +17,8 @@ export type KolorEvent =
       content: string;
       isError: boolean;
       durationMs: number;
+      /** Images to attach to the next model request (not shown in the UI). */
+      images?: ToolImage[];
     }
   | { type: 'tool/skipped'; turn: number; step: number; callId: string; name: string; reason: string }
   | { type: 'step/end'; turn: number; step: number }

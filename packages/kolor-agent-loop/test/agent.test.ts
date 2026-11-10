@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 import { KolorAgent } from '../src/agent.js';
 import {
@@ -230,4 +230,101 @@ test('rejects concurrent turns and empty input', async (t) => {
   await assert.rejects(() => agent.run('two'), /already running/);
   const result = await first;
   assert.equal(result.stopReason, 'completed');
+});
+
+const imageTool = defineTool({
+  name: 'read_image',
+  description: 'Read an image and attach it',
+  inputSchema: { type: 'object', properties: { path: { type: 'string' } }, required: ['path'] },
+  execute: () => ({
+    content: 'Image: shot.png (image/png)',
+    images: [{ mimeType: 'image/png', data: Buffer.from('fake-png').toString('base64') }],
+  }),
+});
+
+test('attaches tool images to the next model request', async (t) => {
+  const requests: import('../src/types.js').ModelRequest[] = [];
+  const client: ModelClient = {
+    async *stream(request) {
+      requests.push(structuredClone(request));
+      if (requests.length === 1) {
+        return {
+          text: '',
+          toolCalls: [{ id: 'call_img', name: 'read_image', arguments: '{"path":"shot.png"}' }],
+          finishReason: 'tool_calls',
+        };
+      }
+      yield { type: 'text-delta', text: 'I can see the image.' };
+      return { text: 'I can see the image.', toolCalls: [], finishReason: 'stop' };
+    },
+  };
+
+  const agent = await KolorAgent.create(
+    { apiUrl: 'http://127.0.0.1:1/v1', apiModelName: 'test-model', apiKey: 'sk-test' },
+    { modelClient: client, tools: [imageTool] },
+  );
+  t.after(() => agent.dispose());
+
+  const result = await agent.run('look at shot.png');
+  assert.equal(result.stopReason, 'completed');
+  assert.equal(result.text, 'I can see the image.');
+  assert.equal(requests.length, 2);
+
+  const imageMessage = requests[1]?.messages.find(
+    (message) => message.role === 'user' && Array.isArray(message.content),
+  );
+  assert.ok(imageMessage, 'the second request carries the image as user content');
+  if (imageMessage !== undefined && Array.isArray(imageMessage.content)) {
+    const imagePart = imageMessage.content.find((part) => part.type === 'image_url');
+    assert.equal(
+      imagePart?.type === 'image_url' ? imagePart.image_url.url : '',
+      `data:image/png;base64,${Buffer.from('fake-png').toString('base64')}`,
+    );
+  }
+});
+
+test('retries without images when the model rejects image input', async (t) => {
+  const requests: import('../src/types.js').ModelRequest[] = [];
+  const client: ModelClient = {
+    async *stream(request) {
+      requests.push(structuredClone(request));
+      if (requests.length === 1) {
+        return {
+          text: '',
+          toolCalls: [{ id: 'call_img', name: 'read_image', arguments: '{"path":"shot.png"}' }],
+          finishReason: 'tool_calls',
+        };
+      }
+      const hasImage = request.messages.some(
+        (message) => message.role === 'user' && Array.isArray(message.content),
+      );
+      if (hasImage) {
+        throw Object.assign(new Error('400 invalid image content'), {
+          status: 400,
+          body: '{"error":"image input is not supported"}',
+        });
+      }
+      yield { type: 'text-delta', text: 'Text-only fallback.' };
+      return { text: 'Text-only fallback.', toolCalls: [], finishReason: 'stop' };
+    },
+  };
+
+  const agent = await KolorAgent.create(
+    { apiUrl: 'http://127.0.0.1:1/v1', apiModelName: 'test-model', apiKey: 'sk-test' },
+    { modelClient: client, tools: [imageTool] },
+  );
+  t.after(() => agent.dispose());
+
+  const result = await agent.run('look at shot.png');
+  assert.equal(result.stopReason, 'completed');
+  assert.equal(result.text, 'Text-only fallback.');
+  assert.equal(requests.length, 3, 'one retry after the image rejection');
+  const second = requests[1]?.messages.some(
+    (message) => message.role === 'user' && Array.isArray(message.content),
+  );
+  const third = requests[2]?.messages.some(
+    (message) => message.role === 'user' && Array.isArray(message.content),
+  );
+  assert.equal(second, true, 'the first attempt carried the image');
+  assert.equal(third, false, 'the retry was text only');
 });

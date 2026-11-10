@@ -1,4 +1,4 @@
----
+﻿---
 name: Kolor
 description: KolorBot 框架自身的使用说明：三个技能目录与优先级、如何制作 skill、skill 里的 MCP 配置与制作方法、日记（存放位置、文件格式、整理时注入的提示词、怎么写）、会话/提供商/HTTP API 速查。用户问「KolorBot 自己怎么用/怎么扩展/技能放哪/日记怎么工作」时读这个技能，不要凭记忆猜。
 ---
@@ -168,7 +168,7 @@ It's <本地时间>. Update today's diary. Use the built-in kolor skill (skills(
 
 ## 5. 框架速览
 
-- 包：`kolor-agent-loop`（主循环/模型客户端/MCP）、`kolor-sessions`（SQLite 会话存储/主题/定时任务）、`kolor-skills`（技能发现/注入）、`kolor-frame`（本地工具：文件/bash/skills）、`kolor-web`（HTTP/SSE/调度器/提供商/前端）。
+- 包：`kolor-agent-loop`（主循环/模型客户端/MCP）、`kolor-sessions`（SQLite 会话存储/主题/定时任务）、`kolor-skills`（技能发现/注入）、`kolor-frame`（本地工具：文件/bash/skills）、`kolor-web`（HTTP/SSE/调度器/提供商/前端）。`n- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image`；`read_image` 会把本地图片附给支持视觉的模型（文本模型只拿到格式/尺寸元数据）。
 - 会话与 turn：`RunBroker` 让 turn 活在服务端，断线可回放；定时任务和日记也走它。
 - 模型提供商：`~/.kolor/providers.json`，OpenAI Chat Completions 协议；没有内置默认模型。
 - 常用 HTTP API：`/api/sessions`、`/api/chat`（SSE）、`/api/chat/cancel`、`/api/skills`、`/api/mcp`、`/api/mcp/:name/restart`、`/api/memory`、`/api/providers`、`/api/config`。
