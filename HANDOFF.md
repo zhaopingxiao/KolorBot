@@ -417,7 +417,7 @@ pnpm test   ✅ 156/156
   kolor-sessions   23
   kolor-skills     14
   kolor-frame       8
-  kolor-web        67   （原 38 + 记忆日记 9 + 记忆衔接 4 + 运行中的 turn 7 + 衔接兜底 2 + 设定 6 + 兜底 1）
+  kolor-web        67   （静态页/会话/技能/MCP/提供商/日记/设定/运行中的 turn 等）
 ```
 
 CLI 测试覆盖 `--host` / `--port` / `--help`。Web 端到端覆盖内置工具、技能注入、提醒工具、定时任务、schedule_reminder、模型提供商、日记（文件格式、Previous Topic 衔接与拒绝后重试、注入去重、手动命令、静默自动整理）、以及运行中的 turn（断开继续、回放、409、取消、reset 不被写回）。
