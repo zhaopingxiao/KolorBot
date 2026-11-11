@@ -55,8 +55,22 @@ export interface MemoryStoreOptions {
   home: string;
   /** Directory for the markdown diaries, normally `<workspace>/daily`. */
   diaryDir: string;
+  /** Persona file, normally `<workspace>/AI.md`. */
+  selfPath?: string;
   /** Injectable clock (tests). */
   now?: () => Date;
+}
+
+/** `<workspace>/AI.md`: the AI's own name, personality and self-image. */
+export interface SelfSnapshot {
+  path: string;
+  relativePath: 'AI.md';
+  exists: boolean;
+  content: string;
+  sizeBytes: number;
+  /** Hard cap for the injected file (1 MiB). */
+  limitBytes: number;
+  overLimit: boolean;
 }
 
 export interface DiaryRecord {
@@ -68,6 +82,8 @@ export interface DiaryRecord {
 }
 
 const SETTINGS_VERSION = 1;
+/** AI.md must stay small: the whole file is injected into every new memory block. */
+const SELF_MAX_BYTES = 1024 * 1024;
 const DEFAULT_SETTINGS: MemorySettings = { diary: { autoAppend: false } };
 
 /**
@@ -80,11 +96,13 @@ const DEFAULT_SETTINGS: MemorySettings = { diary: { autoAppend: false } };
 export class MemoryStore {
   readonly settingsPath: string;
   readonly diaryDir: string;
+  readonly selfPath: string;
   readonly #now: () => Date;
 
   constructor(options: MemoryStoreOptions) {
     this.settingsPath = join(options.home, 'memory.json');
     this.diaryDir = options.diaryDir;
+    this.selfPath = options.selfPath ?? join(dirname(options.diaryDir), 'AI.md');
     this.#now = options.now ?? (() => new Date());
   }
 
@@ -97,6 +115,31 @@ export class MemoryStore {
     settings.diary.autoAppend = enabled === true;
     this.#writeSettings(settings);
     return settings;
+  }
+
+  /** The persona file (`<workspace>/AI.md`) with its size and the 1 MiB cap. */
+  self(): SelfSnapshot {
+    const exists = existsSync(this.selfPath);
+    let content = '';
+    if (exists) {
+      try {
+        content = readFileSync(this.selfPath, 'utf8');
+      } catch (error) {
+        throw new KolorStateError(`could not read the self description at ${this.selfPath}`, {
+          cause: error,
+        });
+      }
+    }
+    const sizeBytes = Buffer.byteLength(content, 'utf8');
+    return {
+      path: this.selfPath,
+      relativePath: 'AI.md',
+      exists,
+      content,
+      sizeBytes,
+      limitBytes: SELF_MAX_BYTES,
+      overLimit: sizeBytes > SELF_MAX_BYTES,
+    };
   }
 
   /** Today's diary (or the diary of `at`), plus a signature for change detection. */
@@ -240,9 +283,44 @@ export function diarySignature(content: string): string {
   return `v1:${createHash('sha1').update(content).digest('hex')}`;
 }
 
-/** `<system-daily-memory>` block injected before the user message. */
+/** Legacy `<system-daily-memory>` block (kept for older callers/tests). */
 export function formatDiaryBlock(content: string): string {
   return `<system-daily-memory>\n${content.trim()}\n</system-daily-memory>`;
+}
+
+/** Clip the persona to the 1 MiB cap and mark the truncation. */
+function clipSelf(content: string): string {
+  if (Buffer.byteLength(content, 'utf8') <= SELF_MAX_BYTES) return content;
+  const clipped = Buffer.from(content, 'utf8').subarray(0, SELF_MAX_BYTES).toString('utf8');
+  return `${clipped}\n\n… [AI.md truncated at 1 MiB — trim the file]`;
+}
+
+/**
+ * `<system-memory>` block injected before the user message.
+ *
+ * AI.md comes first (the AI's identity), then today's diary. Both sections are
+ * omitted when empty; the persona is clipped to 1 MiB.
+ */
+export function formatMemoryBlock(selfContent: string, diaryContent: string): string {
+  const self = selfContent.trim();
+  const diary = diaryContent.trim();
+  if (self === '' && diary === '') return '';
+  const sections: string[] = ['<system-memory>'];
+  if (self !== '') sections.push('## AI self (AI.md)', '', clipSelf(self));
+  if (diary !== '') {
+    if (self !== '') sections.push('');
+    sections.push('## Daily memory', '', diary);
+  }
+  sections.push('</system-memory>');
+  return sections.join('\n');
+}
+
+/** Combined signature of AI.md + today's diary, or '' when both are empty. */
+export function memorySignature(selfContent: string, diaryContent: string): string {
+  if (selfContent.trim() === '' && diaryContent.trim() === '') return '';
+  return `v1:${createHash('sha1')
+    .update(`${selfContent}\u0000${diaryContent}`)
+    .digest('hex')}`;
 }
 
 /**
@@ -261,6 +339,46 @@ export function buildDiaryTaskMessage(now: Date): string {
 /** True when the text is the manual "organize the diary now" command. */
 export function isDiaryCommand(text: string): boolean {
   return text.trim().toLowerCase() === '/update-daily-memory';
+}
+
+/** `/self-md-update`: rewrite AI.md from the current conversation. */
+export function isSelfUpdateCommand(text: string): boolean {
+  return text.trim().toLowerCase() === '/self-md-update';
+}
+
+/**
+ * `/self-md-tell <text>`: rewrite AI.md from the text after the command.
+ *
+ * Returns `undefined` when the message is not that command; returns `''` when
+ * the command is present but no information follows (the caller should reject
+ * it).
+ */
+export function selfTellInfo(text: string): string | undefined {
+  const trimmed = text.trim();
+  const lower = trimmed.toLowerCase();
+  if (!lower.startsWith('/self-md-tell')) return undefined;
+  const rest = trimmed.slice('/self-md-tell'.length);
+  if (rest !== '' && !/^\s/.test(rest)) return undefined;
+  return rest.trim();
+}
+
+/** Trigger message for `/self-md-update`. */
+export function buildSelfUpdateMessage(): string {
+  return [
+    'Update your self-description (AI.md) from this conversation.',
+    'Use the built-in kolor skill (skills("kolor")) for the AI.md rules, allowed content and format.',
+  ].join(' ');
+}
+
+/** Trigger message for `/self-md-tell <info>`. */
+export function buildSelfTellMessage(info: string): string {
+  return [
+    'Update your self-description (AI.md) using the following information:',
+    '',
+    info.trim(),
+    '',
+    'Use the built-in kolor skill (skills("kolor")) for the AI.md rules, allowed content and format.',
+  ].join('\n');
 }
 
 function pad(value: number): string {

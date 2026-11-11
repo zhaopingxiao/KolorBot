@@ -231,6 +231,7 @@ function stripEnvelopes(content) {
     previous = text;
     text = text.replace(/^<system-skills>\r?\n[\s\S]*?\r?\n<\/system-skills>\r?\n*/, '');
     text = text.replace(/^<system-topic>\r?\n[\s\S]*?\r?\n<\/system-topic>\r?\n*/, '');
+    text = text.replace(/^<system-memory>\r?\n[\s\S]*?\r?\n<\/system-memory>\r?\n*/, '');
     text = text.replace(
       /^<system-daily-memory>\r?\n[\s\S]*?\r?\n<\/system-daily-memory>\r?\n*/,
       '',
@@ -1514,12 +1515,29 @@ function renderMemory() {
     ? `对话结束 ${data.diaryIdleMinutes} 分钟没有新消息时，自动让 AI 追加当天日记`
     : `打开后，对话结束 ${data.diaryIdleMinutes} 分钟没有新消息时自动让 AI 追加当天日记`;
 
+  const self = data.self;
+  const size = formatBytes(self?.sizeBytes ?? 0);
+  $('#self-path').textContent = self?.overLimit
+    ? `${self.relativePath} · ${size} / 1 MiB（超出，需要删减）`
+    : `${self?.relativePath ?? 'AI.md'} · ${size}`;
+  const selfPreview = $('#self-preview');
+  selfPreview.textContent = self?.content?.trim()
+    ? self.content
+    : '还没有设定文件 (workspace/AI.md)。发送 /self-md-update 或 /self-md-tell … 让 AI 创建。';
+
   const today = data.today;
   $('#diary-path').textContent = today?.relativePath ?? '';
   const preview = $('#diary-preview');
   preview.textContent = today?.content?.trim()
     ? today.content
     : '今天还没有日记。到点自动整理，或在输入框发送 /update-daily-memory。';
+}
+
+function formatBytes(bytes) {
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B';
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
 async function setDiaryAutoAppend(enabled) {
@@ -1658,6 +1676,7 @@ function wire() {
     void setDiaryAutoAppend(event.target.checked),
   );
   $('#diary-refresh').addEventListener('click', () => void loadMemory());
+  $('#self-refresh').addEventListener('click', () => void loadMemory());
   $('#provider-add').addEventListener('click', () => void addProvider());
   $('#model-select').addEventListener('change', (event) => void applyModel(event.target.value));
 

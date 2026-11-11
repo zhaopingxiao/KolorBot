@@ -1,4 +1,4 @@
-﻿export { createKolorWebServer } from './server.js';
+export { createKolorWebServer } from './server.js';
 export type { KolorWebOptions, KolorWebServer } from './server.js';
 export { resolveWebConfig } from './config.js';
 export type { WebConfig, WebConfigOverrides } from './config.js';
@@ -25,11 +25,17 @@ export type { CreateReminder } from './reminder-tool.js';
 export {
   MemoryStore,
   buildDiaryTaskMessage,
+  buildSelfTellMessage,
+  buildSelfUpdateMessage,
   diaryDateKey,
   diarySignature,
   diaryTimeKey,
   formatDiaryBlock,
+  formatMemoryBlock,
   isDiaryCommand,
+  isSelfUpdateCommand,
+  memorySignature,
+  selfTellInfo,
 } from './memory.js';
 export type {
   AppendDiaryOptions,
@@ -37,6 +43,7 @@ export type {
   DiarySnapshot,
   MemorySettings,
   MemoryStoreOptions,
+  SelfSnapshot,
 } from './memory.js';
 export { IdleDiary } from './diary-idle.js';
 export type { IdleDiaryOptions } from './diary-idle.js';

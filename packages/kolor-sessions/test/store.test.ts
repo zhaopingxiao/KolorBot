@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -287,16 +287,16 @@ test('tracks the skills signature and clears it on reset', (t) => {
 test('tracks the daily-memory signature and clears it on reset', (t) => {
   const { store } = tempStore(t);
   const session = store.create({ name: 'Diary' });
-  assert.equal(session.dailySignature, '');
+  assert.equal(session.memorySignature, '');
 
-  store.markDailySent(session.id, 'v1:daily');
-  assert.equal(store.require(session.id).dailySignature, 'v1:daily');
+  store.markMemorySent(session.id, 'v1:daily');
+  assert.equal(store.require(session.id).memorySignature, 'v1:daily');
 
   // The signature survives a context replacement, so an unchanged diary is not re-injected.
   store.replaceContext(session.id, [{ role: 'user', content: 'hi' }]);
-  assert.equal(store.require(session.id).dailySignature, 'v1:daily');
+  assert.equal(store.require(session.id).memorySignature, 'v1:daily');
 
   store.reset(session.id);
-  assert.equal(store.require(session.id).dailySignature, '');
-  assert.throws(() => store.markDailySent('missing', 'v1:x'), /unknown session/);
+  assert.equal(store.require(session.id).memorySignature, '');
+  assert.throws(() => store.markMemorySent('missing', 'v1:x'), /unknown session/);
 });

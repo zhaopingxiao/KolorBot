@@ -35,8 +35,8 @@ export interface SessionRecord extends SessionSummary {
   topic: string;
   /** Signature of the `<system-skills>` list last sent in this session. */
   skillsSignature: string;
-  /** Signature of the `<system-daily-memory>` block last sent in this session. */
-  dailySignature: string;
+  /** Signature of the `<system-memory>` block (AI.md + diary) last sent in this session. */
+  memorySignature: string;
   context: AgentMessage[];
 }
 

@@ -1,4 +1,4 @@
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -24,7 +24,7 @@ interface SessionRow {
   topic?: string;
   topic_pending?: number;
   skills_signature?: string;
-  daily_signature?: string;
+  memory_signature?: string;
 }
 
 interface TaskRow {
@@ -78,7 +78,7 @@ export class SessionStore {
         topic TEXT NOT NULL DEFAULT '',
         topic_pending INTEGER NOT NULL DEFAULT 0,
         skills_signature TEXT NOT NULL DEFAULT '',
-        daily_signature TEXT NOT NULL DEFAULT ''
+        memory_signature TEXT NOT NULL DEFAULT ''
       );
       CREATE INDEX IF NOT EXISTS idx_sessions_updated ON sessions(updated_at DESC);
       CREATE INDEX IF NOT EXISTS idx_sessions_name ON sessions(name);
@@ -106,8 +106,8 @@ export class SessionStore {
     if (!columns.some((column) => column.name === 'skills_signature')) {
       this.#db.exec("ALTER TABLE sessions ADD COLUMN skills_signature TEXT NOT NULL DEFAULT ''");
     }
-    if (!columns.some((column) => column.name === 'daily_signature')) {
-      this.#db.exec("ALTER TABLE sessions ADD COLUMN daily_signature TEXT NOT NULL DEFAULT ''");
+    if (!columns.some((column) => column.name === 'memory_signature')) {
+      this.#db.exec("ALTER TABLE sessions ADD COLUMN memory_signature TEXT NOT NULL DEFAULT ''");
     }
   }
 
@@ -242,7 +242,7 @@ export class SessionStore {
             SET context_json = '[]', message_count = 0, preview = '',
                 topic_pending = CASE WHEN topic <> '' THEN 1 ELSE 0 END,
                 skills_signature = '',
-                daily_signature = '',
+                memory_signature = '',
                 updated_at = ?
           WHERE id = ?`,
       )
@@ -260,11 +260,11 @@ export class SessionStore {
     if (Number(result.changes) === 0) throw new KolorStateError(`unknown session "${id}"`);
   }
 
-  /** Remember which daily-memory version was last sent in this session. */
-  markDailySent(id: string, signature: string): void {
+  /** Remember which memory version (AI.md + diary) was last sent in this session. */
+  markMemorySent(id: string, signature: string): void {
     this.#assertOpen();
     const result = this.#db
-      .prepare('UPDATE sessions SET daily_signature = ? WHERE id = ?')
+      .prepare('UPDATE sessions SET memory_signature = ? WHERE id = ?')
       .run(signature, id);
     if (Number(result.changes) === 0) throw new KolorStateError(`unknown session "${id}"`);
   }
@@ -433,7 +433,7 @@ export class SessionStore {
       ...toSummary(row),
       topic: row.topic ?? '',
       skillsSignature: row.skills_signature ?? '',
-      dailySignature: row.daily_signature ?? '',
+      memorySignature: row.memory_signature ?? '',
       context,
     };
   }

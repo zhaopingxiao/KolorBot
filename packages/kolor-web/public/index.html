@@ -174,6 +174,25 @@
       <div class="memory-section">
         <div class="list-item">
           <div class="grow">
+            <div class="list-name">设定</div>
+            <div class="list-sub" id="self-sub">AI 的名字、性格和对自身的了解（workspace/AI.md）</div>
+          </div>
+        </div>
+
+        <div class="memory-path">
+          <span id="self-path" class="memory-path-text"></span>
+          <button id="self-refresh" class="text-button">刷新</button>
+        </div>
+        <pre id="self-preview" class="skill-detail" aria-live="polite"></pre>
+        <p class="form-hint">
+          发送 <code>/self-md-update</code> 让 AI 按当前对话更新设定；发送
+          <code>/self-md-tell 你是一个温柔的 AI…</code> 让它按你给的信息更新。AI.md 超过 1 MiB 需要删减。
+        </p>
+      </div>
+
+      <div class="memory-section">
+        <div class="list-item">
+          <div class="grow">
             <div class="list-name">日记</div>
             <div class="list-sub" id="diary-sub">对话结束一段时间没有新消息时，自动让 AI 追加当天日记</div>
           </div>

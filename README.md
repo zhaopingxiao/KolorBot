@@ -24,7 +24,7 @@ kolorbot/
 ├── HANDOFF.md                   # 交接文档（项目是什么 / 做过什么 / 怎么继续）
 ├── docs/web-ui.png              # 聊天 / 主题截图
 ├── docs/models.png              # 模型提供商截图
-├── docs/memory.png              # 记忆（日记）截图
+├── docs/memory.png              # 记忆（设定 + 日记）截图
 ├── docs/schedule.png            # 定时任务截图
 ├── docs/skills.png              # 技能面板（含 MCP 标识与详情）
 ├── docs/tool-call.png           # 工具调用详情截图
@@ -63,7 +63,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 150 个测试
+pnpm test      # 156 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -123,7 +123,7 @@ npm run web -- --host 0.0.0.0
 
 - 会话：新建、切换、搜索、删除；历史存在 `~/.kolor/sessions.db`。
 - 模型：侧栏「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。详见 [模型提供商](#模型提供商)。
-- 记忆：侧栏「记忆」管理日记——打开「定时追加日记」后，对话结束 10 分钟没有新消息就自动让 AI 追加当天日记；也可以发 `/update-daily-memory` 立即整理。详见 [记忆：日记](#记忆日记)。
+- 记忆：侧栏「记忆」管理「设定」（workspace/AI.md）和「日记」；设定可用 `/self-md-update` / `/self-md-tell …` 创建或更新，日记打开「定时追加日记」后对话结束 10 分钟没有新消息就自动整理；两者共用 `<system-memory>` 注入块。详见 [记忆：日记](#记忆日记)。
 - 主题与重置：会话可设置长文本主题，顶栏随时编辑；重置只清空上下文，名称和主题保留。设置主题或重置后的第一条用户消息会带上 `<system-topic>…</system-topic>`，之后恢复普通消息。
 - 定时任务：会话设置里给单个会话挂任务，到点自动发送 `It's 2026/10/27 20:16:00 Tuesday. Do: 任务名` 并正常跑一轮；支持每天 / 每周（多选）/ 每月 / 每小时，每种规则都可以用 `+` 添加多个时间节点（多个时刻 / 日期 / 分钟）。模型也可以用 `schedule_reminder` 工具自己创建提醒；任务名要求 1-4 个词、最多 40 字符，只需要 AI 自己能识别。
 - 技能：侧栏「技能」查看 `~/.agents/skills` 的 Claude 标准技能；对话开始、重置、或列表变化时，下一条消息前会带 `<system-skills>`，AI 用 `skills(id)` 工具读详情。
@@ -342,15 +342,42 @@ KolorFrame 提供：
 - 这是本机可信环境的单用户工具：`providers.json` 是明文的，不要把它放进公开仓库。
 - 技能 `kolor.json` 里的 `${DEEPSEEK_API_KEY}` 仍然从**进程环境变量**读取，不会自动使用提供商里的 key。
 
-## 记忆：日记
+## 记忆：设定与日记
 
 ![记忆](docs/memory.png)
 
-侧栏「记忆」是记忆功能的入口，第一个板块是**日记**。开关「定时追加日记」打开后：
+侧栏「记忆」里有两个板块：**设定**（AI.md）在前，**日记**在后。两者共用 `<system-memory>` 注入块：
+
+```text
+<system-memory>
+## AI self (AI.md)
+
+（AI.md 内容）
+
+## Daily memory
+
+（当天日记内容）
+</system-memory>
+```
+
+任一文件变了，整个 `<system-memory>` 会重新发送一次；都没变就不重复注入（签名记在会话的 `memory_signature` 里，重置后清空）。
+
+### 设定（AI.md）
+
+- 文件：`<workspace>/AI.md`，默认 `~/.kolor/workspace/AI.md`，面板「设定」里可以直接看内容和大小。
+- 只存：AI 的名字、性格、对自身的了解；可选：自己形象图片的本地路径、AI 认为自己形象是什么样。**不要什么都存，超过 1 MiB 必须删减**（注入会截断并标记）。
+- 更新命令：
+  - `/self-md-update`：让 AI 以当前对话为信息，创建或更新 AI.md；
+  - `/self-md-tell 你是一个温柔的 AI…`：让 AI 以命令后面的信息创建或更新 AI.md（没写内容会被拒绝）。
+  两者都只发一条指向内置技能 `kolor` 的消息，完整规则在 kolor 技能里。
+
+### 日记
+
+开关「定时追加日记」打开后：
 
 1. 一轮对话结束后开始计时；**10 分钟内没有新消息**就替这个会话跑一轮「整理日记」，跟定时任务一样是没有 SSE 客户端的后台轮次。
 2. 模型用内置文件工具（`list_files` / `read_file` / `write_file`）直接读写当天的日记文件；没有专门的日记工具（`append_diary` 已移除）。
-3. 之后每次发新消息，当天日记都会以 `<system-daily-memory>…</system-daily-memory>` 注入到用户消息前面；**和上次发送的版本没差异就不重复注入**（签名记在会话的 `daily_signature` 里，重置后清空，所以重置后的第一条会重新带上）。
+3. 之后每次发新消息，AI.md 与当天日记一起进入上面那个 `<system-memory>` 块；**和上次发送的版本没差异就不重复注入**。
 
 也可以在输入框直接发送 `/update-daily-memory`：它会被替换成和自动触发**完全相同**的那条消息（只有一行时间戳 + 指向内置技能 `kolor` 的提示），所以页面上显示出来的也是 `It's 2026/11/05 19:45:00 Thursday. Update today's diary. Use the built-in kolor skill ...`，不再显示命令本身。
 
@@ -553,7 +580,7 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | DELETE | `/api/providers/:id` | 删除提供商 |
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
 | PUT | `/api/model` | 切换当前模型（`providerId` 传空串表示回到环境变量回退） |
-| GET/PUT | `/api/memory` | 记忆设置（日记开关）+ 今日日记内容 / 切换开关 |
+| GET/PUT | `/api/memory` | 记忆：AI.md 内容/大小 + 今日日记 + 日记开关；PUT 切换开关 |
 | GET/POST | `/api/sessions` | 列表（带 `running`）/ 新建 |
 | GET/PATCH/DELETE | `/api/sessions/:id` | 读取（带 `running`）/ 改名 / 删除 |
 | GET | `/api/sessions/:id/run` | 当前/刚结束的 turn 状态 + 已缓冲的事件 |
@@ -591,13 +618,13 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 150 个测试：
+共 156 个测试：
 
 - `kolor-agent-loop`（44）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
 - `kolor-sessions`（23）：CRUD、路径解析、持久化重开、导入导出、非法上下文、主题注入、重置、旧库迁移、定时规则/任务存储、技能签名、日记签名。
 - `kolor-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
 - `kolor-frame`（8）：读写、目录、bash、skills、`read_image`（格式/尺寸识别、图片字节、技能区访问、越界/非图片拒绝）、越界路径、错误映射。
-- `kolor-web`（61）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；日记文件的创建/追加格式、一行式触发消息（指向 kolor 技能，不再注入完整提示词）、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
+- `kolor-web`（67）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；设定（AI.md 读取/大小、`<system-memory>` 顺序、`/self-md-update`、`/self-md-tell`、1 MiB 截断）；日记文件的创建/追加格式、一行式触发消息（指向 kolor 技能，不再注入完整提示词）、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
 
 全部测试不需要网络和 API key。
 

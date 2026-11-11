@@ -33,8 +33,13 @@ import {
 import {
   MemoryStore,
   buildDiaryTaskMessage,
-  formatDiaryBlock,
+  buildSelfTellMessage,
+  buildSelfUpdateMessage,
+  formatMemoryBlock,
   isDiaryCommand,
+  isSelfUpdateCommand,
+  memorySignature,
+  selfTellInfo,
 } from './memory.js';
 import {
   ProviderStore,
@@ -57,7 +62,7 @@ const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
 const KOLOR_SYSTEM_PROMPT = [
   DEFAULT_SYSTEM_PROMPT,
   '',
-  'KolorBot framework knowledge lives in the built-in skill "kolor": the three skill areas, how to write a skill, MCP configuration, the diary (where it is stored and the rules to update it), sessions, providers and the HTTP API.',
+  'KolorBot framework knowledge lives in the built-in skill "kolor": the three skill areas, how to write a skill, MCP configuration, the diary (where it is stored and the rules to update it), the persona/self settings (AI.md), sessions, providers and the HTTP API.',
   'When the user asks how KolorBot itself works, call the `skills` tool with id "kolor" and read it instead of guessing. Do not load it for ordinary coding, browsing or office tasks.',
 ].join('\n');
 
@@ -187,6 +192,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   const memory = new MemoryStore({
     home: config.home,
     diaryDir: join(config.frameRoot, 'daily'),
+    selfPath: join(config.frameRoot, 'AI.md'),
   });
 
   const pool = new AgentPool({
@@ -627,8 +633,20 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
 
     await pool.ensureSignature();
 
-    // `/update-daily-memory` sends exactly the same message as an idle trigger.
-    const outgoing = isDiaryCommand(text) ? buildDiaryTaskMessage(new Date()) : text;
+    // `/update-daily-memory`, `/self-md-update` and `/self-md-tell` become
+    // task messages; the rules for both live in the built-in kolor skill.
+    const selfInfo = selfTellInfo(text);
+    let outgoing = text;
+    if (isDiaryCommand(text)) {
+      outgoing = buildDiaryTaskMessage(new Date());
+    } else if (isSelfUpdateCommand(text)) {
+      outgoing = buildSelfUpdateMessage();
+    } else if (selfInfo !== undefined) {
+      if (selfInfo === '') {
+        throw new HttpError(400, 'send some information after /self-md-tell');
+      }
+      outgoing = buildSelfTellMessage(selfInfo);
+    }
 
     // Re-check after the await: two quick POSTs could both pass the check
     // above. `begin` is synchronous, so this closes the race window.
@@ -822,6 +840,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     return {
       settings: memory.settings(),
       diaryIdleMinutes: diaryIdleMinutes(),
+      self: memory.self(),
       today: memory.diary(),
     };
   }
@@ -915,22 +934,24 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       installed.length > 0 &&
       (session.messageCount === 0 || session.skillsSignature !== signature);
 
+    const self = memory.self();
     const diary = memory.diary();
-    const injectDiary =
-      diary.signature !== '' &&
-      (session.messageCount === 0 || session.dailySignature !== diary.signature);
+    const signatureOfMemory = memorySignature(self.content, diary.content);
+    const injectMemory =
+      signatureOfMemory !== '' &&
+      (session.messageCount === 0 || session.memorySignature !== signatureOfMemory);
 
     const prepared = store.prepareUserMessage(sessionId, text);
     if (session.skillsSignature !== signature) {
       store.markSkillsSent(sessionId, signature);
     }
-    if (session.dailySignature !== diary.signature) {
-      store.markDailySent(sessionId, diary.signature);
+    if (session.memorySignature !== signatureOfMemory) {
+      store.markMemorySent(sessionId, signatureOfMemory);
     }
 
     const blocks: string[] = [];
     if (injectSkills) blocks.push(formatSkillsBlock(installed));
-    if (injectDiary) blocks.push(formatDiaryBlock(diary.content));
+    if (injectMemory) blocks.push(formatMemoryBlock(self.content, diary.content));
 
     return {
       content: blocks.length === 0 ? prepared.content : `${blocks.join('\n\n')}\n\n${prepared.content}`,

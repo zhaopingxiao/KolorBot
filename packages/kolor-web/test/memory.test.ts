@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -8,9 +8,14 @@ import { IdleDiary } from '../src/diary-idle.js';
 import {
   MemoryStore,
   buildDiaryTaskMessage,
+  buildSelfTellMessage,
+  buildSelfUpdateMessage,
   diaryDateKey,
-  formatDiaryBlock,
+  formatMemoryBlock,
   isDiaryCommand,
+  isSelfUpdateCommand,
+  memorySignature,
+  selfTellInfo,
 } from '../src/memory.js';
 import {
   finish,
@@ -151,13 +156,80 @@ test('rejects a first entry that forgets previous_topic when an earlier diary ex
   assert.equal(plain.previousTopic, false);
 });
 
-test('formats the injection block, the trigger message and recognises the command', () => {
-  const block = formatDiaryBlock('# 2026-11-02\n\n## 09:05\n\n进展\n');
+test('formats the memory block with AI.md before the diary', () => {
+  const block = formatMemoryBlock('# 名字\n\n温柔', '# 2026-11-02\n\n## 09:05\n\n进展');
   assert.equal(
     block,
-    '<system-daily-memory>\n# 2026-11-02\n\n## 09:05\n\n进展\n</system-daily-memory>',
+    [
+      '<system-memory>',
+      '## AI self (AI.md)',
+      '',
+      '# 名字\n\n温柔',
+      '',
+      '## Daily memory',
+      '',
+      '# 2026-11-02\n\n## 09:05\n\n进展',
+      '</system-memory>',
+    ].join('\n'),
   );
+  assert.match(block, /AI self \(AI\.md\)[\s\S]*Daily memory/);
 
+  assert.equal(formatMemoryBlock('', ''), '');
+  assert.match(formatMemoryBlock('', 'daily only'), /^<system-memory>\n## Daily memory/);
+  assert.match(formatMemoryBlock('self only', ''), /^<system-memory>\n## AI self/);
+});
+
+test('memory signature covers AI.md and the diary', () => {
+  const base = memorySignature('self', 'diary');
+  assert.match(base, /^v1:[0-9a-f]{40}$/);
+  assert.notEqual(memorySignature('self2', 'diary'), base);
+  assert.notEqual(memorySignature('self', 'diary2'), base);
+  assert.equal(memorySignature('', ''), '');
+});
+
+test('clips AI.md at 1 MiB when formatting the memory block', () => {
+  const big = 'x'.repeat(1024 * 1024 + 10);
+  const block = formatMemoryBlock(big, '');
+  assert.match(block, /AI\.md truncated at 1 MiB/);
+  assert.equal(block.includes('x'.repeat(1024 * 1024 + 10)), false);
+});
+
+test('self() reports AI.md content, size and the 1 MiB limit', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'kolor-self-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 }));
+  const store = new MemoryStore({
+    home: dir,
+    diaryDir: join(dir, 'daily'),
+    selfPath: join(dir, 'AI.md'),
+  });
+  assert.equal(store.self().exists, false);
+
+  writeFileSync(join(dir, 'AI.md'), '# 名字\n\n温柔', 'utf8');
+  const self = store.self();
+  assert.equal(self.relativePath, 'AI.md');
+  assert.equal(self.exists, true);
+  assert.equal(self.sizeBytes, Buffer.byteLength('# 名字\n\n温柔', 'utf8'));
+  assert.equal(self.limitBytes, 1024 * 1024);
+  assert.equal(self.overLimit, false);
+});
+
+test('self commands build short triggers that point at the kolor skill', () => {
+  assert.equal(isSelfUpdateCommand('/self-md-update'), true);
+  assert.equal(isSelfUpdateCommand('/self-md-update now'), false);
+  assert.equal(selfTellInfo('/self-md-tell 你是一个温柔的 AI'), '你是一个温柔的 AI');
+  assert.equal(selfTellInfo('hello'), undefined);
+  assert.equal(selfTellInfo('/self-md-tell'), '');
+
+  const update = buildSelfUpdateMessage();
+  assert.match(update, /AI\.md/);
+  assert.match(update, /kolor/);
+
+  const tell = buildSelfTellMessage('你是一个温柔的 AI');
+  assert.match(tell, /你是一个温柔的 AI/);
+  assert.match(tell, /AI\.md/);
+});
+
+test('formats the trigger message and recognises the diary command', () => {
   const message = buildDiaryTaskMessage(new Date(2026, 10, 2, 21, 0));
   assert.match(message, /^It's 2026\/11\/02 21:00:00 \w+\. Update today's diary\./);
   assert.match(message, /kolor/);
@@ -309,6 +381,15 @@ test('exposes the diary switch through the API', async (t) => {
   const today = initial.data?.today as { relativePath: string; exists: boolean };
   assert.equal(today.exists, false);
   assert.equal(today.relativePath, `daily/${diaryDateKey(new Date())}.md`);
+  const self = initial.data?.self as { relativePath: string; exists: boolean; limitBytes: number };
+  assert.equal(self.exists, false);
+  assert.equal(self.relativePath, 'AI.md');
+  assert.equal(self.limitBytes, 1024 * 1024);
+
+  writeFileSync(join(app.config.frameRoot, 'AI.md'), '# 名字\n\n温柔', 'utf8');
+  const withSelf = await call(app, '/api/memory');
+  assert.equal((withSelf.data?.self as { exists: boolean }).exists, true);
+  assert.match(String((withSelf.data?.self as { content: string }).content), /温柔/);
 
   const enabled = await call(app, '/api/memory', {
     method: 'PUT',
@@ -341,30 +422,31 @@ test('injects today\'s diary once and again only after it changes', async (t) =>
   t.after(() => model.close());
   const { app } = await makeApp(t, { apiUrl: model.url });
 
+  writeFileSync(join(app.config.frameRoot, 'AI.md'), '# 名字\n\n一个温柔的 AI', 'utf8');
   app.memory.append('早期进展：确定了方案 A');
   const sessionId = await createSession(app, '记忆');
 
   await postChat(app, sessionId, '第一条');
   const first = lastUserContent(model, 0);
-  assert.match(first, /^<system-daily-memory>\n/);
+  assert.match(first, /^<system-memory>\n/);
   assert.match(first, /早期进展：确定了方案 A/);
   assert.match(first, /第一条$/);
 
   await postChat(app, sessionId, '第二条');
   const second = lastUserContent(model, 1);
-  assert.equal(second.includes('<system-daily-memory>'), false, 'an unchanged diary is not re-sent');
+  assert.equal(second.includes('<system-memory>'), false, 'an unchanged diary is not re-sent');
   assert.equal(second, '第二条');
 
   app.memory.append('新的进展：改成方案 B');
   await postChat(app, sessionId, '第三条');
   const third = lastUserContent(model, 2);
-  assert.match(third, /<system-daily-memory>\n/);
+  assert.match(third, /<system-memory>\n/);
   assert.match(third, /新的进展：改成方案 B/);
 
   const record = (await call(app, `/api/sessions/${sessionId}`)).data?.session as {
-    dailySignature: string;
+    memorySignature: string;
   };
-  assert.match(record.dailySignature, /^v1:[0-9a-f]{40}$/);
+  assert.match(record.memorySignature, /^v1:[0-9a-f]{40}$/);
 });
 
 test('resetting a session makes the next message carry the diary again', async (t) => {
@@ -375,14 +457,63 @@ test('resetting a session makes the next message carry the diary again', async (
   app.memory.append('重置前的记录');
   const sessionId = await createSession(app, '重置记忆');
   await postChat(app, sessionId, '第一条');
-  assert.match(lastUserContent(model, 0), /<system-daily-memory>/);
+  assert.match(lastUserContent(model, 0), /<system-memory>/);
 
   const reset = await call(app, `/api/sessions/${sessionId}/reset`, { method: 'POST' });
   assert.equal(reset.status, 200);
-  assert.equal((reset.data?.session as { dailySignature: string }).dailySignature, '');
+  assert.equal((reset.data?.session as { memorySignature: string }).memorySignature, '');
 
   await postChat(app, sessionId, '重置后第一条');
-  assert.match(lastUserContent(model, 1), /<system-daily-memory>/);
+  assert.match(lastUserContent(model, 1), /<system-memory>/);
+});
+
+test('/self-md-update and /self-md-tell write AI.md', async (t) => {
+  const contents = ['# 名字\n\n温柔的 AI', '# 名字\n\n温柔的 AI\n\n喜欢猫'];
+  const model = await startMockModelServer((context) => {
+    if (context.index === 0 || context.index === 2) {
+      const round = context.index / 2;
+      context.send(
+        toolCall({
+          id: `call_self_${round}`,
+          name: 'write_file',
+          arguments: JSON.stringify({ path: 'AI.md', content: contents[round] ?? contents[0] }),
+        }),
+      );
+      for (const frame of finish('tool_calls')) context.send(frame);
+      context.fin();
+      return;
+    }
+    reply('设定已更新')(context);
+  });
+  t.after(() => model.close());
+
+  const { app, frameRoot } = await makeApp(t, { apiUrl: model.url });
+  const sessionId = await createSession(app, '设定');
+
+  await postChat(app, sessionId, '/self-md-update');
+  const updateTrigger = lastUserContent(model, 0);
+  assert.match(updateTrigger, /AI\.md/);
+  assert.match(updateTrigger, /kolor/);
+  assert.equal(updateTrigger.includes('/self-md-update'), false);
+  assert.equal(readFileSync(join(frameRoot, 'AI.md'), 'utf8'), contents[0]);
+
+  await postChat(app, sessionId, '/self-md-tell 喜欢猫');
+  const tellTrigger = lastUserContent(model, 2);
+  assert.match(tellTrigger, /喜欢猫/);
+  assert.match(tellTrigger, /AI\.md/);
+  assert.equal(readFileSync(join(frameRoot, 'AI.md'), 'utf8'), contents[1]);
+
+  // The next normal message carries the whole `<system-memory>` block.
+  await postChat(app, sessionId, '你好');
+  const next = lastUserContent(model, 4);
+  assert.match(next, /^<system-memory>\n## AI self \(AI\.md\)\n/);
+  assert.match(next, /喜欢猫/);
+
+  const empty = await call(app, '/api/chat', {
+    method: 'POST',
+    body: JSON.stringify({ sessionId, text: '/self-md-tell' }),
+  });
+  assert.equal(empty.status, 400);
 });
 
 test('/update-daily-memory sends the same message as an idle trigger', async (t) => {

@@ -1,6 +1,6 @@
 ﻿---
 name: Kolor
-description: KolorBot 框架自身的使用说明：三个技能目录与优先级、如何制作 skill、skill 里的 MCP 配置与制作方法、日记（存放位置、文件格式、整理时注入的提示词、怎么写）、会话/提供商/HTTP API 速查。用户问「KolorBot 自己怎么用/怎么扩展/技能放哪/日记怎么工作」时读这个技能，不要凭记忆猜。
+description: KolorBot 框架自身的使用说明：三个技能目录与优先级、如何制作 skill、skill 里的 MCP 配置与制作方法、设定（AI.md 的用途、1 MiB 限制、/self-md-update 与 /self-md-tell 命令）、日记（存放位置、文件格式、整理规则、怎么写）、会话/提供商/HTTP API 速查。用户问「KolorBot 自己怎么用/怎么扩展/技能放哪/日记怎么工作」时读这个技能，不要凭记忆猜。
 ---
 
 # Kolor
@@ -163,12 +163,37 @@ It's <本地时间>. Update today's diary. Use the built-in kolor skill (skills(
 8. 写完后用一句话回复。
 ```
 
-- **日常注入**：每条用户消息前，如果当天日记非空，就注入 `<system-daily-memory>…当天日记全文…</system-daily-memory>`；内容没变不重复注入，重置会话后重新注入。这部分不用改。
+- **注入**：和设定共用 `<system-memory>` 块；每条新消息前如果 AI.md 或当天日记非空，就把整个块发给模型（AI.md 在前，日记在后）。任一文件变化都会整块重发，没变化不重复发送，重置会话后重新发送。
 - 开关在「记忆」面板（`~/.kolor/memory.json` 的 `diary.autoAppend`），默认关闭自动整理。
 
-## 5. 框架速览
+## 5. 设定（AI.md）
 
-- 包：`kolor-agent-loop`（主循环/模型客户端/MCP）、`kolor-sessions`（SQLite 会话存储/主题/定时任务）、`kolor-skills`（技能发现/注入）、`kolor-frame`（本地工具：文件/bash/skills）、`kolor-web`（HTTP/SSE/调度器/提供商/前端）。`n- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image`；`read_image` 会把本地图片附给支持视觉的模型（文本模型只拿到格式/尺寸元数据）。
+- **位置**：`<workspace>/AI.md`，默认 `~/.kolor/workspace/AI.md`；和日记一样用文件工具读写。
+- **只放这些**：AI 的名字、性格、对自己的了解；可选：自己的形象图片的本地路径、AI 认为自己形象是什么样。不要什么都存，**文件到 1 MiB 必须删减**（注入会被截断并标记，界面也会提示超出）。
+- 建议结构：
+
+```markdown
+# 名字
+
+## 性格
+
+## 自我认知
+
+## 形象（可选）
+
+图片路径：/path/to/image.png
+```
+
+- **触发命令**（服务端只发一行任务消息并指向本技能，不注入完整提示词）：
+  - `/self-md-update`：根据这次对话创建或更新 AI.md；
+  - `/self-md-tell 你是一个温柔的 AI…`：根据后面的信息创建或更新 AI.md；命令后没写内容会被拒绝。
+- 写 AI.md 用 `write_file`（覆盖整个文件），需要时先 `read_file` 读旧内容再合并。
+- **注入**：每条新消息前，`<system-memory>` 里先放 AI.md（`## AI self (AI.md)`），再放当天日记（`## Daily memory`）；AI.md 或日记任一变化，整个 `<system-memory>` 重新发送一次。
+
+## 6. 框架速览
+
+- 包：`kolor-agent-loop`（主循环/模型客户端/MCP）、`kolor-sessions`（SQLite 会话存储/主题/定时任务）、`kolor-skills`（技能发现/注入）、`kolor-frame`（本地工具：文件/bash/skills）、`kolor-web`（HTTP/SSE/调度器/提供商/前端）。
+- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image`；`read_image` 会把本地图片附给支持视觉的模型（文本模型只拿到格式/尺寸元数据）。
 - 会话与 turn：`RunBroker` 让 turn 活在服务端，断线可回放；定时任务和日记也走它。
 - 模型提供商：`~/.kolor/providers.json`，OpenAI Chat Completions 协议；没有内置默认模型。
 - 常用 HTTP API：`/api/sessions`、`/api/chat`（SSE）、`/api/chat/cancel`、`/api/skills`、`/api/mcp`、`/api/mcp/:name/restart`、`/api/memory`、`/api/providers`、`/api/config`。
@@ -176,7 +201,7 @@ It's <本地时间>. Update today's diary. Use the built-in kolor skill (skills(
 - 数据目录：`~/.kolor`（`sessions.db`、`providers.json`、`memory.json`、`workspace/`），可用 `KOLOR_HOME` 改。
 - 内部标识（`kolor-*` 包名、`~/.kolor`、`KOLOR_*`、`kolor.json`）是兼容约束，不要重命名。
 
-## 6. 注意
+## 7. 注意
 
 - 改技能/`kolor.json` 不需要重启，下一轮对话生效；改 `packages/*` 源码后重启 `kolor-web`。
 - `write_file` / `read_file` 只能碰 workspace 和技能目录；`bash` 不沙箱。
