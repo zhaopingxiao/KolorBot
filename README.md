@@ -63,7 +63,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 156 个测试
+pnpm test      # 157 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -618,9 +618,9 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 156 个测试：
+共 157 个测试：
 
-- `kolor-agent-loop`（44）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
+- `kolor-agent-loop`（45）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
 - `kolor-sessions`（23）：CRUD、路径解析、持久化重开、导入导出、非法上下文、主题注入、重置、旧库迁移、定时规则/任务存储、技能签名、日记签名。
 - `kolor-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
 - `kolor-frame`（8）：读写、目录、bash、skills、`read_image`（格式/尺寸识别、图片字节、技能区访问、越界/非图片拒绝）、越界路径、错误映射。

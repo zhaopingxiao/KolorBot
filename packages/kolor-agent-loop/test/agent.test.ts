@@ -328,3 +328,46 @@ test('retries without images when the model rejects image input', async (t) => {
   assert.equal(second, true, 'the first attempt carried the image');
   assert.equal(third, false, 'the retry was text only');
 });
+
+function imageRun(requests: import('../src/types.js').ModelRequest[]): ModelClient {
+  return {
+    async *stream(request) {
+      requests.push(structuredClone(request));
+      if (requests.length === 1) {
+        return {
+          text: '',
+          toolCalls: [{ id: 'call_img', name: 'read_image', arguments: '{"path":"shot.png"}' }],
+          finishReason: 'tool_calls',
+        };
+      }
+      yield { type: 'text-delta', text: 'ok' };
+      return { text: 'ok', toolCalls: [], finishReason: 'stop' };
+    },
+  };
+}
+
+test('deepseek-flash receives images, deepseek-v4-pro does not', async (t) => {
+  const flashRequests: import('../src/types.js').ModelRequest[] = [];
+  const flashAgent = await KolorAgent.create(
+    { apiUrl: 'http://127.0.0.1:1/v1', apiModelName: 'deepseek-flash', apiKey: 'sk-test' },
+    { modelClient: imageRun(flashRequests), tools: [imageTool] },
+  );
+  t.after(() => flashAgent.dispose());
+  await flashAgent.run('look at shot.png');
+  const flashHasImage = flashRequests[1]?.messages.some(
+    (message) => message.role === 'user' && Array.isArray(message.content),
+  );
+  assert.equal(flashHasImage, true, 'deepseek-flash is a vision model');
+
+  const proRequests: import('../src/types.js').ModelRequest[] = [];
+  const proAgent = await KolorAgent.create(
+    { apiUrl: 'http://127.0.0.1:1/v1', apiModelName: 'deepseek-v4-pro', apiKey: 'sk-test' },
+    { modelClient: imageRun(proRequests), tools: [imageTool] },
+  );
+  t.after(() => proAgent.dispose());
+  await proAgent.run('look at shot.png');
+  const proHasImage = proRequests[1]?.messages.some(
+    (message) => message.role === 'user' && Array.isArray(message.content),
+  );
+  assert.equal(proHasImage, false, 'deepseek-v4-pro is text-only');
+});

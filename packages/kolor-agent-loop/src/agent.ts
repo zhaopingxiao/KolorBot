@@ -647,9 +647,14 @@ export class KolorAgent {
  * Known text-only families are skipped outright (so a text model never sees a
  * bogus image part); every other model is tried and falls back through
  * {@link isImageUnsupported} if the provider rejects the image.
+ *
+ * DeepSeek is mixed: `deepseek-flash` (and the older `...-vision...` names)
+ * accept images, while `deepseek-v4-pro` and the plain chat models do not.
  */
 function providerAcceptsImages(model: string): boolean {
-  return !/deepseek|text-|embedding|rerank|moderation/.test(model.toLowerCase());
+  const name = model.toLowerCase();
+  if (name.includes('deepseek')) return name.includes('flash') || name.includes('vision');
+  return !/text-|embedding|rerank|moderation/.test(name);
 }
 
 /** True when an error looks like the provider refusing image content. */
