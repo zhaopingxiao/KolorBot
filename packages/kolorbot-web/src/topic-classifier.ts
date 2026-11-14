@@ -48,6 +48,7 @@ export async function classifyTopic(input: TopicClassifierInput): Promise<TopicD
     'Prefer "continue" only for follow-ups on the same subject. If Current topic is (none) and the message names a concrete subject, use "new".',
     'Never invent an existing slug, and never output markdown or explanations — only the JSON object.',
     'Topic names are 2-6 Chinese or English words. Slugs are lowercase ascii words joined by hyphens.',
+    'Do not append the generic word 话题 or "topic" to a topic name; use the subject itself, e.g. "Remotion" not "Remotion 话题".',
     'Output shape: {"action":"continue"} or {"action":"switch","slug":"..."} or {"action":"new","name":"...","slug":"..."}',
   ].join('\n');
 

@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -8,6 +8,7 @@ import {
   findLatestDiarySection,
   readDiaryEntries,
   readDiaryTopicSection,
+  normalizeTopicLabel,
   formatLastMessageBlock,
   formatTopicMemoryBlock,
   buildSelfTellMessage,
@@ -132,6 +133,8 @@ test('indexes all diary topics and reads one topic section', () => {
     assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion'), /## Remotion/);
     assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion'), /remotion 14/);
     assert.equal(readDiaryTopicSection(daily, '2026-11-14', 'Workspace'), '');
+    assert.equal(normalizeTopicLabel('Remotion 话题'), 'remotion');
+    assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion 话题', 'remotion'), /remotion 14/);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }

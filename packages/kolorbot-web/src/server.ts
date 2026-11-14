@@ -38,6 +38,7 @@ import {
   isDiaryCommand,
   isSelfUpdateCommand,
   memorySignature,
+  normalizeTopicLabel,
   personaSignature,
   readDiaryEntries,
   readDiaryTopicSection,
@@ -54,6 +55,15 @@ import { RunBroker, type Run, type RunListener } from './runs.js';
 import { classifyTopic, type TopicDecision } from './topic-classifier.js';
 import { VERSION } from './version.js';
 
+
+/** Diary headings are model-written; accept the topic name or its slug. */
+function diaryTopicMatches(topicName: string, topicSlug: string, sectionTopic: string): boolean {
+  const label = normalizeTopicLabel(sectionTopic);
+  return (
+    label === normalizeTopicLabel(topicName) ||
+    (topicSlug !== '' && label === normalizeTopicLabel(topicSlug))
+  );
+}
 /** Default quiet period before the automatic diary turn. */
 const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
 
@@ -285,19 +295,24 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
 
     if (pathname === '/api/topics' && method === 'GET') {
       const entries = readDiaryEntries(memory.diaryDir);
+      const topics = store.store.listTopics();
       const counts = new Map<string, Set<string>>();
       for (const entry of entries) {
-        let dates = counts.get(entry.topic);
+        const topic = topics.find((candidate) =>
+          diaryTopicMatches(candidate.name, candidate.slug, entry.topic),
+        );
+        if (topic === undefined) continue;
+        let dates = counts.get(topic.slug);
         if (dates === undefined) {
           dates = new Set<string>();
-          counts.set(entry.topic, dates);
+          counts.set(topic.slug, dates);
         }
         dates.add(entry.date);
       }
       sendJson(response, 200, {
-        topics: store.store.listTopics().map((topic) => ({
+        topics: topics.map((topic) => ({
           ...topic,
-          diaryDays: counts.get(topic.name)?.size ?? 0,
+          diaryDays: counts.get(topic.slug)?.size ?? 0,
         })),
       });
       return;
@@ -327,7 +342,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         topic,
         date,
         segments,
-        diary: readDiaryTopicSection(memory.diaryDir, date, topic.name),
+        diary: readDiaryTopicSection(memory.diaryDir, date, topic.name, topic.slug),
       });
       return;
     }
@@ -340,7 +355,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const dates = [
         ...new Set(
           readDiaryEntries(memory.diaryDir)
-            .filter((entry) => entry.topic === topic.name)
+            .filter((entry) => diaryTopicMatches(topic.name, topic.slug, entry.topic))
             .map((entry) => entry.date),
         ),
       ].sort();
@@ -789,7 +804,9 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       return topic === undefined || topic.slug === currentSlug ? undefined : topic;
     }
     if (decision.action === 'new' && decision.name !== undefined) {
-      const topic = store.store.ensureTopic(decision.name, decision.slug);
+      const rawName = decision.name.trim();
+      const name = rawName.replace(/\s*(话题|topic)\s*$/iu, '').trim() || rawName;
+      const topic = store.store.ensureTopic(name, decision.slug);
       return topic.slug === currentSlug ? undefined : topic;
     }
     return undefined;

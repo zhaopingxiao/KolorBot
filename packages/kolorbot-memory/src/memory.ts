@@ -399,6 +399,20 @@ export function parseDiarySections(content: string): DiarySection[] {
   return sections;
 }
 
+/**
+ * Calendar labels come from model-written diary headings while topics come
+ * from the classifier. Normalize the small differences (case, spaces and a
+ * trailing 话题/topic) so `Remotion` still matches `Remotion 话题`.
+ */
+export function normalizeTopicLabel(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace(/(话题|topic)$/u, '')
+    .replace(/[-_/]+$/u, '');
+}
+
 /** One diary section found in a daily file. */
 export interface DiaryEntry {
   date: string;
@@ -439,6 +453,7 @@ export function readDiaryTopicSection(
   dailyDir: string,
   date: string,
   topicName: string,
+  topicSlug = '',
 ): string {
   const path = join(dailyDir, `${date}.md`);
   if (!existsSync(path)) return '';
@@ -448,7 +463,12 @@ export function readDiaryTopicSection(
   } catch {
     return '';
   }
-  const section = parseDiarySections(content).find((entry) => entry.topic === topicName);
+  const wanted = normalizeTopicLabel(topicName);
+  const wantedSlug = normalizeTopicLabel(topicSlug);
+  const section = parseDiarySections(content).find((entry) => {
+    const label = normalizeTopicLabel(entry.topic);
+    return label === wanted || (wantedSlug !== '' && label === wantedSlug);
+  });
   if (section === undefined) return '';
   return `## ${section.topic}\n\n${section.body}`.trim();
 }

@@ -19,6 +19,7 @@ export {
   parseDiarySections,
   readTopicMemory,
   readDiaryEntries,
+  normalizeTopicLabel,
   readDiaryTopicSection,
   topicMemoryPath,
   selfTellInfo,
