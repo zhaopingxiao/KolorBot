@@ -15,13 +15,13 @@
           <img class="brand-mark" src="/logo.png" alt="" width="22" height="22" />
           <span class="brand-name">KolorBot</span>
         </div>
-        <div class="sidebar-spacer"></div>
 
-        <div class="sidebar-footer">
-          <button id="open-skills" class="link-button">技能</button>
-          <button id="open-models" class="link-button">模型</button>
-          <button id="open-memory" class="link-button">记忆</button>
-        </div>
+        <nav class="sidebar-nav">
+          <button class="nav-item active" data-page="chat">对话</button>
+          <button class="nav-item" data-page="skills">技能</button>
+          <button class="nav-item" data-page="models">模型</button>
+          <button class="nav-item" data-page="memory">记忆</button>
+        </nav>
       </aside>
 
       <main class="main">
@@ -38,122 +38,118 @@
           </div>
         </header>
 
-        <section id="messages" class="messages"></section>
+        <section id="page-chat" class="page">
+          <section id="messages" class="messages"></section>
 
-        <footer class="composer">
-          <div class="composer-inner">
-            <div class="composer-meta">
-              <select id="model-select" class="model-select" aria-label="选择模型" title="当前模型"></select>
+          <footer class="composer">
+            <div class="composer-inner">
+              <div class="composer-meta">
+                <select id="model-select" class="model-select" aria-label="选择模型" title="当前模型"></select>
+              </div>
+              <div class="composer-box">
+                <textarea id="input" rows="1" placeholder="发消息…"></textarea>
+                <button id="send" class="send-button">发送</button>
+                <button id="stop" class="send-button stop hidden">停止</button>
+              </div>
             </div>
-            <div class="composer-box">
-              <textarea id="input" rows="1" placeholder="发消息…"></textarea>
-              <button id="send" class="send-button">发送</button>
-              <button id="stop" class="send-button stop hidden">停止</button>
+          </footer>
+        </section>
+
+        <section id="page-skills" class="page hidden">
+          <div class="page-inner">
+            <p class="page-lead">三个技能区：专属区、兼容区、内置区。点开技能查看 SKILL.md、文件和 MCP 服务器。</p>
+            <div id="skills-list" class="list"></div>
+            <div id="skill-mcp" class="skill-mcp hidden"></div>
+            <pre id="skill-detail" class="skill-detail hidden"></pre>
+          </div>
+        </section>
+
+        <section id="page-models" class="page hidden">
+          <div class="page-inner">
+            <p id="models-active" class="models-active"></p>
+            <div id="provider-list" class="list"></div>
+
+            <div class="form-block">
+              <input id="provider-name" placeholder="名称（可选，如 OpenAI）" autocomplete="off" />
+              <input
+                id="provider-url"
+                placeholder="接口地址，如 https://api.openai.com/v1"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <input
+                id="provider-key"
+                type="password"
+                placeholder="API Key（本地服务可留空）"
+                autocomplete="off"
+              />
+              <input
+                id="provider-models"
+                placeholder="手动填写模型（可选，逗号分隔）"
+                autocomplete="off"
+                spellcheck="false"
+              />
+              <div class="dialog-row">
+                <button id="provider-add" class="primary-button">添加并识别模型</button>
+                <span id="provider-error" class="form-error"></span>
+              </div>
+              <p class="form-hint">
+                使用 OpenAI Chat Completions 协议；Key 只保存在本机的 providers.json，不会回传到浏览器。
+              </p>
             </div>
           </div>
-        </footer>
+        </section>
+
+        <section id="page-memory" class="page hidden">
+          <div class="page-inner">
+            <div class="memory-section">
+              <div class="list-item">
+                <div class="grow">
+                  <div class="list-name">设定</div>
+                  <div class="list-sub" id="self-sub">AI 的名字、性格和对自身的了解（workspace/AI.md）</div>
+                </div>
+              </div>
+
+              <div class="memory-path">
+                <span id="self-path" class="memory-path-text"></span>
+                <button id="self-refresh" class="text-button">刷新</button>
+              </div>
+              <pre id="self-preview" class="skill-detail" aria-live="polite"></pre>
+              <p class="form-hint">
+                发送 <code>/self-md-update</code> 让 AI 按当前对话更新设定；发送
+                <code>/self-md-tell 你是一个温柔的 AI…</code> 让它按你给的信息更新。AI.md 超过 1 MiB 需要删减。
+              </p>
+            </div>
+
+            <div class="memory-section">
+              <div class="list-item">
+                <div class="grow">
+                  <div class="list-name">日记</div>
+                  <div class="list-sub" id="diary-sub">对话结束一段时间没有新消息时，自动让 AI 追加当天日记</div>
+                </div>
+                <label class="switch">
+                  <input id="diary-auto" type="checkbox" aria-label="定时追加日记" />
+                  <span class="switch-track"><span class="switch-dot"></span></span>
+                </label>
+              </div>
+
+              <div class="memory-path">
+                <span id="diary-path" class="memory-path-text"></span>
+                <button id="diary-refresh" class="text-button">刷新</button>
+              </div>
+              <pre id="diary-preview" class="skill-detail" aria-live="polite"></pre>
+              <p class="form-hint">
+                在输入框发送 <code>/update-daily-memory</code> 会立即让 AI 整理一次日记；日记文件在 workspace 的
+                <code>daily/</code> 目录下，按话题分节。
+              </p>
+            </div>
+          </div>
+        </section>
       </main>
     </div>
 
     <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
     <div id="toasts" class="toasts" aria-live="polite"></div>
-
-    <dialog id="models-dialog" class="dialog">
-      <div class="dialog-head">
-        <h2>模型</h2>
-        <button class="text-button" data-close="models-dialog">关闭</button>
-      </div>
-      <p id="models-active" class="models-active"></p>
-      <div id="provider-list" class="list"></div>
-
-      <div class="form-block">
-        <input id="provider-name" placeholder="名称（可选，如 OpenAI）" autocomplete="off" />
-        <input
-          id="provider-url"
-          placeholder="接口地址，如 https://api.openai.com/v1"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <input
-          id="provider-key"
-          type="password"
-          placeholder="API Key（本地服务可留空）"
-          autocomplete="off"
-        />
-        <input
-          id="provider-models"
-          placeholder="手动填写模型（可选，逗号分隔）"
-          autocomplete="off"
-          spellcheck="false"
-        />
-        <div class="dialog-row">
-          <button id="provider-add" class="primary-button">添加并识别模型</button>
-          <span id="provider-error" class="form-error"></span>
-        </div>
-        <p class="form-hint">
-          使用 OpenAI Chat Completions 协议；Key 只保存在本机的 providers.json，不会回传到浏览器。
-        </p>
-      </div>
-    </dialog>
-
-    <dialog id="memory-dialog" class="dialog">
-      <div class="dialog-head">
-        <h2>记忆</h2>
-        <button class="text-button" data-close="memory-dialog">关闭</button>
-      </div>
-
-      <div class="memory-section">
-        <div class="list-item">
-          <div class="grow">
-            <div class="list-name">设定</div>
-            <div class="list-sub" id="self-sub">AI 的名字、性格和对自身的了解（workspace/AI.md）</div>
-          </div>
-        </div>
-
-        <div class="memory-path">
-          <span id="self-path" class="memory-path-text"></span>
-          <button id="self-refresh" class="text-button">刷新</button>
-        </div>
-        <pre id="self-preview" class="skill-detail" aria-live="polite"></pre>
-        <p class="form-hint">
-          发送 <code>/self-md-update</code> 让 AI 按当前对话更新设定；发送
-          <code>/self-md-tell 你是一个温柔的 AI…</code> 让它按你给的信息更新。AI.md 超过 1 MiB 需要删减。
-        </p>
-      </div>
-
-      <div class="memory-section">
-        <div class="list-item">
-          <div class="grow">
-            <div class="list-name">日记</div>
-            <div class="list-sub" id="diary-sub">对话结束一段时间没有新消息时，自动让 AI 追加当天日记</div>
-          </div>
-          <label class="switch">
-            <input id="diary-auto" type="checkbox" aria-label="定时追加日记" />
-            <span class="switch-track"><span class="switch-dot"></span></span>
-          </label>
-        </div>
-
-        <div class="memory-path">
-          <span id="diary-path" class="memory-path-text"></span>
-          <button id="diary-refresh" class="text-button">刷新</button>
-        </div>
-        <pre id="diary-preview" class="skill-detail" aria-live="polite"></pre>
-        <p class="form-hint">
-          在输入框发送 <code>/update-daily-memory</code> 会立即让 AI 整理一次日记；日记文件在 workspace 的
-          <code>daily/</code> 目录下。
-        </p>
-      </div>
-    </dialog>
-
-    <dialog id="skills-dialog" class="dialog">
-      <div class="dialog-head">
-        <h2>技能</h2>
-        <button class="text-button" data-close="skills-dialog">关闭</button>
-      </div>
-      <div id="skills-list" class="list"></div>
-      <div id="skill-mcp" class="skill-mcp hidden"></div>
-      <pre id="skill-detail" class="skill-detail hidden"></pre>
-    </dialog>
 
     <script type="module" src="/app.js"></script>
   </body>

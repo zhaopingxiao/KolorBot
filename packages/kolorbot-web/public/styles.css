@@ -1620,3 +1620,18 @@ button:focus-visible {
 .topic-divider { display: flex; align-items: center; gap: 12px; margin: 30px 0 12px; color: #94a3b8; }
 .topic-divider-line { flex: 1 1 auto; height: 1px; background: #e5e7eb; }
 .topic-divider-name { font-size: 12px; letter-spacing: .3px; white-space: nowrap; }
+
+/* Sidebar navigation + full-page views */
+.sidebar-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 22px; }
+.nav-item { appearance: none; border: 0; background: transparent; text-align: left; padding: 9px 12px; border-radius: 8px; color: #64748b; font: inherit; font-size: 14px; cursor: pointer; }
+.nav-item:hover { background: #f1f5f9; color: #0f172a; }
+.nav-item.active { background: #eef2ff; color: #4338ca; font-weight: 600; }
+.page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
+.page.hidden { display: none; }
+#page-skills, #page-models, #page-memory { overflow-y: auto; }
+#page-chat { overflow: hidden; }
+.page-inner { width: 100%; max-width: 920px; margin: 0 auto; padding: 28px 30px 60px; }
+.page-lead { color: #64748b; font-size: 13px; margin: 0 0 18px; }
+@media (max-width: 900px) {
+  .page-inner { padding: 20px 16px 50px; }
+}

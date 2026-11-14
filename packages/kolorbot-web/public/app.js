@@ -1,4 +1,4 @@
-﻿/* KolorBot web client: vanilla ES module, no build step. */
+/* KolorBot web client: vanilla ES module, no build step. */
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -336,21 +336,59 @@ function newChat() {
   document.querySelector('#input').focus();
 }
 
+const PAGES = {
+  chat: { title: '对话', subtitle: '' },
+  skills: { title: '技能', subtitle: '三个技能区 / MCP' },
+  models: { title: '模型', subtitle: 'OpenAI Chat Completions 提供商' },
+  memory: { title: '记忆', subtitle: '设定 / 话题 / 日记' },
+};
+
+function pageFromHash() {
+  const match = /^#\/(chat|skills|models|memory)$/.exec(location.hash);
+  return match === null ? 'chat' : match[1];
+}
+
+function showPage(name, syncHash = true) {
+  if (!(name in PAGES)) name = 'chat';
+  const changed = state.page !== name;
+  state.page = name;
+  for (const page of document.querySelectorAll('.page')) {
+    page.classList.toggle('hidden', page.id !== `page-${name}`);
+  }
+  for (const item of document.querySelectorAll('.sidebar-nav [data-page]')) {
+    item.classList.toggle('active', item.dataset.page === name);
+  }
+  if (syncHash && pageFromHash() !== name) location.hash = `#/${name}`;
+  closeDrawers();
+  renderHeader();
+  if (!changed) return;
+  if (name === 'skills') void loadSkills();
+  else if (name === 'models') void loadProviders();
+  else if (name === 'memory') void loadMemory();
+  else renderMessages(false);
+}
+
 function renderHeader() {
   const session = state.session;
   const topic = state.currentTopic;
-  $('#session-title').textContent = topic?.name ?? '对话';
+  const page = PAGES[state.page] ?? PAGES.chat;
+  $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
 
   let count = session?.messageCount ?? 0;
-  if (session && state.running) {
+  if (session && state.running && state.page === 'chat') {
     count = Math.max(
       count,
       document.querySelectorAll('#messages .user-message, #messages .assistant-message').length,
     );
   }
-  $('#session-meta').textContent = session ? `${count} 条消息 · ${timeAgo(session.updatedAt)}` : '';
+  $('#session-meta').textContent =
+    state.page === 'chat'
+      ? session
+        ? `${count} 条消息 · ${timeAgo(session.updatedAt)}`
+        : ''
+      : page.subtitle;
   const pill = $('#current-topic');
-  if (pill !== null) pill.textContent = topic ? `话题 · ${topic.name}` : '';
+  if (pill !== null) pill.textContent = state.page === 'chat' && topic ? `话题 · ${topic.name}` : '';
 }
 
 /* ---------------- messages ---------------- */
@@ -1188,9 +1226,7 @@ async function addTask() {
 /* ---------------- skills ---------------- */
 
 function openSkills() {
-  closeDrawers();
-  $('#skills-dialog').showModal();
-  void loadSkills();
+  showPage('skills');
 }
 
 function mcpBadge(count) {
@@ -1312,7 +1348,7 @@ async function loadProviders() {
     return;
   }
   renderModelSelect();
-  if ($('#models-dialog').open) renderProviderList();
+  if (state.page === 'models') renderProviderList();
 }
 
 function parseModelValue(value) {
@@ -1400,8 +1436,7 @@ async function applyModel(value) {
 function openModels() {
   closeDrawers();
   $('#provider-error').textContent = '';
-  $('#models-dialog').showModal();
-  void loadProviders();
+  showPage('models');
 }
 
 function renderProviderList() {
@@ -1538,9 +1573,7 @@ async function removeProvider(provider) {
 /* ---------------- memory ---------------- */
 
 function openMemory() {
-  closeDrawers();
-  $('#memory-dialog').showModal();
-  void loadMemory();
+  showPage('memory');
 }
 
 async function loadMemory() {
@@ -1604,25 +1637,16 @@ async function setDiaryAutoAppend(enabled) {
 /* ---------------- wiring ---------------- */
 
 function currentDrawer() {
-  if ($('.sidebar').classList.contains('open')) return 'left';
-  if ($('.header-actions').classList.contains('open')) return 'right';
-  return null;
+  return $('.sidebar').classList.contains('open') ? 'left' : null;
 }
 
 function syncDrawers(side) {
   const left = side === 'left';
-  const right = side === 'right';
   $('.sidebar').classList.toggle('open', left);
-  $('.header-actions').classList.toggle('open', right);
   $('#drawer-backdrop').classList.toggle('hidden', side === null);
   document.body.classList.toggle('drawer-open', side !== null);
-
   const leftButton = $('#toggle-sidebar');
-  const rightButton = $('#toggle-actions');
   leftButton.setAttribute('aria-expanded', String(left));
-  rightButton.setAttribute('aria-expanded', String(right));
-  leftButton.setAttribute('aria-label', left ? '关闭对话列表' : '打开对话列表');
-  rightButton.setAttribute('aria-label', right ? '关闭会话操作' : '打开会话操作');
 }
 
 function toggleDrawer(side) {
@@ -1672,9 +1696,10 @@ function wire() {
     }
   });
 
-  $('#open-skills').addEventListener('click', openSkills);
-  $('#open-models').addEventListener('click', openModels);
-  $('#open-memory').addEventListener('click', openMemory);
+  for (const item of document.querySelectorAll('.sidebar-nav [data-page]')) {
+    item.addEventListener('click', () => showPage(item.dataset.page));
+  }
+  window.addEventListener('hashchange', () => showPage(pageFromHash(), false));
   $('#diary-auto').addEventListener('change', (event) =>
     void setDiaryAutoAppend(event.target.checked),
   );
@@ -1682,8 +1707,6 @@ function wire() {
   $('#self-refresh').addEventListener('click', () => void loadMemory());
   $('#provider-add').addEventListener('click', () => void addProvider());
   $('#model-select').addEventListener('change', (event) => void applyModel(event.target.value));
-
-  wireDialogs();
 
   setInterval(async () => {
     try {
@@ -1701,6 +1724,7 @@ async function init() {
   wire();
   await loadProviders();
   await loadConversation();
+  showPage(pageFromHash(), false);
   if (state.runningIds.has('main')) await attachLive('main');
 }
 
