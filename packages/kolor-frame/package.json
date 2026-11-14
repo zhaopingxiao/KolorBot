@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "kolor-frame",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "KolorFrame: local file read/write, bash and skill tools registered by the agent loop.",
   "license": "MIT",
   "type": "module",

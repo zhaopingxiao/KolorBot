@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "kolor-skills",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "KolorBot skills: discover Claude-standard skills under ~/.agents/skills and format the system-skills block.",
   "license": "MIT",
   "type": "module",

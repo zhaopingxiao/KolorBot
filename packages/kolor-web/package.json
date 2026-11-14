@@ -1,6 +1,6 @@
-{
+﻿{
   "name": "kolor-web",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "KolorBot Web: a local chat UI for KolorBot agents, with session storage and MCP management.",
   "license": "MIT",
   "type": "module",

@@ -1,7 +1,8 @@
 # KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
-> 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
+> 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-14  
+> 当前版本：**0.2.0**  
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
 > 当前状态：`pnpm build` 和 `pnpm test` 全部通过（157 个测试）；已接入「模型提供商」「记忆（日记 + 记忆衔接）」「断线重连的运行中 turn」「多时间节点的定时任务」和「边出边渲染的 Markdown」，不再写死 DeepSeek，也没有内置默认模型。
 
@@ -266,6 +267,17 @@ mcp__kolor-frame__read_file
 - **生命周期**：MCP 进程随会话 agent 存在，所以浏览器页面和实时画面在**同一会话的多轮之间保留**；会话删除/重置或模型切换重建 agent 时进程退出、画面地址失效。
 - **验证**：`inner/skills/browseruse/smoke.mjs` 直接对 server.mjs 打 JSON-RPC（open/snapshot/click/type/evaluate/webmcp_list + 实时画面三个端点 + `/input` 手动操作（点击/拖动 down-move-up/滚轮/触摸滑动））；检查每个操作的返回都带自动快照和 `![...]` 图片、只有 `browser_open` 带 `Live view:`、`/shot/<file>` 可下载 JPEG、wheel 后 `scrollY > 0`。另在线上实例用真实模型实测：只调用 `browser_open` + `browser_click`，回复里出现 **2 张截图** 且实时地址只出现一次；UI 侧确认 Markdown 图片渲染成 `<img class="md-image">`。
 - **注意**：这是浏览器自动化，网页里能登录、能执行任意 JS；敏感操作前先确认用户。单窗口单页面，没有多标签。
+
+### 3.15 0.2.0（2026-11-14）
+
+第一个正式版本号（此前一直是 0.1.0）。从 0.1.0 到 0.2.0 的主要变化：
+
+- **技能三区**：兼容区 `~/.agents/skills`、专属区 `~/.kolor/workspace/skills`、内置区 `inner/skills`，技能弹窗分区显示；browseruse 移入内置区，deepseek-search 从仓库移除。
+- **真识图**：`read_image` 读取本地图片并作为 `image_url` 附给支持视觉的模型（`deepseek-flash` 等）；文本模型只拿元数据，provider 拒绝时自动降级。
+- **角色设定**：`workspace/AI.md` + `/self-md-update`、`/self-md-tell`，与日记共用 `<system-memory>`（AI.md 在前），1 MiB 上限，界面「设定」面板。
+- **Windows 单文件发布**：`KolorBotMain.exe` 内嵌 packages + Node + npm + public + inner；空目录可运行，首次启动解压 `runtime/`、创建 `logs/`，不依赖系统 Node。
+- **体验修复**：运行中发送改为排队；工具卡片默认折叠；assistant 文本按工具步骤分段渲染（`resetSegment`），不再把前文重新贴一遍；maxSteps 80、工具 120s（bash 10 分钟）、请求 300s，系统提示词要求做完再停。
+- 测试：157 个，全部不依赖网络/API key。
 
 ## 4. 关键约束 / 容易踩的坑
 

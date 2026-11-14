@@ -1,8 +1,10 @@
-﻿# KolorBot
+# KolorBot
 
 <img src="packages/kolor-web/public/logo.png" width="76" alt="KolorBot logo" />
 
 KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天界面。
+
+当前版本：**0.2.0**（2026-11-14）。
 
 > 新对话 / 交接请先读 [HANDOFF.md](HANDOFF.md)：包含项目结构、已完成改动、关键约束和运行方式。
 
