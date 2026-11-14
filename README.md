@@ -1,22 +1,25 @@
-# KolorBot
+﻿# KolorBot
 
-<img src="packages/kolor-web/public/logo.png" width="76" alt="KolorBot logo" />
+<img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
 KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天界面。
 
-当前版本：**0.2.0**（2026-11-14）。
+当前版本：**0.3.0**（2026-11-14）。
 
 > 新对话 / 交接请先读 [HANDOFF.md](HANDOFF.md)：包含项目结构、已完成改动、关键约束和运行方式。
 
 模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页填入任意 OpenAI Chat Completions 兼容提供商的接口地址和 API Key，会自动识别该提供商的全部模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
 
-- **`kolor-agent-loop`** — 主循环：调用模型 → 执行工具 → 把结果写回会话 → 再调用模型，直到模型给出最终答复。可独立作为库使用。
-- **`kolor-sessions`** — 会话存储：SQLite，默认 `~/.kolor/sessions.db`；支持会话主题、重置、定时任务、导出/导入上下文。
-- **`kolor-skills`** — 技能发现：读取 `~/.agents/skills` 下 Claude 标准的 `SKILL.md`，生成 `<system-skills>` 列表。
-- **`kolor-frame`** — **KolorFrame** 本地工具库：读写文件、列目录、执行 bash、读取技能详情；由 agent-loop 直接注册，不再是 MCP 进程。
-- **`kolor-web`** — 本地 Web UI + HTTP API：聊天、会话、模型提供商、技能（含 MCP）、记忆（日记）、断线重连的轮次运行。
+- **`kolorbot-agent-loop`** — 主循环 + 内置 KolorFrame 工具：调用模型 → 执行工具 → 把结果写回会话 → 再调用模型，直到模型给出最终答复。文件/目录/bash/技能/read_image 工具都在这个包里，可独立作为库使用。
+- **`kolorbot-sessions`** — 会话存储：SQLite，默认 `~/.kolor/sessions.db`；支持会话主题、重置、导出/导入上下文。
+- **`kolorbot-skills`** — 技能发现：读取三个技能区的 Claude 标准 `SKILL.md`，生成 `<system-skills>` 列表。
+- **`kolorbot-memory`** — 记忆：AI.md 设定、每日日记、`<system-memory>` 注入块和记忆签名。
+- **`kolorbot-scheduler`** — 独立定时任务守护进程：拥有 `session_tasks` 表、15 秒 ticker、无头 agent 轮次，以及给 Web 用的 HTTP 客户端。
+- **`kolorbot-web`** — Web 守护进程：本地 Web UI + HTTP API（聊天、会话、模型提供商、技能/MCP、记忆），并把定时任务请求代理给调度器。
 
-只要传入 `apiUrl`、`apiModelName`、`apiKey` 就能跑；工具既可以在进程内注册，也可以来自任意 MCP 服务器。KolorFrame 的五个工具由 agent-loop 默认注册成本地工具，所以不配置 MCP 时 AI 也有文件/bash/技能能力。
+**守护进程是分开的**：`run web` 只启动 Web（定时任务显示不可用），`run scheduler` 只启动定时任务（没有 Web），`run gateway` 同时启动两者。两者共享 `~/.kolor/sessions.db`（WAL + busy timeout），通过 `http://127.0.0.1:3400` 上的内部 HTTP API 通信。
+
+只要传入 `apiUrl`、`apiModelName`、`apiKey` 就能跑；工具既可以在进程内注册，也可以来自任意 MCP 服务器。KolorFrame 的本地工具由 agent-loop 默认注册，所以不配置 MCP 时 AI 也有文件/bash/技能能力。
 
 ## 目录
 
@@ -34,17 +37,19 @@ kolorbot/
 ├── inner/skills/browseruse/     # 内置技能：带 MCP 的无头浏览器（实时画面 + WebMCP）
 ├── inner/skills/kolor/          # 内置技能：KolorBot 框架说明（技能区 / MCP / 日记）
 ├── packages/
-│   ├── kolor-agent-loop/        # 主循环
+│   ├── kolorbot-agent-loop/        # 主循环 + src/frame/（KolorFrame 工具）
 │   │   ├── src/agent.ts         # KolorAgent：turn/step、事件、取消、上下文导入
 │   │   ├── src/context.ts       # 上下文校验
 │   │   ├── src/session.ts       # 追加式会话日志
+│   │   ├── src/frame/           # read_file / write_file / bash / skills / read_image
 │   │   ├── src/llm/             # OpenAI 兼容流式客户端 + SSE 解析
 │   │   ├── src/tools/           # 工具注册表 + 调度器（并行池 / 独占屏障）
 │   │   └── src/mcp/             # MCP 客户端（stdio / Streamable HTTP / SSE）
-│   ├── kolor-sessions/          # SessionStore（node:sqlite）
-│   ├── kolor-skills/            # 技能发现 / <system-skills>
-│   ├── kolor-frame/             # KolorFrame 本地工具库
-│   └── kolor-web/               # Web 服务 + public/ 静态页面
+│   ├── kolorbot-sessions/          # SessionStore（node:sqlite）
+│   ├── kolorbot-skills/            # 技能发现 / <system-skills>
+│   ├── kolorbot-memory/            # AI.md + 日记 + <system-memory>
+│   ├── kolorbot-scheduler/         # 定时任务守护进程（TaskStore / daemon / client）
+│   └── kolorbot-web/               # Web 守护进程 + public/ 静态页面
 │       ├── src/providers.ts     # 提供商存储（~/.kolor/providers.json）+ 模型发现
 │       ├── src/runs.ts          # RunBroker：turn 生命周期 + 事件回放
 │       ├── src/server.ts        # HTTP、SSE、API、调度器接线
@@ -65,27 +70,38 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 157 个测试
+pnpm test      # 160 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
-启动 Web UI：
+三个守护进程入口：
 
 ```powershell
-npm run web
-# KolorBot web  http://127.0.0.1:3399
-# 打开后在左下角「模型」页添加提供商（接口地址 + API Key）即可对话
+npm run web        # 只启动 Web：http://127.0.0.1:3399（定时任务显示不可用）
+npm run scheduler  # 只启动定时任务守护进程：http://127.0.0.1:3400
+npm run gateway    # 同时启动 Web 和 scheduler
 ```
 
-`npm run web` 直接用 `tsx` 运行 TypeScript 源码（`tsconfig.dev.json` 把 `kolor-*` 包映射到各自 `src/`），**不再先逐个 build**；想跑编译后的产物用 `npm run web:dist`（等价于 `pnpm build && node packages/kolor-web/dist/src/bin.js`）。
-
-想后台跑并方便重启，用仓库根目录的脚本（默认 `100.87.104.6:3399`，日志 `logs/kolor-web.log`）：
+也可以直接调用 CLI：
 
 ```powershell
-.\restart.cmd                    # 停掉旧实例并后台拉起
+node packages/kolorbot-web/dist/src/bin.js run web
+node packages/kolorbot-web/dist/src/bin.js run scheduler --port 3400
+node packages/kolorbot-web/dist/src/bin.js run gateway --port 3399 --scheduler-port 3400
+```
+
+`npm run web` 用 `tsx` 直接跑源码（`tsconfig.dev.json` 把 `kolorbot-*` 包映射到各自 `src/`），**不需要先 build**；编译产物用 `npm run web:dist`。
+
+定时任务不是 Web 的一部分：Web 通过 `KOLOR_SCHEDULER_URL`（默认 `http://127.0.0.1:3400`）访问调度器；调度器没启动时，Web 的「定时」面板会显示不可用，`/api/scheduler` 返回 `available: false`，新建任务返回 503。
+
+想后台跑并方便重启，用仓库根目录的脚本（默认 `100.87.104.6:3399`，日志 `logs/kolorbot-web.log`）：
+
+```powershell
+.\restart.cmd                    # 停掉旧实例并后台拉起 Web
 .\restart.cmd status             # 端口 / PID / 模型
 .\restart.cmd stop               # 只停
 .\restart.cmd start -Foreground  # 前台跑，方便看报错
+.\restart.cmd -Gateway          # 同时启动 Web + 定时任务（默认 scheduler 端口 3400）
 ```
 
 默认只监听 `127.0.0.1`。需要让局域网访问时用 `--host`：
@@ -162,16 +178,16 @@ npm run web -- --host 0.0.0.0
 | --- | --- | --- |
 | 编译后运行 | `pnpm build && node dist/your-script.js` | 自己的入口脚本，走 `tsc`；`npm run web:dist` 也是这条 |
 | Node 原生类型剥离 | `node your-script.ts` | Node ≥ 22.18 / 24；只支持可擦除语法，不能有 `enum`、`namespace`、参数属性 |
-| tsx 直接跑源码（`npm run web` 用的） | `tsx --tsconfig tsconfig.dev.json packages/kolor-web/src/bin.ts` | 不改 `dist`、调试包的 TS 源码；`tsconfig.dev.json` 的 `paths` 把 `kolor-*` 映射到各自 `src/index.ts` |
+| tsx 直接跑源码（`npm run web` 用的） | `tsx --tsconfig tsconfig.dev.json packages/kolorbot-web/src/bin.ts` | 不改 `dist`、调试包的 TS 源码；`tsconfig.dev.json` 的 `paths` 把 `kolor-*` 映射到各自 `src/index.ts` |
 
-**不能**直接用 `node packages/kolor-web/src/bin.ts`：源码用 NodeNext 约定（`import './agent.js'`），Node 原生剥离不会把 `.js` 映射回 `.ts`；走 `tsc` 或 `tsx`。
+**不能**直接用 `node packages/kolorbot-web/src/bin.ts`：源码用 NodeNext 约定（`import './agent.js'`），Node 原生剥离不会把 `.js` 映射回 `.ts`；走 `tsc` 或 `tsx`。
 
 Node 24.13 在 Windows 上有个小 bug：`fetch` 之后若有未捕获异常退出，可能打印 `Assertion failed: ... uv_handle_closing`。把调用包进 `try/catch` 即可。
 
 ## 作为库使用
 
 ```ts
-import { KolorAgent, defineTool } from 'kolor-agent-loop';
+import { KolorAgent, defineTool } from 'kolorbot-agent-loop';
 
 const agent = await KolorAgent.create({
   apiUrl: 'https://api.deepseek.com',
@@ -191,7 +207,7 @@ for await (const event of agent.stream('列出当前目录并总结')) {
 // 从任意来源导入（会校验 tool call 配对）
 agent.importContext(JSON.parse(fs.readFileSync('session.json', 'utf8')).context);
 
-// 导出，可交给 kolor-sessions 落库
+// 导出，可交给 kolorbot-sessions 落库
 const context = agent.exportContext();
 ```
 
@@ -217,7 +233,7 @@ const writeFile = defineTool({
 - 工具抛异常、参数不是合法 JSON、未知工具、超时，都会变成 `isError` 结果写回会话。
 - 工具拿到 `context.signal`，超时/取消会中止；即使工具无视信号，调度器也会用硬超时竞速。
 
-## kolor-agent-loop 配置
+## kolorbot-agent-loop 配置
 
 | 字段 | 默认值 | 说明 |
 | --- | --- | --- |
@@ -281,7 +297,7 @@ Web 不再维护单独的 `mcp.json`。额外 MCP 写在技能目录的 `kolor.j
 - `mcpServers` 是标准写法，也接受 `mcp` 作为别名。
 - `kolor.json` 可以放在单个技能目录；也可以放在 `~/.agents/skills/kolor.json` 作为全局配置。根配置优先，然后按技能 id 排序。
 - `stdio` 需要 `command`，默认 `cwd` 是技能目录；相对 `command` / `cwd` 按技能目录解析。
-- `env` / `headers` 的值支持 `${VAR}` 占位符，从启动 `kolor-web` 的进程环境读取；适合注入 API key。`/api/mcp` 只返回名称、来源技能和传输方式，不会把 env/headers 回传给浏览器。
+- `env` / `headers` 的值支持 `${VAR}` 占位符，从启动 `kolorbot-web` 的进程环境读取；适合注入 API key。`/api/mcp` 只返回名称、来源技能和传输方式，不会把 env/headers 回传给浏览器。
 - `http` / `sse` 需要 `url`。
 - 同名 server 先到先得，避免两个技能互相覆盖工具。
 - Web 不再有单独的 MCP 页面：在侧栏「技能」里，带 MCP 的技能旁边有 **MCP** 标识，点开技能详情就能看到它声明的所有 server；改完文件后下一轮对话自动重连。
@@ -426,7 +442,7 @@ KolorFrame 提供：
 
 ## 会话存储
 
-`kolor-sessions` 的表结构：
+`kolorbot-sessions` 的表结构：
 
 ```sql
 CREATE TABLE sessions (
@@ -443,7 +459,7 @@ CREATE TABLE sessions (
 ```
 
 ```ts
-import { SessionStore } from 'kolor-sessions';
+import { SessionStore } from 'kolorbot-sessions';
 
 const store = new SessionStore();                            // ~/.kolor/sessions.db
 const session = store.create({ name: '调试 KolorBot', topic: '编写葡萄云项目…' });
@@ -500,12 +516,14 @@ It's 2026/10/27 20:16:00 Tuesday. Do: （任务名）
 
 实现要点：
 
-- 任务存在同一个 `sessions.db` 的 `session_tasks` 表，删除会话会级联删除任务。
-- `kolor-web` 进程内 15 秒 ticker 检查一次；同一任务同一分钟只触发一次（`last_fired_at`）。
-- 只在服务运行时触发，**不补跑**停机期间错过的任务。
-- 会话正在跑另一轮时，这次触发会被跳过，避免并发写同一会话。
+- 任务存在 `sessions.db` 的 `session_tasks` 表，但**只有调度器守护进程**读写它；Web 通过内部 HTTP API 代理列表/新建/删除。
+- `kolorbot-scheduler` 进程里 15 秒 ticker 检查一次；同一任务同一分钟只触发一次（`last_fired_at`）。
+- 调度器自己创建 agent 跑无头轮次并写回会话；即使 Web 没启动，任务也会照常触发（不补跑停机期间错过的任务）。
+- 调度器依赖 `~/.kolor/providers.json` 里当前选中的模型（或 `KOLOR_API_URL` / `KOLOR_API_MODEL` / `KOLOR_API_KEY`）；没有可用模型时记录日志并跳过。
+- Web 没启动时任务照常跑；调度器没启动时 Web 只显示「定时任务不可用」，不会偷偷写任务表。
 - 时间使用服务器本地时区；消息里的时间戳是实际触发时刻。
 - 旧的单值字段（`time` / `day` / `minute`）仍然兼容，读取时自动转成数组。
+- 删除会话时 Web 会尽力调用调度器删除该会话的任务；调度器发现会话已不存在也会清理。
 
 ```sql
 CREATE TABLE session_tasks (
@@ -582,15 +600,17 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | DELETE | `/api/providers/:id` | 删除提供商 |
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
 | PUT | `/api/model` | 切换当前模型（`providerId` 传空串表示回到环境变量回退） |
-| GET/PUT | `/api/memory` | 记忆：AI.md 内容/大小 + 今日日记 + 日记开关；PUT 切换开关 |
+| GET | `/api/memory` | 记忆：AI.md 内容/大小 + 今日日记 + 日记开关；PUT 切换开关 |
+| GET | `/api/scheduler` | 调度器守护进程状态：`{ available, url, error? }` |
 | GET/POST | `/api/sessions` | 列表（带 `running`）/ 新建 |
 | GET/PATCH/DELETE | `/api/sessions/:id` | 读取（带 `running`）/ 改名 / 删除 |
 | GET | `/api/sessions/:id/run` | 当前/刚结束的 turn 状态 + 已缓冲的事件 |
 | GET | `/api/sessions/:id/stream?from=N` | SSE：从第 N 个事件起回放，并继续推送实时事件 |
 | PUT | `/api/sessions/:id/context` | 替换上下文 |
 | PUT | `/api/sessions/:id/topic` | 设置/清除主题（下一条消息注入） |
-| GET/POST | `/api/sessions/:id/tasks` | 定时任务列表 / 新建 |
-| DELETE | `/api/sessions/:id/tasks/:taskId` | 删除定时任务 |
+| GET/POST | `/api/sessions/:id/tasks` | 定时任务列表 / 新建；调度器离线时列表返回 `available:false`，新建返回 503 |
+| DELETE | `/api/sessions/:id/tasks` | 删除该会话全部任务（代理到调度器） |
+| DELETE | `/api/sessions/:id/tasks/:taskId` | 删除单个任务（代理到调度器） |
 | GET | `/api/skills` | 三个技能区的技能列表（`source` 区分区）+ 签名 + `roots`（分区/路径/数量）+ 每个技能的 `mcpServers` |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
 | POST | `/api/sessions/:id/reset` | 重置：清空上下文，保留名称与主题；正在跑的 turn 会被丢弃（不写回上下文） |
@@ -620,13 +640,14 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 157 个测试：
+共 160 个测试：
 
-- `kolor-agent-loop`（45）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端。
-- `kolor-sessions`（23）：CRUD、路径解析、持久化重开、导入导出、非法上下文、主题注入、重置、旧库迁移、定时规则/任务存储、技能签名、日记签名。
-- `kolor-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
-- `kolor-frame`（8）：读写、目录、bash、skills、`read_image`（格式/尺寸识别、图片字节、技能区访问、越界/非图片拒绝）、越界路径、错误映射。
-- `kolor-web`（67）：静态页、配置、会话 API（含主题/重置/定时任务）、只读 MCP 列表、技能 API、主题与技能注入、调度器、`schedule_reminder` 工具、CLI 参数、定时任务与内置工具的真实端到端对话；提供商存储/key 脱敏、模型发现（`/models` 与 `/v1/models` 回退、401、连接失败）、地址归一化、添加/刷新/删除提供商 API、用选中模型真实对话、没有内置默认模型；设定（AI.md 读取/大小、`<system-memory>` 顺序、`/self-md-update`、`/self-md-tell`、1 MiB 截断）；日记文件的创建/追加格式、一行式触发消息（指向 kolor 技能，不再注入完整提示词）、`## Previous Topic` 衔接、开关持久化、`/api/memory`、`<system-daily-memory>` 只在变化时注入、重置后重新注入、`/update-daily-memory`、以及 10 分钟静默后自动整理日记的真实端到端；运行中的 turn（断开后继续、晚加入回放、重复请求 409、取消、完成态保留、定时任务可见、reset 不被写回）。
+- `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`（格式/尺寸识别、图片字节、技能区访问、越界/非图片拒绝）。
+- `kolorbot-sessions`（15）：CRUD、路径解析、持久化重开、导入导出、非法上下文、主题注入、重置、旧库迁移、技能/记忆签名。
+- `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析（含全局配置与 `${VAR}` 展开）、缺失目录。
+- `kolorbot-memory`（5）：`<system-memory>` 顺序、空段省略、组合签名、1 MiB 截断、`/self-md-*` 命令。
+- `kolorbot-scheduler`（12）：时间规则、触发消息、同分钟去重、失败隔离、ticker、TaskStore CRUD、daemon HTTP + tick + 客户端离线。
+- `kolorbot-web`（61）：静态页、配置、会话 API、只读 MCP、技能 API、主题/技能注入、CLI 子命令、提供商存储/key 脱敏、模型发现、真实对话；设定与日记注入、`/self-md-*`、`/update-daily-memory`、静默自动整理；运行中的 turn（断线继续、回放、409、取消、完成态、reset）；调度器离线时任务 API 返回不可用。
 
 全部测试不需要网络和 API key。
 

@@ -1,0 +1,44 @@
+﻿{
+  "name": "kolorbot-web",
+  "version": "0.3.0",
+  "description": "KolorBot Web: a local chat UI for KolorBot agents, with session storage and MCP management.",
+  "license": "MIT",
+  "type": "module",
+  "main": "./dist/src/index.js",
+  "types": "./dist/src/index.d.ts",
+  "bin": {
+    "kolorbot-web": "./dist/src/bin.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/src/index.d.ts",
+      "import": "./dist/src/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "dist/src",
+    "public",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "tsc -p tsconfig.json && node --test \"dist/test/**/*.test.js\"",
+    "start": "node dist/src/bin.js"
+  },
+  "dependencies": {
+    "kolorbot-agent-loop": "workspace:*",
+    "kolorbot-memory": "workspace:*",
+    "kolorbot-scheduler": "workspace:*",
+    "kolorbot-sessions": "workspace:*",
+    "kolorbot-skills": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^5.9.3"
+  }
+}

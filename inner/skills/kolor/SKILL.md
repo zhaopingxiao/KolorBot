@@ -79,7 +79,7 @@ description: 一句话说明什么时候用它；这句会出现在 <system-skil
 - `"mcp"` 是 `mcpServers` 的别名，两种都认。
 - `stdio`：`command` 必填，`args` 可选；`cwd` 默认技能目录；`command`/`cwd` 的相对路径按技能目录解析。
 - `http` / `sse`：`type` 写 `http` 或 `sse`，`url` 必填；`headers` 可选。
-- `env` / `headers` 支持 `${VAR}`，从启动 `kolor-web` 的进程环境读取；技能进程不会拿到宿主全部环境变量，只拿默认环境 + 这里声明的。
+- `env` / `headers` 支持 `${VAR}`，从启动 `kolorbot-web` 的进程环境读取；技能进程不会拿到宿主全部环境变量，只拿默认环境 + 这里声明的。
 - 放在**技能区根目录**的 `kolor.json` 是该区的全局配置，优先于单个技能里的同名 server；重名 server 只保留第一个。
 - MCP 工具在模型侧的名字是 `mcp__<server>__<tool>`，`/` 等字符会被替换；和本地工具重名时保留本地工具。
 - 加/改 MCP 后下一轮对话会重连；单个 server 可以在技能详情里点「刷新」（`POST /api/mcp/<name>/restart`）关闭并重连，不用重启服务。
@@ -132,7 +132,7 @@ process.stdin.on('data', (chunk) => {
 
 - **首条规则**：当天文件不存在或为空时，如果 `daily/` 里还有更早的日记，必须先 `list_files daily/`、`read_file` 最近一篇更早的日记，概括 2-4 条写进 `## Previous Topic`，再写 `## HH:mm` 正文；没有更早日记时可以直接从 `## HH:mm` 开始。同一天后续整理只追加新的 `## HH:mm`，不再写第二个 `## Previous Topic`。
 - **写日记用什么工具**：内置文件工具 `list_files` / `read_file` / `write_file`。第一次写当天文件用 `write_file` 覆盖整个文件；后续追加用 `write_file` 加 `append: true`，只写新的 `## HH:mm` 块。**没有 `append_diary` 工具**，不要调用它。
-- **自动触发**：一次对话结束后开始计时，10 分钟没有新用户消息就为该会话跑一轮后台日记（和定时任务一样走 broker，可看实时进度）。新用户消息会重置计时；重置/删除会话会取消；日记轮次本身不再计时。
+- **自动触发**：一次对话结束后开始计时，10 分钟没有新用户消息就为该会话跑一轮后台日记（Web 进程内的无 SSE 轮次，打开会话可看实时进度）。新用户消息会重置计时；重置/删除会话会取消；日记轮次本身不再计时。
 - **手动触发**：发送固定命令 `/update-daily-memory`（大小写不敏感、必须整条消息），服务端换成和自动触发完全相同的消息。
 - **触发消息只有一行**（服务端不再注入完整提示词，规则只放在本技能里）：
 
@@ -192,17 +192,17 @@ It's <本地时间>. Update today's diary. Use the built-in kolor skill (skills(
 
 ## 6. 框架速览
 
-- 包：`kolor-agent-loop`（主循环/模型客户端/MCP）、`kolor-sessions`（SQLite 会话存储/主题/定时任务）、`kolor-skills`（技能发现/注入）、`kolor-frame`（本地工具：文件/bash/skills）、`kolor-web`（HTTP/SSE/调度器/提供商/前端）。
+- 包：`kolorbot-agent-loop`（主循环/模型客户端/MCP）、`kolorbot-sessions`（SQLite 会话存储/主题/定时任务）、`kolorbot-skills`（技能发现/注入）、`kolorbot-agent-loop`（本地工具：文件/bash/skills）、`kolorbot-web`（HTTP/SSE/调度器/提供商/前端）。
 - 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image`；`read_image` 会把本地图片附给支持视觉的模型（例如 `deepseek-flash`；文本模型只拿到格式/尺寸元数据）。
-- 会话与 turn：`RunBroker` 让 turn 活在服务端，断线可回放；定时任务和日记也走它。
+- 会话与 turn：`RunBroker` 让 turn 活在服务端，断线可回放；日记也走它。定时任务是独立守护进程 `kolorbot-scheduler`，不跟随 Web 启动。
 - 模型提供商：`~/.kolor/providers.json`，OpenAI Chat Completions 协议；没有内置默认模型。
 - 常用 HTTP API：`/api/sessions`、`/api/chat`（SSE）、`/api/chat/cancel`、`/api/skills`、`/api/mcp`、`/api/mcp/:name/restart`、`/api/memory`、`/api/providers`、`/api/config`。
-- 运行：`npm run web`（tsx 直接跑源码）或 `restart.cmd`；测试 `pnpm test`。
+- 运行：`run web`（只有 Web）/ `run scheduler`（只有定时任务）/ `run gateway`（两个都启动）；或者 `npm run web`、`npm run scheduler`、`npm run gateway`；测试 `pnpm test`。
 - 数据目录：`~/.kolor`（`sessions.db`、`providers.json`、`memory.json`、`workspace/`），可用 `KOLOR_HOME` 改。
-- 内部标识（`kolor-*` 包名、`~/.kolor`、`KOLOR_*`、`kolor.json`）是兼容约束，不要重命名。
+- 包名是 `kolorbot-*`；`~/.kolor`、`KOLOR_*`、`kolor.json` 和技能 `kolor` 保留旧名，是兼容约束，不要重命名。
 
 ## 7. 注意
 
-- 改技能/`kolor.json` 不需要重启，下一轮对话生效；改 `packages/*` 源码后重启 `kolor-web`。
+- 改技能/`kolor.json` 不需要重启，下一轮对话生效；改 `packages/*` 源码后重启 `kolorbot-web`（或 `run scheduler` / `run gateway`）。
 - `write_file` / `read_file` 只能碰 workspace 和技能目录；`bash` 不沙箱。
 - 技能正文不要写密钥；密钥通过 `kolor.json` 的 `${VAR}` 从环境变量注入。

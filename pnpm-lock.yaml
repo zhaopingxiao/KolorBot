@@ -8,22 +8,22 @@ importers:
 
   .:
     dependencies:
-      kolor-agent-loop:
+      kolorbot-agent-loop:
         specifier: workspace:*
-        version: link:packages/kolor-agent-loop
+        version: link:packages/kolorbot-agent-loop
     devDependencies:
       tsx:
         specifier: ^4.23.15
         version: 4.23.15
 
-  packages/kolor-agent-loop:
+  packages/kolorbot-agent-loop:
     dependencies:
       '@modelcontextprotocol/sdk':
         specifier: ^1.32.2
         version: 1.32.2(zod@4.6.7)
-      kolor-frame:
+      kolorbot-skills:
         specifier: workspace:*
-        version: link:../kolor-frame
+        version: link:../kolorbot-skills
     devDependencies:
       '@types/node':
         specifier: ^24.19.2
@@ -32,11 +32,14 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/kolor-frame:
+  packages/kolorbot-memory:
     dependencies:
-      kolor-skills:
+      kolorbot-agent-loop:
         specifier: workspace:*
-        version: link:../kolor-skills
+        version: link:../kolorbot-agent-loop
+      kolorbot-sessions:
+        specifier: workspace:*
+        version: link:../kolorbot-sessions
     devDependencies:
       '@types/node':
         specifier: ^24.19.2
@@ -45,11 +48,17 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/kolor-sessions:
+  packages/kolorbot-scheduler:
     dependencies:
-      kolor-agent-loop:
+      kolorbot-agent-loop:
         specifier: workspace:*
-        version: link:../kolor-agent-loop
+        version: link:../kolorbot-agent-loop
+      kolorbot-sessions:
+        specifier: workspace:*
+        version: link:../kolorbot-sessions
+      kolorbot-skills:
+        specifier: workspace:*
+        version: link:../kolorbot-skills
     devDependencies:
       '@types/node':
         specifier: ^24.19.2
@@ -58,26 +67,45 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
-  packages/kolor-skills:
-    devDependencies:
-      '@types/node':
-        specifier: ^24.19.2
-        version: 24.19.2
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  packages/kolor-web:
+  packages/kolorbot-sessions:
     dependencies:
-      kolor-agent-loop:
+      kolorbot-agent-loop:
         specifier: workspace:*
-        version: link:../kolor-agent-loop
-      kolor-sessions:
+        version: link:../kolorbot-agent-loop
+    devDependencies:
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/kolorbot-skills:
+    devDependencies:
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
+  packages/kolorbot-web:
+    dependencies:
+      kolorbot-agent-loop:
         specifier: workspace:*
-        version: link:../kolor-sessions
-      kolor-skills:
+        version: link:../kolorbot-agent-loop
+      kolorbot-memory:
         specifier: workspace:*
-        version: link:../kolor-skills
+        version: link:../kolorbot-memory
+      kolorbot-scheduler:
+        specifier: workspace:*
+        version: link:../kolorbot-scheduler
+      kolorbot-sessions:
+        specifier: workspace:*
+        version: link:../kolorbot-sessions
+      kolorbot-skills:
+        specifier: workspace:*
+        version: link:../kolorbot-skills
     devDependencies:
       '@types/node':
         specifier: ^24.19.2

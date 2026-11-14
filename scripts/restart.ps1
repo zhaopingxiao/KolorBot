@@ -6,7 +6,7 @@
 #   .\restart.cmd restart -Port 3400   # 换端口
 #   .\restart.cmd start -Foreground    # 前台跑，方便看报错
 #
-# 新实例用 tsx 直接跑源码（等价 npm run web），日志在 logs\kolor-web.log。
+# 新实例用 tsx 直接跑源码（等价 npm run web），日志在 logs\kolorbot-web.log。
 
 [CmdletBinding()]
 param(
@@ -21,6 +21,9 @@ param(
   # 等待 /api/config 就绪的秒数。
   [int]$TimeoutSeconds = 60,
 
+  # 同时启动调度器守护进程（run gateway，默认 127.0.0.1:3400）
+  [switch]$Gateway,
+
   # 前台运行（前台时 Ctrl+C 即退出，不写日志）
   [switch]$Foreground
 )
@@ -33,8 +36,8 @@ if (-not (Test-Path (Join-Path $root 'package.json'))) {
 }
 
 $logDir = Join-Path $root 'logs'
-$logFile = Join-Path $logDir 'kolor-web.log'
-$pidFile = Join-Path $logDir 'kolor-web.pid'
+$logFile = Join-Path $logDir 'kolorbot-web.log'
+$pidFile = Join-Path $logDir 'kolorbot-web.pid'
 $url = "http://${BindHost}:${Port}"
 
 # ---------------------------------------------------------------- 进程查找
@@ -64,7 +67,7 @@ function Get-KolorStrays {
     Get-CimInstance Win32_Process -Filter "Name='node.exe'" -ErrorAction SilentlyContinue |
       Where-Object {
         $_.CommandLine -and
-        $_.CommandLine -match 'kolor-web[\\/](src[\\/]bin\.ts|dist[\\/]src[\\/]bin\.js)'
+        $_.CommandLine -match 'kolorbot-web[\\/](src[\\/]bin\.ts|dist[\\/]src[\\/]bin\.js)'
       } |
       Select-Object -ExpandProperty ProcessId
   )
@@ -122,12 +125,17 @@ function Start-Kolor {
     throw "找不到 $tsx，先执行 pnpm install"
   }
 
+  $mode = if ($Gateway) { 'gateway' } else { 'web' }
   $serverArgs = @(
     '--tsconfig', 'tsconfig.dev.json',
-    'packages/kolor-web/src/bin.ts',
+    'packages/kolorbot-web/src/bin.ts',
+    'run', $mode,
     '--host', $BindHost,
     '--port', "$Port"
   )
+  if ($Gateway) {
+    $serverArgs += @('--scheduler-host', '127.0.0.1', '--scheduler-port', '3400')
+  }
 
   if ($Foreground) {
     Write-Host "· 前台启动：$url（Ctrl+C 退出）"
@@ -142,16 +150,17 @@ function Start-Kolor {
 
   # 轮转上一次的日志，便于对比本次启动
   if (Test-Path $logFile) {
-    Move-Item -Force $logFile (Join-Path $logDir 'kolor-web.prev.log')
+    Move-Item -Force $logFile (Join-Path $logDir 'kolorbot-web.prev.log')
   }
 
   # 用一个小的 cmd 包装文件启动：避开 Start-Process 的引号问题，
   # 同时把 stdout/stderr 合并进同一个日志。
   $launcherCmd = Join-Path $logDir 'launch.cmd'
+  $extra = if ($Gateway) { ' --scheduler-host 127.0.0.1 --scheduler-port 3400' } else { '' }
   $batch = @(
     '@echo off',
     "cd /d `"$root`"",
-    "`"$tsx`" --tsconfig tsconfig.dev.json packages/kolor-web/src/bin.ts --host $BindHost --port $Port >> `"$logFile`" 2>&1"
+    "`"$tsx`" --tsconfig tsconfig.dev.json packages/kolorbot-web/src/bin.ts run $mode --host $BindHost --port $Port$extra >> `"$logFile`" 2>&1"
   )
   Set-Content -Path $launcherCmd -Value $batch -Encoding ascii
 
