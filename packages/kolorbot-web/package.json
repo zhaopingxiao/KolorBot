@@ -1,6 +1,6 @@
 ﻿{
   "name": "kolorbot-web",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "KolorBot Web: a local chat UI for KolorBot agents, with session storage and MCP management.",
   "license": "MIT",
   "type": "module",
@@ -33,8 +33,7 @@
   "dependencies": {
     "kolorbot-agent-loop": "workspace:*",
     "kolorbot-memory": "workspace:*",
-    "kolorbot-scheduler": "workspace:*",
-    "kolorbot-sessions": "workspace:*",
+    "kolorbot-conversation": "workspace:*",
     "kolorbot-skills": "workspace:*"
   },
   "devDependencies": {

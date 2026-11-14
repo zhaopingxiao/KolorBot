@@ -21,9 +21,6 @@ param(
   # 等待 /api/config 就绪的秒数。
   [int]$TimeoutSeconds = 60,
 
-  # 同时启动调度器守护进程（run gateway，默认 127.0.0.1:3400）
-  [switch]$Gateway,
-
   # 前台运行（前台时 Ctrl+C 即退出，不写日志）
   [switch]$Foreground
 )
@@ -125,17 +122,13 @@ function Start-Kolor {
     throw "找不到 $tsx，先执行 pnpm install"
   }
 
-  $mode = if ($Gateway) { 'gateway' } else { 'web' }
   $serverArgs = @(
     '--tsconfig', 'tsconfig.dev.json',
     'packages/kolorbot-web/src/bin.ts',
-    'run', $mode,
+    'run', 'web',
     '--host', $BindHost,
     '--port', "$Port"
   )
-  if ($Gateway) {
-    $serverArgs += @('--scheduler-host', '127.0.0.1', '--scheduler-port', '3400')
-  }
 
   if ($Foreground) {
     Write-Host "· 前台启动：$url（Ctrl+C 退出）"
@@ -156,11 +149,11 @@ function Start-Kolor {
   # 用一个小的 cmd 包装文件启动：避开 Start-Process 的引号问题，
   # 同时把 stdout/stderr 合并进同一个日志。
   $launcherCmd = Join-Path $logDir 'launch.cmd'
-  $extra = if ($Gateway) { ' --scheduler-host 127.0.0.1 --scheduler-port 3400' } else { '' }
+  $extra = ''
   $batch = @(
     '@echo off',
     "cd /d `"$root`"",
-    "`"$tsx`" --tsconfig tsconfig.dev.json packages/kolorbot-web/src/bin.ts run $mode --host $BindHost --port $Port$extra >> `"$logFile`" 2>&1"
+    "`"$tsx`" --tsconfig tsconfig.dev.json packages/kolorbot-web/src/bin.ts run web --host $BindHost --port $Port$extra >> `"$logFile`" 2>&1"
   )
   Set-Content -Path $launcherCmd -Value $batch -Encoding ascii
 

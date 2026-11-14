@@ -1,4 +1,4 @@
-﻿import { createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   KolorAgent,
   type AgentMessage,
@@ -9,15 +9,12 @@ import {
   type ToolDefinition,
 } from 'kolorbot-agent-loop';
 import type { ModelTarget } from './providers.js';
-import { createReminderTool, type CreateReminder } from './reminder-tool.js';
 
 export interface AgentPoolOptions {
   /** Current MCP configuration; called when an agent is created. */
   mcpConfigs: () => McpServerConfig[];
   /** Built-in frame tools settings (workspace + skills root). */
   kolorFrame?: KolorFrameOptions;
-  /** Persist a reminder created by the model. */
-  createReminder?: CreateReminder;
   /** System prompt for every agent (defaults to the agent-loop one). */
   systemPrompt?: string;
   onEvent?: (sessionId: string, event: KolorEvent) => void;
@@ -74,9 +71,6 @@ export class AgentPool {
     }
 
     const tools: ToolDefinition[] = [];
-    if (this.#options.createReminder !== undefined) {
-      tools.push(createReminderTool(sessionId, this.#options.createReminder));
-    }
 
     const creation = KolorAgent.create(
       {

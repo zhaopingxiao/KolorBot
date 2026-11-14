@@ -11,7 +11,8 @@ import {
   type McpServerConfig,
 } from 'kolorbot-agent-loop';
 import { SKILL_SOURCE_LABELS, SkillsRegistry, formatSkillsBlock } from 'kolorbot-skills';
-import { SessionStore } from 'kolorbot-sessions';
+import { ConversationStore } from 'kolorbot-conversation';
+import { SingleConversation } from './conversation-session.js';
 import { AgentPool } from './agent-pool.js';
 import { resolveWebConfig, type WebConfig, type WebConfigOverrides } from './config.js';
 import { IdleDiary } from './diary-idle.js';
@@ -27,13 +28,17 @@ import {
 } from './http.js';
 import {
   MemoryStore,
-  buildDiaryTaskMessage,
+  buildTopicDiaryMessage,
   buildSelfTellMessage,
   buildSelfUpdateMessage,
-  formatMemoryBlock,
+  findLatestDiarySection,
+  formatLastMessageBlock,
+  formatTopicMemoryBlock,
   isDiaryCommand,
   isSelfUpdateCommand,
   memorySignature,
+  personaSignature,
+  readTopicMemory,
   selfTellInfo,
 } from 'kolorbot-memory';
 import {
@@ -43,7 +48,7 @@ import {
   type ModelTarget,
 } from './providers.js';
 import { RunBroker, type Run, type RunListener } from './runs.js';
-import { SchedulerClient, SchedulerUnavailableError } from 'kolorbot-scheduler';
+import { classifyTopic, type TopicDecision } from './topic-classifier.js';
 import { VERSION } from './version.js';
 
 /** Default quiet period before the automatic diary turn. */
@@ -63,8 +68,8 @@ const KOLOR_SYSTEM_PROMPT = [
 ].join('\n');
 
 export interface KolorWebOptions extends WebConfigOverrides {
-  /** Inject a store (tests); defaults to the configured database path. */
-  store?: SessionStore;
+  /** Inject the single conversation (tests); defaults to the configured database path. */
+  store?: SingleConversation;
   /** Quiet period before the automatic diary turn; default 10 minutes. */
   diaryIdleMs?: number;
   logger?: (message: string, error?: unknown) => void;
@@ -75,7 +80,7 @@ export interface KolorWebServer {
   url: string;
   port: number;
   config: WebConfig;
-  store: SessionStore;
+  store: SingleConversation;
   pool: AgentPool;
   /** Model providers stored in `providers.json`. */
   providers: ProviderStore;
@@ -85,8 +90,6 @@ export interface KolorWebServer {
   diaryIdle: IdleDiary;
   /** Turns that keep running after the client that started them went away. */
   runs: RunBroker;
-  /** Client for the standalone scheduler daemon (may be unavailable). */
-  scheduler: SchedulerClient;
   close(): Promise<void>;
 }
 
@@ -151,7 +154,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   mkdirSync(config.home, { recursive: true });
   mkdirSync(config.frameRoot, { recursive: true });
 
-  const store = options.store ?? new SessionStore({ path: config.sessionsDbPath });
+  const store = options.store ?? new SingleConversation(new ConversationStore({ path: config.conversationDbPath }));
   const providers = new ProviderStore({ path: join(config.home, 'providers.json') });
   const defaults = (): DefaultModelConfig => ({
     apiUrl: config.apiUrl,
@@ -188,11 +191,8 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     selfPath: join(config.frameRoot, 'AI.md'),
   });
 
-  const scheduler = new SchedulerClient({ baseUrl: config.schedulerUrl });
-
   const pool = new AgentPool({
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
-    createReminder: (sessionId, input) => scheduler.createTask(sessionId, input),
     systemPrompt: KOLOR_SYSTEM_PROMPT,
     kolorFrame: {
       root: config.frameRoot,
@@ -264,9 +264,18 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         home: config.home,
         frameRoot: config.frameRoot,
         skillsDir: config.skillsDir,
-        sessionsDbPath: config.sessionsDbPath,
+        conversationDbPath: config.conversationDbPath,
         mcpServers: publicMcpServers(skillsRegistry),
         mcpStatus: pool.mcpStatus,
+      });
+      return;
+    }
+
+    if (pathname === '/api/conversation' && method === 'GET') {
+      const current = store.current();
+      sendJson(response, 200, {
+        conversation: store.view(),
+        current: { topic: current.topic, segment: current.segment },
       });
       return;
     }
@@ -528,70 +537,6 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       return;
     }
 
-    if (pathname === '/api/scheduler' && method === 'GET') {
-      sendJson(response, 200, await scheduler.status());
-      return;
-    }
-
-    const tasksMatch = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/tasks$/.exec(pathname);
-    if (tasksMatch !== null) {
-      const id = tasksMatch[1] as string;
-      if (method === 'GET') {
-        store.require(id);
-        try {
-          sendJson(response, 200, {
-            available: true,
-            tasks: await scheduler.listTasks(id),
-          });
-        } catch (error) {
-          if (!(error instanceof SchedulerUnavailableError)) throw error;
-          sendJson(response, 200, { available: false, tasks: [], error: error.message });
-        }
-        return;
-      }
-      if (method === 'POST') {
-        const body = await readJsonBody(request);
-        if (!isRecord(body) || typeof body.name !== 'string') {
-          throw new HttpError(400, 'request body must contain "name" and "schedule"');
-        }
-        store.require(id);
-        try {
-          const task = await scheduler.createTask(id, {
-            name: body.name,
-            schedule: body.schedule,
-          });
-          sendJson(response, 201, { task });
-        } catch (error) {
-          throwSchedulerUnavailable(error);
-        }
-        return;
-      }
-      if (method === 'DELETE') {
-        try {
-          const deleted = await scheduler.deleteSessionTasks(id);
-          sendJson(response, 200, { deleted });
-        } catch (error) {
-          throwSchedulerUnavailable(error);
-        }
-        return;
-      }
-      throw new HttpError(405, 'method not allowed');
-    }
-
-    const taskMatch = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/tasks\/([A-Za-z0-9_-]+)$/.exec(pathname);
-    if (taskMatch !== null && method === 'DELETE') {
-      try {
-        const removed = await scheduler.deleteTask(
-          taskMatch[1] as string,
-          taskMatch[2] as string,
-        );
-        sendJson(response, 200, { deleted: removed });
-      } catch (error) {
-        throwSchedulerUnavailable(error);
-      }
-      return;
-    }
-
     const contextMatch = /^\/api\/sessions\/([A-Za-z0-9_-]+)\/context$/.exec(pathname);
     if (contextMatch !== null && method === 'PUT') {
       const id = contextMatch[1] as string;
@@ -628,7 +573,6 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         runs.cancel(id, 'delete');
         const removed = store.delete(id);
         await pool.disposeSession(id);
-        await scheduler.deleteSessionTasks(id).catch(() => undefined);
         sendJson(response, 200, { deleted: removed });
         return;
       }
@@ -640,10 +584,9 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
 
   async function handleChat(request: IncomingMessage, response: ServerResponse): Promise<void> {
     const body = await readJsonBody(request);
-    if (!isRecord(body) || typeof body.sessionId !== 'string' || typeof body.text !== 'string') {
-      throw new HttpError(400, 'sessionId and text are required');
+    if (!isRecord(body) || typeof body.text !== 'string') {
+      throw new HttpError(400, 'text is required');
     }
-    const sessionId = body.sessionId;
     const text = body.text.trim();
     if (text === '') throw new HttpError(400, 'text must not be empty');
     const target = activeTarget();
@@ -654,7 +597,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       );
     }
 
-    const session = store.require(sessionId);
+    const session = store.require(store.id);
     diaryIdle.cancel(session.id);
 
     await pool.ensureSignature();
@@ -664,7 +607,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     const selfInfo = selfTellInfo(text);
     let outgoing = text;
     if (isDiaryCommand(text)) {
-      outgoing = buildDiaryTaskMessage(new Date());
+      outgoing = buildTopicDiaryMessage(new Date(), []);
     } else if (isSelfUpdateCommand(text)) {
       outgoing = buildSelfUpdateMessage();
     } else if (selfInfo !== undefined) {
@@ -673,39 +616,144 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       }
       outgoing = buildSelfTellMessage(selfInfo);
     }
+    const commandTurn = outgoing !== text;
 
-    // Re-check after the await: two quick POSTs could both pass the check
-    // above. `begin` is synchronous, so this closes the race window.
-    if (runs.isRunning(session.id)) {
-      throw new HttpError(409, 'this session already has a running turn');
+    // Every ordinary message is routed into a topic before the turn starts.
+    const current = store.current();
+    let topic = current.topic;
+    let segment = current.segment;
+    let previousSegment: typeof current.segment | undefined;
+    let switched = false;
+
+    if (!commandTurn) {
+      const decision = await classifyTopic({
+        target,
+        topics: store.store.listTopics(),
+        currentTopic:
+          store.store.segmentMessages(segment.id).length === 0 ? '(none)' : topic.name,
+        recent: store.store.lastTextMessages(segment.id, 6),
+        text,
+        ...(options.logger === undefined ? {} : { logger: options.logger }),
+      });
+      const next = resolveTopicDecision(decision, current.topic.slug);
+      if (next !== undefined) {
+        const empty = store.store.segmentMessages(segment.id).length === 0;
+        if (empty) {
+          // The adapter creates a placeholder default segment on first load;
+          // retitle it instead of leaving an empty extra segment behind.
+          store.store.retopicSegment(segment.id, next.slug);
+          store.store.deleteTopicIfUnused(topic.slug);
+          topic = next;
+          segment = store.store.segment(segment.id) as typeof segment;
+        } else {
+          previousSegment = segment;
+          topic = next;
+          segment = store.store.startSegment(topic.slug, personaSignature(memory.self().content));
+        }
+        switched = true;
+        await pool.disposeSession(session.id);
+      }
     }
+
+    if (runs.isRunning(session.id)) {
+      throw new HttpError(409, 'the conversation already has a running turn');
+    }
+
+    const prepared = buildTopicMessage({
+      topic,
+      segment,
+      previousSegment,
+      text: outgoing,
+    });
 
     // The turn lives in the broker, not in this request: attaching the SSE
     // response is the only thing this handler does with the connection.
-    // `outgoing` is what the user sees in the live bubble once envelopes are
-    // stripped, so a diary command shows the same timestamped line as an
-    // automatic trigger.
     const run = ((): Run => {
       try {
         return runs.begin({ sessionId: session.id, kind: 'chat', prompt: outgoing });
       } catch {
-        throw new HttpError(409, 'this session already has a running turn');
+        throw new HttpError(409, 'the conversation already has a running turn');
       }
     })();
+    if (switched) {
+      runs.publish(run, {
+        type: 'topic/switch',
+        topic: { slug: topic.slug, name: topic.name },
+        segmentId: segment.id,
+      });
+    }
     try {
       attachRunSse(response, session.id, 0);
       await driveTurn(run, {
         target,
-        context: session.context,
-        message: outgoing,
+        context: store.store.segmentMessages(segment.id),
+        message: prepared,
       });
     } catch (error) {
-      // A broken socket must still close the run, or the session stays busy.
+      // A broken socket must still close the run, or the conversation stays busy.
       if (runs.isRunning(session.id)) runs.finish(run, 'error', error);
     } finally {
       // Only a user turn restarts the quiet period.
       diaryIdle.noteTurnFinished(session.id);
     }
+  }
+
+  /** Apply the classifier's decision; `undefined` means "keep the current topic". */
+  function resolveTopicDecision(
+    decision: TopicDecision,
+    currentSlug: string,
+  ): ReturnType<SingleConversation['current']>['topic'] | undefined {
+    if (decision.action === 'switch' && decision.slug !== undefined) {
+      const topic = store.store.topic(decision.slug);
+      return topic === undefined || topic.slug === currentSlug ? undefined : topic;
+    }
+    if (decision.action === 'new' && decision.name !== undefined) {
+      const topic = store.store.ensureTopic(decision.name, decision.slug);
+      return topic.slug === currentSlug ? undefined : topic;
+    }
+    return undefined;
+  }
+
+  /**
+   * Build the message for one topic turn: skills + topic memory on a fresh
+   * segment (or when the persona changed) and the previous topic's last ten
+   * messages on the first message of a new segment.
+   */
+  function buildTopicMessage(input: {
+    topic: ReturnType<SingleConversation['current']>['topic'];
+    segment: ReturnType<SingleConversation['current']>['segment'];
+    previousSegment: ReturnType<SingleConversation['current']>['segment'] | undefined;
+    text: string;
+  }): string {
+    const count = store.store.segmentMessages(input.segment.id).length;
+    const blocks: string[] = [];
+
+    if (count === 0) {
+      const installed = skillsRegistry.list();
+      if (installed.length > 0) blocks.push(formatSkillsBlock(installed));
+    }
+
+    const persona = memory.self().content;
+    const signature = personaSignature(persona);
+    if (count === 0 || input.segment.memorySignature !== signature) {
+      const diary = findLatestDiarySection(join(config.frameRoot, 'daily'), input.topic.name);
+      const memoryBlock = formatTopicMemoryBlock({
+        persona,
+        topicName: input.topic.name,
+        topicContent: readTopicMemory(config.frameRoot, input.topic.slug),
+        ...(diary === undefined ? {} : { diaryDate: diary.date, diaryContent: diary.content }),
+      });
+      if (memoryBlock !== '') blocks.push(memoryBlock);
+      store.store.setSegmentMemorySignature(input.segment.id, signature);
+    }
+
+    if (input.previousSegment !== undefined) {
+      const last = store.store.lastTextMessages(input.previousSegment.id, 10);
+      const lastBlock = formatLastMessageBlock(last);
+      if (lastBlock !== '') blocks.push(lastBlock);
+    }
+
+    return blocks.length === 0 ? input.text : `${blocks.join('\n\n')}\n\n${input.text}`;
   }
 
   /**
@@ -731,9 +779,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
           mcp: agent.mcpServers,
           model: { id: input.target.apiModelName, label: input.target.label },
         });
-        const prepared = prepareOutgoingMessage(sessionId, input.message);
-        if (prepared.topicApplied) runs.publish(run, { type: 'topic/applied' });
-        for await (const event of agent.stream(prepared.content, { signal: run.controller.signal })) {
+        for await (const event of agent.stream(input.message, { signal: run.controller.signal })) {
           runs.publish(run, serializeEvent(event));
         }
       } catch (error) {
@@ -871,17 +917,6 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     };
   }
 
-  /** Turn a scheduler connection failure into a 503 the UI can show. */
-  function throwSchedulerUnavailable(error: unknown): never {
-    if (error instanceof SchedulerUnavailableError) {
-      throw new HttpError(
-        503,
-        `定时任务不可用：调度器守护进程没有运行（用 run scheduler 启动）— ${error.message}`,
-      );
-    }
-    throw error;
-  }
-
   /** Providers (keys masked) plus the model the composer should preselect. */
   function providerPayload(): Record<string, unknown> {
     return {
@@ -941,49 +976,6 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   }
 
   /**
-   * Build the message the agent receives.
-   *
-   * Skills and today's diary are injected when the conversation starts, after a
-   * reset, or when their content changed since it was last sent. The topic
-   * envelope (if pending) is still applied by the session store.
-   */
-  function prepareOutgoingMessage(
-    sessionId: string,
-    text: string,
-  ): { content: string; topicApplied: boolean } {
-    const session = store.require(sessionId);
-    const installed = skillsRegistry.list();
-    const signature = skillsRegistry.signature();
-    const injectSkills =
-      installed.length > 0 &&
-      (session.messageCount === 0 || session.skillsSignature !== signature);
-
-    const self = memory.self();
-    const diary = memory.diary();
-    const signatureOfMemory = memorySignature(self.content, diary.content);
-    const injectMemory =
-      signatureOfMemory !== '' &&
-      (session.messageCount === 0 || session.memorySignature !== signatureOfMemory);
-
-    const prepared = store.prepareUserMessage(sessionId, text);
-    if (session.skillsSignature !== signature) {
-      store.markSkillsSent(sessionId, signature);
-    }
-    if (session.memorySignature !== signatureOfMemory) {
-      store.markMemorySent(sessionId, signatureOfMemory);
-    }
-
-    const blocks: string[] = [];
-    if (injectSkills) blocks.push(formatSkillsBlock(installed));
-    if (injectMemory) blocks.push(formatMemoryBlock(self.content, diary.content));
-
-    return {
-      content: blocks.length === 0 ? prepared.content : `${blocks.join('\n\n')}\n\n${prepared.content}`,
-      topicApplied: prepared.topicApplied,
-    };
-  }
-
-  /**
    * Run a turn nobody is waiting for (diary).
    *
    * It goes through the broker too, so the session is flagged as running and a
@@ -992,7 +984,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
    */
   async function runHeadlessTurn(input: {
     sessionId: string;
-    kind: 'task' | 'diary';
+    kind: 'diary';
     message: string;
     prompt: string;
     skipped: string;
@@ -1009,7 +1001,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
 
     await pool.ensureSignature();
-    // Re-check after the await; a scheduler tick and a chat request can meet
+    // Re-check after the await; another turn may have started meanwhile.
     // here, and a busy session is skipped rather than queued.
     if (runs.isRunning(session.id)) return;
     const run = ((): Run | undefined => {
@@ -1037,23 +1029,37 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
    * Runs like a scheduled turn (no SSE client) and is deliberately not
    * re-armed, so the diary turn cannot trigger itself again.
    */
-  async function runDiaryTurn(sessionId: string): Promise<void> {
+  async function runDiaryTurn(_sessionId: string): Promise<void> {
+    const pending = store.store.pendingDiarySegments();
+    if (pending.length === 0) return;
+    const transcripts = pending.map((entry) => {
+      const topic = store.store.topic(entry.segment.topicSlug);
+      return {
+        topicName: topic?.name ?? entry.segment.topicSlug,
+        topicSlug: entry.segment.topicSlug,
+        startedAt: entry.segment.startedAt,
+        messages: entry.messages.map((message) => ({
+          role: message.role,
+          content: typeof message.content === 'string' ? message.content : '',
+        })),
+      };
+    });
+    const message = buildTopicDiaryMessage(new Date(), transcripts);
     const before = memory.diary().signature;
-    const message = buildDiaryTaskMessage(new Date());
     await runHeadlessTurn({
-      sessionId,
+      sessionId: store.id,
       kind: 'diary',
       message,
       prompt: message,
       skipped: 'skipped the diary turn: no model is configured',
       rearmIdle: false,
     });
+    store.store.markDiaryWritten(pending.map((entry) => entry.segment.id));
     const after = memory.diary().signature;
     if (after === before) {
       options.logger?.('the diary turn finished without appending anything');
     }
   }
-
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(config.port, config.host, () => resolve());
@@ -1072,7 +1078,6 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     memory,
     diaryIdle,
     runs,
-    scheduler,
     async close(): Promise<void> {
       diaryIdle.cancelAll();
       runs.cancelAll('shutdown');

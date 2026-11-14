@@ -2,7 +2,7 @@
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveSkillsRoot } from 'kolorbot-skills';
-import { resolveKolorHome } from 'kolorbot-sessions';
+import { resolveKolorHome } from 'kolorbot-conversation';
 
 /** Fully resolved web configuration. */
 export interface WebConfig {
@@ -23,9 +23,7 @@ export interface WebConfig {
   /** Explicit fallback model; empty unless `KOLOR_API_MODEL` (or an override) is set. */
   apiModelName: string;
   apiKey: string;
-  sessionsDbPath: string;
-  /** Base URL of the standalone scheduler daemon. */
-  schedulerUrl: string;
+  conversationDbPath: string;
 }
 
 export interface WebConfigOverrides {
@@ -39,7 +37,6 @@ export interface WebConfigOverrides {
   apiUrl?: string;
   apiModelName?: string;
   apiKey?: string;
-  schedulerUrl?: string;
 }
 
 const DEFAULT_PORT = 3399;
@@ -75,11 +72,8 @@ export function resolveWebConfig(
       overrides.apiKey !== undefined
         ? overrides.apiKey
         : (nonEmpty(env.KOLOR_API_KEY) ?? nonEmpty(env.DEEPSEEK_API_KEY) ?? ''),
-    sessionsDbPath: nonEmpty(env.KOLOR_SESSIONS_DB) ?? join(home, 'sessions.db'),
-    schedulerUrl:
-      overrides.schedulerUrl ??
-      nonEmpty(env.KOLOR_SCHEDULER_URL) ??
-      'http://127.0.0.1:3400',
+    conversationDbPath: nonEmpty(env.KOLOR_CONVERSATION_DB) ?? join(home, 'conversation.db'),
+
   };
 }
 

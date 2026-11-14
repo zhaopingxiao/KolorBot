@@ -7,10 +7,10 @@ export function resolveKolorHome(env: NodeJS.ProcessEnv = process.env): string {
   return configured !== undefined && configured !== '' ? configured : join(homedir(), '.kolor');
 }
 
-/** Full path of the session database (`$KOLOR_SESSIONS_DB` or `<home>/sessions.db`). */
-export function resolveSessionsDbPath(env: NodeJS.ProcessEnv = process.env): string {
-  const configured = env.KOLOR_SESSIONS_DB?.trim();
+/** Full path of the single-conversation database (`$KOLOR_CONVERSATION_DB` or `<home>/conversation.db`). */
+export function resolveConversationDbPath(env: NodeJS.ProcessEnv = process.env): string {
+  const configured = env.KOLOR_CONVERSATION_DB?.trim();
   return configured !== undefined && configured !== ''
     ? configured
-    : join(resolveKolorHome(env), 'sessions.db');
+    : join(resolveKolorHome(env), 'conversation.db');
 }

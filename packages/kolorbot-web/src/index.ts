@@ -21,8 +21,6 @@ export type {
   ProviderStoreOptions,
   ProviderView,
 } from './providers.js';
-export { createReminderTool } from './reminder-tool.js';
-export type { CreateReminder } from './reminder-tool.js';
 export {
   MemoryStore,
   buildDiaryTaskMessage,

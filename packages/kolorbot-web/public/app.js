@@ -1,11 +1,13 @@
-/* KolorBot web client: vanilla ES module, no build step. */
+﻿/* KolorBot web client: vanilla ES module, no build step. */
 
 const $ = (selector) => document.querySelector(selector);
 
 const state = {
-  sessions: [],
+  /** Single conversation: topics, segments and messages. */
+  conversation: null,
+  currentTopic: null,
+  /** Virtual session used by the live-run/SSE code (always id `main`). */
   session: null,
-  filter: '',
   running: false,
   runningIds: new Set(),
   /** The stream this page is currently mirroring, if any. */
@@ -295,73 +297,49 @@ async function api(path, options = {}) {
 
 /* ---------------- sessions ---------------- */
 
-async function loadSessions() {
-  const data = await api('/api/sessions');
-  state.sessions = data?.sessions ?? [];
-  // Turns keep running after their client detaches, so the list (not the
-  // current page) says which sessions are busy.
-  state.runningIds = new Set(
-    state.sessions.filter((session) => session.running === true).map((session) => session.id),
-  );
-  renderSessions();
-  if (state.session !== null) syncBusy();
-}
-
-function renderSessions() {
-  const list = $('#session-list');
-  list.innerHTML = '';
-  const query = state.filter.trim().toLowerCase();
-  const items = state.sessions.filter(
-    (session) => query === '' || session.name.toLowerCase().includes(query),
-  );
-
-  for (const session of items) {
-    const button = el('button', 'session');
-    button.title = session.name;
-    if (state.runningIds.has(session.id)) {
-      button.appendChild(el('span', 'running-dot'));
-      button.title = session.name + '（正在运行）';
-    }
-    button.appendChild(el('span', 'session-name', session.name));
-    if (state.session?.id === session.id) button.classList.add('active');
-    button.addEventListener('click', () => {
-      closeDrawers();
-      void selectSession(session.id);
-    });
-    list.appendChild(button);
+/** Load the single conversation and rebuild the header. */
+async function loadConversation() {
+  const data = await api('/api/conversation');
+  state.conversation = data.conversation;
+  state.currentTopic = data.current?.topic ?? null;
+  const messages = state.conversation?.messages ?? [];
+  const last = messages[messages.length - 1];
+  state.session = {
+    id: 'main',
+    name: state.currentTopic?.name ?? '对话',
+    topic: state.currentTopic?.name ?? '',
+    messageCount: messages.length,
+    updatedAt: last?.createdAt ?? new Date().toISOString(),
+    context: [],
+  };
+  try {
+    const live = await api('/api/sessions/main');
+    state.runningIds = live.running === true ? new Set(['main']) : new Set();
+  } catch {
+    state.runningIds = new Set();
   }
-}
-
-async function selectSession(id) {
-  // Leaving a running session only stops mirroring it; the turn continues and
-  // is replayed in full when you come back.
-  if (state.live !== null && state.live.sessionId !== id) detachRun();
-  const data = await api(`/api/sessions/${id}`);
-  state.session = data.session;
   renderHeader();
   renderMessages(true);
-  renderSessions();
-  if (data.running === true) await attachLive(id);
-  else toggleRunning(false, id);
+  syncBusy();
+}
+
+// Older call sites still say "loadSessions"; there is only one conversation now.
+const loadSessions = loadConversation;
+function renderSessions() {}
+
+async function selectSession(_id) {
+  await loadConversation();
 }
 
 function newChat() {
-  if (state.live !== null) detachRun();
-  closeDrawers();
-  state.session = null;
-  state.queued = null;
-  renderHeader();
-  renderMessages(true);
-  renderSessions();
-  const input = $('#input');
-  input.value = '';
-  input.style.height = 'auto';
-  input.focus();
+  document.querySelector('#input').value = '';
+  document.querySelector('#input').focus();
 }
 
 function renderHeader() {
   const session = state.session;
-  $('#session-title').textContent = session?.name ?? '新对话';
+  const topic = state.currentTopic;
+  $('#session-title').textContent = topic?.name ?? '对话';
 
   let count = session?.messageCount ?? 0;
   if (session && state.running) {
@@ -371,14 +349,19 @@ function renderHeader() {
     );
   }
   $('#session-meta').textContent = session ? `${count} 条消息 · ${timeAgo(session.updatedAt)}` : '';
-
-  const disabled = !session || state.running;
-  for (const id of ['edit-topic', 'schedule-chat', 'reset-chat', 'delete-chat']) {
-    $(`#${id}`).disabled = disabled;
-  }
+  const pill = $('#current-topic');
+  if (pill !== null) pill.textContent = topic ? `话题 · ${topic.name}` : '';
 }
 
 /* ---------------- messages ---------------- */
+
+function topicDivider(name) {
+  const divider = el('div', 'topic-divider');
+  divider.appendChild(el('span', 'topic-divider-line'));
+  divider.appendChild(el('span', 'topic-divider-name', name));
+  divider.appendChild(el('span', 'topic-divider-line'));
+  return divider;
+}
 
 function renderMessages(forceBottom = false, note = null) {
   const container = $('#messages');
@@ -386,38 +369,51 @@ function renderMessages(forceBottom = false, note = null) {
   const previousTop = container.scrollTop;
   const previousHeight = container.scrollHeight;
   container.innerHTML = '';
-  const context = state.session?.context ?? [];
+  const view = state.conversation;
+  if (view === null) return;
 
-  const toolResults = new Map();
-  for (const message of context) {
-    if (message.role === 'tool') toolResults.set(message.toolCallId, message);
-  }
+  const topicNames = new Map(view.topics.map((topic) => [topic.slug, topic.name]));
+  const segmentTopic = new Map(view.segments.map((segment) => [segment.id, segment.topicSlug]));
 
-  let turn = null;
-  for (const message of context) {
-    if (message.role === 'user') {
-      turn = el('div', 'turn');
-      const text = stripEnvelopes(message.content ?? '');
-      if (text !== '') turn.appendChild(el('div', 'user-message', text));
-      container.appendChild(turn);
-      continue;
+  for (const [index, segment] of view.segments.entries()) {
+    const stored = view.messages.filter((message) => message.segmentId === segment.id);
+    if (stored.length === 0) continue;
+    if (index > 0) {
+      container.appendChild(topicDivider(topicNames.get(segmentTopic.get(segment.id)) ?? '话题'));
     }
-    if (message.role !== 'assistant') continue;
 
-    const text = message.content ?? '';
-    const calls = message.toolCalls ?? [];
-    if (text.trim() === '' && calls.length === 0) continue;
-    if (turn === null) {
-      turn = el('div', 'turn');
-      container.appendChild(turn);
+    const toolResults = new Map();
+    for (const entry of stored) {
+      if (entry.message.role === 'tool') toolResults.set(entry.message.toolCallId, entry.message);
     }
-    if (text.trim() !== '') {
-      const body = el('div', 'assistant-message');
-      body.innerHTML = renderMarkdown(text);
-      turn.appendChild(body);
-    }
-    for (const call of calls) {
-      appendToolCard(turn, call, toolResults.get(call.id));
+
+    let turn = null;
+    for (const entry of stored) {
+      const message = entry.message;
+      if (message.role === 'user') {
+        turn = el('div', 'turn');
+        const text = stripEnvelopes(message.content ?? '');
+        if (text !== '') turn.appendChild(el('div', 'user-message', text));
+        container.appendChild(turn);
+        continue;
+      }
+      if (message.role !== 'assistant') continue;
+
+      const text = message.content ?? '';
+      const calls = message.toolCalls ?? [];
+      if (text.trim() === '' && calls.length === 0) continue;
+      if (turn === null) {
+        turn = el('div', 'turn');
+        container.appendChild(turn);
+      }
+      if (text.trim() !== '') {
+        const body = el('div', 'assistant-message');
+        body.innerHTML = renderMarkdown(text);
+        turn.appendChild(body);
+      }
+      for (const call of calls) {
+        appendToolCard(turn, call, toolResults.get(call.id));
+      }
     }
   }
 
@@ -887,19 +883,10 @@ async function finishRun(sessionId) {
   }
 
   toggleRunning(false, sessionId);
-  await loadSessions().catch(() => {});
-  if (state.session?.id !== sessionId) return;
-
-  try {
-    const fresh = await api(`/api/sessions/${sessionId}`);
-    state.session = fresh.session;
-    renderHeader();
-    // The cancelled marker survives the rebuild; scroll position is kept when
-    // the reader was not following the bottom.
-    renderMessages(false, cancelled ? '已停止' : null);
-  } catch {
-    // Keep the live view if the session cannot be reloaded.
-  }
+  await loadConversation().catch(() => {});
+  // The cancelled marker survives the rebuild; scroll position is kept when
+  // the reader was not following the bottom.
+  renderMessages(false, cancelled ? '已停止' : null);
   await flushQueuedMessage();
 }
 
@@ -946,7 +933,7 @@ async function sendMessage() {
   // A turn is already running: queue this text instead of leaving it in the
   // box (pressing Enter again would accumulate the old text into the next send).
   if (state.running) {
-    state.queued = { sessionId: state.session?.id ?? null, text };
+    state.queued = { sessionId: 'main', text };
     input.value = '';
     input.style.height = 'auto';
     toast('已排队：当前这一轮结束后自动发送');
@@ -957,16 +944,7 @@ async function sendMessage() {
   input.style.height = 'auto';
 
   try {
-    if (state.session === null) {
-      const name = text.split('\n')[0].slice(0, 32) || '新对话';
-      const created = await api('/api/sessions', {
-        method: 'POST',
-        body: JSON.stringify({ name }),
-      });
-      state.session = created.session;
-      renderHeader();
-      await loadSessions();
-    }
+    if (state.session === null) await loadConversation();
 
     const session = state.session;
     if (session === null) return;
@@ -977,7 +955,7 @@ async function sendMessage() {
         method: 'POST',
         headers: { 'content-type': 'application/json' },
         signal,
-        body: JSON.stringify({ sessionId: session.id, text }),
+        body: JSON.stringify({ text }),
       }),
     );
     if (completed) await finishRun(session.id);
@@ -1670,7 +1648,6 @@ function wireDialogs() {
 
 function wire() {
   $('#toggle-sidebar').addEventListener('click', () => toggleDrawer('left'));
-  $('#toggle-actions').addEventListener('click', () => toggleDrawer('right'));
   $('#drawer-backdrop').addEventListener('click', closeDrawers);
   document.addEventListener('keydown', (event) => {
     if (event.key === 'Escape') closeDrawers();
@@ -1678,14 +1655,6 @@ function wire() {
   const desktop = window.matchMedia('(min-width: 901px)');
   desktop.addEventListener('change', (event) => {
     if (event.matches) closeDrawers();
-  });
-
-  $('#new-chat').addEventListener('click', newChat);
-
-  const search = $('#session-filter');
-  search.addEventListener('input', () => {
-    state.filter = search.value;
-    renderSessions();
   });
 
   $('#send').addEventListener('click', () => void sendMessage());
@@ -1703,42 +1672,7 @@ function wire() {
     }
   });
 
-  $('#edit-topic').addEventListener('click', openTopic);
-  $('#topic-save').addEventListener('click', () => void saveTopic($('#topic-input').value));
-  $('#topic-clear').addEventListener('click', () => void saveTopic(''));
-
-  $('#schedule-chat').addEventListener('click', openSchedule);
-  $('#task-type').addEventListener('change', updateScheduleFields);
-  $('#task-add').addEventListener('click', () => void addTask());
-  $('#task-add-time').addEventListener('click', () => addScheduleNode('time'));
-  $('#task-add-day').addEventListener('click', () => addScheduleNode('day'));
-  $('#task-add-minute').addEventListener('click', () => addScheduleNode('minute'));
-
-  $('#reset-chat').addEventListener('click', async () => {
-    if (!state.session) return;
-    closeDrawers();
-    if (!confirm('重置会清空这个对话的上下文，主题和定时任务保留。')) return;
-    await api(`/api/sessions/${state.session.id}/reset`, { method: 'POST' });
-    await selectSession(state.session.id);
-    await loadSessions();
-    toast('已重置');
-  });
-
-  $('#delete-chat').addEventListener('click', async () => {
-    if (!state.session) return;
-    closeDrawers();
-    if (!confirm(`删除「${state.session.name}」？`)) return;
-    await api(`/api/sessions/${state.session.id}`, { method: 'DELETE' });
-    state.session = null;
-    renderHeader();
-    renderMessages();
-    await loadSessions();
-    newChat();
-    toast('对话已删除');
-  });
-
   $('#open-skills').addEventListener('click', openSkills);
-
   $('#open-models').addEventListener('click', openModels);
   $('#open-memory').addEventListener('click', openMemory);
   $('#diary-auto').addEventListener('change', (event) =>
@@ -1753,23 +1687,9 @@ function wire() {
 
   setInterval(async () => {
     try {
-      await loadSessions();
-      if (state.session === null) return;
-      const sessionId = state.session.id;
-      // A turn that started elsewhere (scheduled task, another tab) is worth
-      // joining: the replay rebuilds the whole thing, not just the tail.
-      if (state.live === null && state.runningIds.has(sessionId)) {
-        await attachLive(sessionId);
-        return;
-      }
-      if (state.live !== null) return;
-      const summary = state.sessions.find((session) => session.id === sessionId);
-      if (summary && summary.messageCount !== state.session.messageCount) {
-        await selectSession(sessionId);
-      } else if (summary) {
-        state.session.messageCount = summary.messageCount;
-        state.session.updatedAt = summary.updatedAt;
-        renderHeader();
+      await loadConversation();
+      if (state.live === null && state.runningIds.has('main')) {
+        await attachLive('main');
       }
     } catch {
       // Polling is best-effort.
@@ -1780,12 +1700,8 @@ function wire() {
 async function init() {
   wire();
   await loadProviders();
-  await loadSessions();
-  if (state.sessions.length > 0) {
-    await selectSession(state.sessions[0].id);
-  } else {
-    newChat();
-  }
+  await loadConversation();
+  if (state.runningIds.has('main')) await attachLive('main');
 }
 
 void init();

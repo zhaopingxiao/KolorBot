@@ -1,8 +1,9 @@
-import { createServer, type ServerResponse } from 'node:http';
+﻿import { createServer, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 export interface MockModelContext {
   index: number;
+  messages: Array<{ role: string; content: unknown }>;
   res: ServerResponse;
   send(value: unknown): void;
   fin(): void;
@@ -36,6 +37,7 @@ export async function startMockModelServer(
     let done = false;
     const context: MockModelContext = {
       index,
+      messages: body.messages ?? [],
       res: response,
       send(value) {
         if (!done) response.write(`data: ${JSON.stringify(value)}\n\n`);

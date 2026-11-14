@@ -1613,3 +1613,10 @@ button:focus-visible {
     text-align: center;
   }
 }
+
+/* Single conversation: topic dividers and header pill */
+.sidebar-spacer { flex: 1 1 auto; }
+.topic-pill { font-size: 12px; color: #64748b; background: #f1f5f9; border-radius: 999px; padding: 4px 10px; white-space: nowrap; }
+.topic-divider { display: flex; align-items: center; gap: 12px; margin: 30px 0 12px; color: #94a3b8; }
+.topic-divider-line { flex: 1 1 auto; height: 1px; background: #e5e7eb; }
+.topic-divider-name { font-size: 12px; letter-spacing: .3px; white-space: nowrap; }

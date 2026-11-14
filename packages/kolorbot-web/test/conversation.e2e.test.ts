@@ -1,0 +1,408 @@
+﻿import assert from 'node:assert/strict';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
+import type { AddressInfo } from 'node:net';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import test, { type TestContext } from 'node:test';
+import { diaryDateKey } from 'kolorbot-memory';
+import { createKolorWebServer, type KolorWebServer } from '../src/server.js';
+import { finish, readSse, textDelta } from './helpers/mock-model.js';
+
+interface ModelServer {
+  url: string;
+  close(): Promise<void>;
+}
+
+interface ChatMessage {
+  role: string;
+  content: unknown;
+}
+
+/** A model that answers topic-classification JSON and normal chat SSE. */
+async function startModel(
+  reply: (text: string) => string = (text) => `回复：${text.slice(-30)}`,
+): Promise<ModelServer> {
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk as Buffer));
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+      messages?: ChatMessage[];
+    };
+    const messages = body.messages ?? [];
+    const system = String(messages.find((message) => message.role === 'system')?.content ?? '');
+    const user = String(
+      [...messages].reverse().find((message) => message.role === 'user')?.content ?? '',
+    );
+
+    if (system.includes('route a single conversation into topics')) {
+      const newMessage = user.slice(user.lastIndexOf('New user message:'));
+      let decision: Record<string, string> = { action: 'continue' };
+      if (newMessage.includes('remotion')) {
+        decision = { action: 'new', name: '工作区 Remotion 环境', slug: 'remotion' };
+      } else if (newMessage.includes('workspace')) {
+        decision = { action: 'new', name: 'Deepseek Workspace', slug: 'deepseek-workspace' };
+      }
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ choices: [{ message: { content: JSON.stringify(decision) } }] }));
+      return;
+    }
+
+    response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+    const send = (value: unknown): void => {
+      response.write(`data: ${JSON.stringify(value)}\n\n`);
+    };
+    send(textDelta(reply(user)));
+    for (const frame of finish('stop')) send(frame);
+    response.write('data: [DONE]\n\n');
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  return {
+    url: `http://127.0.0.1:${port}/v1`,
+    close: async () => {
+      server.closeAllConnections();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
+}
+
+async function tempApp(
+  t: TestContext,
+  apiUrl: string,
+  overrides: Record<string, unknown> = {},
+): Promise<{ app: KolorWebServer; home: string; frameRoot: string }> {
+  const home = mkdtempSync(join(tmpdir(), 'kolorbot-web-topic-'));
+  const frameRoot = join(home, 'workspace');
+  mkdirSync(join(frameRoot, 'daily'), { recursive: true });
+  mkdirSync(join(frameRoot, 'topic'), { recursive: true });
+  writeFileSync(join(frameRoot, 'AI.md'), '# 测试 AI\n\n温柔、直接。\n', 'utf8');
+  const app = await createKolorWebServer({
+    home,
+    frameRoot,
+    skillsDir: join(home, 'skills'),
+    builtinSkillsDir: join(home, 'builtin-skills'),
+    port: 0,
+    host: '127.0.0.1',
+    apiUrl,
+    apiModelName: 'test-model',
+    apiKey: 'sk-test',
+    ...overrides,
+  });
+  t.after(async () => {
+    await app.close();
+    rmSync(home, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  });
+  return { app, home, frameRoot };
+}
+
+async function postChat(app: KolorWebServer, text: string): Promise<unknown[]> {
+  const response = await fetch(`${app.url}/api/chat`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ text }),
+  });
+  assert.equal(response.status, 200);
+  return readSse(response);
+}
+
+async function conversation(app: KolorWebServer): Promise<{
+  topics: Array<{ slug: string; name: string }>;
+  segments: Array<{ id: string }>;
+  messages: Array<{
+    segmentId: string;
+    role: string;
+    message: { role: string; content: unknown; toolCalls?: unknown[] };
+  }>;
+}> {
+  const data = (await (await fetch(`${app.url}/api/conversation`)).json()) as {
+    conversation: {
+      topics: Array<{ slug: string; name: string }>;
+      segments: Array<{ id: string }>;
+      messages: Array<{
+        segmentId: string;
+        role: string;
+        message: { role: string; content: unknown; toolCalls?: unknown[] };
+      }>;
+    };
+  };
+  return data.conversation;
+}
+
+test('serves the UI, config and the single-conversation endpoint', async (t) => {
+  const model = await startModel();
+  t.after(() => model.close());
+  const { app } = await tempApp(t, model.url);
+
+  const html = await fetch(`${app.url}/`);
+  assert.equal(html.status, 200);
+  assert.match(await html.text(), /KolorBot/);
+
+  const config = (await (await fetch(`${app.url}/api/config`)).json()) as {
+    version: string;
+    conversationDbPath: string;
+  };
+  assert.equal(config.version, '0.4.0');
+  assert.ok(config.conversationDbPath.endsWith('conversation.db'));
+
+  const view = await conversation(app);
+  assert.deepEqual(view.messages, []);
+});
+
+test('switches topics, injects topic memory and the previous 10 messages', async (t) => {
+  const model = await startModel();
+  t.after(() => model.close());
+  const { app, frameRoot } = await tempApp(t, model.url);
+
+  const today = diaryDateKey(new Date());
+  writeFileSync(
+    join(frameRoot, 'daily', `${today}.md`),
+    `# ${today}\n\n## 工作区 Remotion 环境\n\n### 09:00\n\n上次在改 remotion 项目。\n`,
+    'utf8',
+  );
+  writeFileSync(
+    join(frameRoot, 'topic', 'remotion.md'),
+    '# 工作区 Remotion 环境\n\n- 项目在 workspace/remotion-project\n',
+    'utf8',
+  );
+
+  await postChat(app, '继续 remotion 项目');
+  let view = await conversation(app);
+  assert.deepEqual(
+    view.topics.map((topic) => topic.slug),
+    ['remotion'],
+  );
+  assert.equal(view.segments.length, 1);
+  const firstUser = view.messages.find((entry) => entry.role === 'user');
+  const firstContent = String(firstUser?.message.content);
+  assert.match(firstContent, /<system-memory>/);
+  assert.match(firstContent, /测试 AI/);
+  assert.match(firstContent, /workspace\/remotion-project/);
+  assert.match(firstContent, /上次在改 remotion 项目/);
+  assert.equal(firstContent.includes('<system-last-message>'), false);
+
+  await postChat(app, '随便聊聊');
+  view = await conversation(app);
+  const continued = view.messages.filter((entry) => entry.role === 'user').at(-1);
+  assert.equal(String(continued?.message.content).includes('<system-memory>'), false);
+
+  await postChat(app, 'workspace 项目呢');
+  view = await conversation(app);
+  assert.deepEqual(
+    view.topics.map((topic) => topic.slug),
+    ['remotion', 'deepseek-workspace'],
+  );
+  assert.equal(view.segments.length, 2);
+  const switched = view.messages.filter((entry) => entry.role === 'user').at(-1);
+  const switchedContent = String(switched?.message.content);
+  assert.match(switchedContent, /<system-memory>/);
+  assert.match(switchedContent, /<system-last-message>/);
+  assert.match(switchedContent, /继续 remotion 项目/);
+  assert.match(switchedContent, /随便聊聊/);
+});
+
+test('runs a normal chat turn and persists tool calls in the conversation', async (t) => {
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk as Buffer));
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+      messages?: ChatMessage[];
+    };
+    const messages = body.messages ?? [];
+    const system = String(messages.find((message) => message.role === 'system')?.content ?? '');
+    if (system.includes('route a single conversation into topics')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({ choices: [{ message: { content: '{"action":"continue"}' } }] }),
+      );
+      return;
+    }
+    const hasTool = messages.some((message) => message.role === 'tool');
+    response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+    const send = (value: unknown): void => {
+      response.write(`data: ${JSON.stringify(value)}\n\n`);
+    };
+    if (!hasTool) {
+      send({
+        choices: [
+          {
+            index: 0,
+            delta: {
+              tool_calls: [
+                {
+                  index: 0,
+                  id: 'call_write',
+                  type: 'function',
+                  function: { name: 'write_file', arguments: '{"path":"hello.txt","content":"hi"}' },
+                },
+              ],
+            },
+            finish_reason: null,
+          },
+        ],
+      });
+      for (const frame of finish('tool_calls')) send(frame);
+    } else {
+      send(textDelta('文件写好了'));
+      for (const frame of finish('stop')) send(frame);
+    }
+    response.write('data: [DONE]\n\n');
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const { app, frameRoot } = await tempApp(t, `http://127.0.0.1:${port}/v1`);
+  await postChat(app, '写个文件');
+  assert.equal(readFileSync(join(frameRoot, 'hello.txt'), 'utf8'), 'hi');
+  const view = await conversation(app);
+  assert.ok(view.messages.some((entry) => entry.role === 'tool'));
+  const assistant = view.messages.filter((entry) => entry.role === 'assistant').at(-1);
+  assert.equal(assistant?.message.content, '文件写好了');
+});
+
+test('exposes AI.md and today diary through /api/memory', async (t) => {
+  const model = await startModel();
+  t.after(() => model.close());
+  const { app, frameRoot } = await tempApp(t, model.url);
+  const today = diaryDateKey(new Date());
+  writeFileSync(
+    join(frameRoot, 'daily', `${today}.md`),
+    `# ${today}\n\n## 工作区 Remotion 环境\n\n### 09:00\n\n日记内容。\n`,
+    'utf8',
+  );
+
+  const data = (await (await fetch(`${app.url}/api/memory`)).json()) as {
+    self: { content: string };
+    today: { content: string };
+  };
+  assert.match(data.self.content, /测试 AI/);
+  assert.match(data.today.content, /日记内容/);
+});
+
+test('the idle diary writes a topic section and creates the topic file', async (t) => {
+  const today = diaryDateKey(new Date());
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk as Buffer));
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+      messages?: ChatMessage[];
+    };
+    const messages = body.messages ?? [];
+    const system = String(messages.find((message) => message.role === 'system')?.content ?? '');
+    const lastUser = String(
+      [...messages].reverse().find((message) => message.role === 'user')?.content ?? '',
+    );
+
+    if (system.includes('route a single conversation into topics')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: 'new',
+                  name: '工作区 Remotion 环境',
+                  slug: 'remotion',
+                }),
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+
+    response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+    const send = (value: unknown): void => {
+      response.write(`data: ${JSON.stringify(value)}\n\n`);
+    };
+    if (lastUser.includes("Update today's diary")) {
+      const hasTool = messages.some((message) => message.role === 'tool');
+      if (!hasTool) {
+        send({
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_daily',
+                    type: 'function',
+                    function: {
+                      name: 'write_file',
+                      arguments: JSON.stringify({
+                        path: `daily/${today}.md`,
+                        content: `# ${today}\n\n## 工作区 Remotion 环境\n\n### 10:00\n\n把 remotion 的时间轴改好了。\n`,
+                      }),
+                    },
+                  },
+                  {
+                    index: 1,
+                    id: 'call_topic',
+                    type: 'function',
+                    function: {
+                      name: 'write_file',
+                      arguments: JSON.stringify({
+                        path: 'topic/remotion.md',
+                        content: '# 工作区 Remotion 环境\n\n- 时间轴已改好\n',
+                      }),
+                    },
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        });
+        for (const frame of finish('tool_calls')) send(frame);
+      } else {
+        send(textDelta('日记已写。'));
+        for (const frame of finish('stop')) send(frame);
+      }
+    } else {
+      send(textDelta('记下了。'));
+      for (const frame of finish('stop')) send(frame);
+    }
+    response.write('data: [DONE]\n\n');
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const { app, frameRoot } = await tempApp(t, `http://127.0.0.1:${port}/v1`, {
+    diaryIdleMs: 40,
+  });
+  await fetch(`${app.url}/api/memory`, {
+    method: 'PUT',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ diary: { autoAppend: true } }),
+  });
+
+  await postChat(app, 'remotion 的时间轴改好了');
+  const dailyPath = join(frameRoot, 'daily', `${today}.md`);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      if (readFileSync(dailyPath, 'utf8').includes('把 remotion 的时间轴改好了')) break;
+    } catch {
+      // the diary turn may still be running
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+  const daily = readFileSync(dailyPath, 'utf8');
+  assert.match(daily, new RegExp(`^# ${today}`, 'm'));
+  assert.match(daily, /^## 工作区 Remotion 环境/m);
+  assert.match(daily, /^### 10:00/m);
+  assert.match(readFileSync(join(frameRoot, 'topic', 'remotion.md'), 'utf8'), /时间轴已改好/);
+});

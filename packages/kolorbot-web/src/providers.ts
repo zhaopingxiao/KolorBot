@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto';
+﻿import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { KolorStateError, toChatCompletionsUrl } from 'kolorbot-agent-loop';
-import { resolveKolorHome } from 'kolorbot-sessions';
+import { resolveKolorHome } from 'kolorbot-conversation';
 
 /** One OpenAI-compatible provider stored on disk. */
 export interface ProviderRecord {

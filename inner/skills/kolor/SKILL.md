@@ -113,58 +113,41 @@ process.stdin.on('data', (chunk) => {
 });
 ```
 
-## 4. 日记（daily memory）
+## 4. 单对话、话题与日记
 
-- **位置**：`<workspace>/daily/YYYY-MM-DD.md`，本地日期，一天一个 Markdown 文件；workspace 默认 `~/.kolor/workspace`，可用 `KOLOR_FRAME_ROOT` 改。
-- **文件格式**：
+KolorBot 只有一条对话。每条普通用户消息都会先判定话题；切换话题时 UI 插入分割线，模型上下文只保留当前话题片段（segment）。
+
+- **话题**：短名字 + ascii slug + `workspace/topic/<slug>.md`；不允许别名，保存到 `~/.kolor/conversation.db`。
+- **上下文**：切换话题（包括切回旧话题）从空上下文开始；旧信息靠话题文件和日记片段带回。
+- **注入**：新话题第一条带 `<system-memory>`（AI.md + 话题文件 + 该话题最新日记片段）和 `<system-last-message>`（上一话题最后 10 条 user/assistant 文本）。同一话题内只有 AI.md 变化才重发记忆。
+- **日记位置**：`<workspace>/daily/YYYY-MM-DD.md`，用 `list_files` / `read_file` / `write_file` 读写。
+- **日记格式**：
 
 ```markdown
-# 2026-11-09
+# 2026-11-14
 
-## Previous Topic
+## 工作区 Remotion 环境
 
-- 上一篇日记在做什么、停在哪
+### 19:21
 
-## 20:15
+...
 
-- 这次对话的进展、决定、结论、待办
+### 21:00
+
+...
+
+## Deepseek Workspace
+
+### 20:37
+
+...
 ```
 
-- **首条规则**：当天文件不存在或为空时，如果 `daily/` 里还有更早的日记，必须先 `list_files daily/`、`read_file` 最近一篇更早的日记，概括 2-4 条写进 `## Previous Topic`，再写 `## HH:mm` 正文；没有更早日记时可以直接从 `## HH:mm` 开始。同一天后续整理只追加新的 `## HH:mm`，不再写第二个 `## Previous Topic`。
-- **写日记用什么工具**：内置文件工具 `list_files` / `read_file` / `write_file`。第一次写当天文件用 `write_file` 覆盖整个文件；后续追加用 `write_file` 加 `append: true`，只写新的 `## HH:mm` 块。**没有 `append_diary` 工具**，不要调用它。
-- **自动触发**：一次对话结束后开始计时，10 分钟没有新用户消息就为该会话跑一轮后台日记（Web 进程内的无 SSE 轮次，打开会话可看实时进度）。新用户消息会重置计时；重置/删除会话会取消；日记轮次本身不再计时。
-- **手动触发**：发送固定命令 `/update-daily-memory`（大小写不敏感、必须整条消息），服务端换成和自动触发完全相同的消息。
-- **触发消息只有一行**（服务端不再注入完整提示词，规则只放在本技能里）：
-
-```text
-It's <本地时间>. Update today's diary. Use the built-in kolor skill (skills("kolor")) for the diary rules and file format.
-```
-
-- **整理日记的完整规则**（自动/手动触发后按这里执行）：
-
-```text
-整理今天（本地日期）的日记：
-1. 回顾这次对话自上一篇日记以来的进展、决定、结论和待办。
-2. 日记是 workspace 里的 daily/YYYY-MM-DD.md（今天的本地日期），直接用 list_files / read_file / write_file。
-3. 文件格式：
-   # YYYY-MM-DD
-
-   ## Previous Topic
-
-   - 2-4 条概括最近一篇更早的日记
-
-   ## HH:mm
-
-   - 这次对话的要点
-4. 当天第一条（今天文件不存在或为空）且 daily/ 里有更早的日记：先 list daily/、read 最近一篇，把概括写进 `## Previous Topic`（这种情况必需），再用 write_file 写整份文件。只有 daily/ 里没有任何更早日记时，首条才可以直接从 `## HH:mm` 开始。
-5. 当天后续整理：用 write_file + `append: true` 只追加新的 `## HH:mm` 块，绝不再写第二个 `## Previous Topic`。
-6. 只记录有信息量的内容，用对话语言写短条目，不重复日记里已有的内容。
-7. 没有新内容就不要写文件，直接回复 "No new content."。
-8. 写完后用一句话回复。
-```
-
-- **注入**：和设定共用 `<system-memory>` 块；每条新消息前如果 AI.md 或当天日记非空，就把整个块发给模型（AI.md 在前，日记在后）。任一文件变化都会整块重发，没变化不重复发送，重置会话后重新发送。
-- 开关在「记忆」面板（`~/.kolor/memory.json` 的 `diary.autoAppend`），默认关闭自动整理。
+- **排序**：一天里每个话题只有一个 `##` 块，按话题**第一次出现**的顺序排列；同一话题后续内容追加到同一块下（块内时间递增，整篇不保证严格全局时间）。
+- **话题文件**：每个话题第一次写进日记时，同时创建/更新 `workspace/topic/<slug>.md`，写关键信息（事实、决定、状态、待办、相关路径）；之后出现关键变化时主动用 `write_file` 更新，不写流水账。
+- **日记片段查找**（服务端注入时）：今天有该话题 → 用今天；否则往前找最近一天；再不行用该话题最早一次。
+- **自动触发**：一轮对话结束后静默 10 分钟，整理上次日记之后产生的所有话题片段；`/update-daily-memory` 可立即整理。日记轮次本身不再计时，也没有定时任务功能。
+- **没有新内容**时回复 `No new content.`，不要写空小节。
 
 ## 5. 设定（AI.md）
 
@@ -188,21 +171,21 @@ It's <本地时间>. Update today's diary. Use the built-in kolor skill (skills(
   - `/self-md-update`：根据这次对话创建或更新 AI.md；
   - `/self-md-tell 你是一个温柔的 AI…`：根据后面的信息创建或更新 AI.md；命令后没写内容会被拒绝。
 - 写 AI.md 用 `write_file`（覆盖整个文件），需要时先 `read_file` 读旧内容再合并。
-- **注入**：每条新消息前，`<system-memory>` 里先放 AI.md（`## AI self (AI.md)`），再放当天日记（`## Daily memory`）；AI.md 或日记任一变化，整个 `<system-memory>` 重新发送一次。
+- **注入**：新话题第一条的 `<system-memory>` 里先放 AI.md（`## AI self (AI.md)`），再放话题文件和该话题最新日记片段；同一话题内只有 AI.md 变化才重发。
 
 ## 6. 框架速览
 
-- 包：`kolorbot-agent-loop`（主循环/模型客户端/MCP）、`kolorbot-sessions`（SQLite 会话存储/主题/定时任务）、`kolorbot-skills`（技能发现/注入）、`kolorbot-agent-loop`（本地工具：文件/bash/skills）、`kolorbot-web`（HTTP/SSE/调度器/提供商/前端）。
+- 包：`kolorbot-agent-loop`（主循环/模型客户端/MCP + 本地工具）、`kolorbot-conversation`（topics/segments/messages）、`kolorbot-skills`（技能发现/注入）、`kolorbot-memory`（AI.md/话题文件/日记/注入）、`kolorbot-web`（HTTP/SSE/话题判定/提供商/前端/CLI）。
 - 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image`；`read_image` 会把本地图片附给支持视觉的模型（例如 `deepseek-flash`；文本模型只拿到格式/尺寸元数据）。
-- 会话与 turn：`RunBroker` 让 turn 活在服务端，断线可回放；日记也走它。定时任务是独立守护进程 `kolorbot-scheduler`，不跟随 Web 启动。
+- 对话与 turn：`RunBroker` 让 turn 活在服务端，断线可回放；日记也走它。
 - 模型提供商：`~/.kolor/providers.json`，OpenAI Chat Completions 协议；没有内置默认模型。
-- 常用 HTTP API：`/api/sessions`、`/api/chat`（SSE）、`/api/chat/cancel`、`/api/skills`、`/api/mcp`、`/api/mcp/:name/restart`、`/api/memory`、`/api/providers`、`/api/config`。
-- 运行：`run web`（只有 Web）/ `run scheduler`（只有定时任务）/ `run gateway`（两个都启动）；或者 `npm run web`、`npm run scheduler`、`npm run gateway`；测试 `pnpm test`。
-- 数据目录：`~/.kolor`（`sessions.db`、`providers.json`、`memory.json`、`workspace/`），可用 `KOLOR_HOME` 改。
+- 常用 HTTP API：`/api/conversation`、`/api/chat`（SSE，body `{text}`）、`/api/chat/cancel`、`/api/skills`、`/api/mcp`、`/api/mcp/:name/restart`、`/api/memory`、`/api/providers`、`/api/config`。
+- 运行：`run web`（或 `npm run web`）；测试 `pnpm test`。
+- 数据目录：`~/.kolor`（`conversation.db`、`providers.json`、`memory.json`、`workspace/`），可用 `KOLOR_HOME` 改。
 - 包名是 `kolorbot-*`；`~/.kolor`、`KOLOR_*`、`kolor.json` 和技能 `kolor` 保留旧名，是兼容约束，不要重命名。
 
 ## 7. 注意
 
-- 改技能/`kolor.json` 不需要重启，下一轮对话生效；改 `packages/*` 源码后重启 `kolorbot-web`（或 `run scheduler` / `run gateway`）。
+- 改技能/`kolor.json` 不需要重启，下一轮对话生效；改 `packages/*` 源码后重启 `kolorbot-web`。
 - `write_file` / `read_file` 只能碰 workspace 和技能目录；`bash` 不沙箱。
 - 技能正文不要写密钥；密钥通过 `kolor.json` 的 `${VAR}` 从环境变量注入。

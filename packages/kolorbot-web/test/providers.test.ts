@@ -353,16 +353,11 @@ test('chats with the selected provider model instead of the environment default'
     body: JSON.stringify({ providerId, model: 'mock-b' }),
   });
 
-  const session = await call(app, '/api/sessions', {
-    method: 'POST',
-    body: JSON.stringify({ name: 'Provider chat' }),
-  });
-  const sessionId = (session.data?.session as { id: string }).id;
 
   const response = await fetch(`${app.url}/api/chat`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ sessionId, text: 'hello provider' }),
+    body: JSON.stringify({ text: 'hello provider' }),
   });
   assert.equal(response.status, 200);
   const events = (await readSse(response)) as Array<{ type: string; [key: string]: unknown }>;
@@ -373,9 +368,10 @@ test('chats with the selected provider model instead of the environment default'
   assert.equal(ready?.model.id, 'mock-b');
   assert.equal(ready?.model.label, 'Mock · mock-b');
 
-  assert.equal(provider.chatCalls.length, 1);
-  assert.equal(provider.chatCalls[0]?.model, 'mock-b');
-  const lastMessage = provider.chatCalls[0]?.messages.at(-1);
+  const chatCall = provider.chatCalls.at(-1);
+  assert.ok(chatCall);
+  assert.equal(chatCall?.model, 'mock-b');
+  const lastMessage = chatCall?.messages.at(-1);
   assert.equal(lastMessage?.content, 'hello provider');
   assert.ok(events.some((event) => event.type === 'text/delta'));
   assert.equal(events.at(-1)?.type, 'session/saved');
@@ -400,14 +396,9 @@ test('refuses to chat when no provider or environment key is configured', async 
   assert.equal(config.data?.hasModel, false);
   assert.equal((config.data?.activeModel as { source: string }).source, 'none');
 
-  const session = await call(app, '/api/sessions', {
-    method: 'POST',
-    body: JSON.stringify({ name: 'No model' }),
-  });
-  const sessionId = (session.data?.session as { id: string }).id;
   const response = await call(app, '/api/chat', {
     method: 'POST',
-    body: JSON.stringify({ sessionId, text: 'hi' }),
+    body: JSON.stringify({ text: 'hi' }),
   });
   assert.equal(response.status, 400);
   assert.match(String(response.data?.error), /DEEPSEEK_API_KEY/);
@@ -442,14 +433,9 @@ test('a key alone is no longer a default model', async (t) => {
   assert.equal(defaults.hasDefault, false);
   assert.equal(defaults.apiModelName, '');
 
-  const session = await call(app, '/api/sessions', {
-    method: 'POST',
-    body: JSON.stringify({ name: 'Key only' }),
-  });
-  const sessionId = (session.data?.session as { id: string }).id;
   const response = await call(app, '/api/chat', {
     method: 'POST',
-    body: JSON.stringify({ sessionId, text: 'hi' }),
+    body: JSON.stringify({ text: 'hi' }),
   });
   assert.equal(response.status, 400);
   assert.match(String(response.data?.error), /add a provider/);

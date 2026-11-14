@@ -32,42 +32,20 @@ importers:
         specifier: ^5.9.3
         version: 5.9.3
 
+  packages/kolorbot-conversation:
+    dependencies:
+      kolorbot-agent-loop:
+        specifier: workspace:*
+        version: link:../kolorbot-agent-loop
+    devDependencies:
+      '@types/node':
+        specifier: ^24.19.2
+        version: 24.19.2
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+
   packages/kolorbot-memory:
-    dependencies:
-      kolorbot-agent-loop:
-        specifier: workspace:*
-        version: link:../kolorbot-agent-loop
-      kolorbot-sessions:
-        specifier: workspace:*
-        version: link:../kolorbot-sessions
-    devDependencies:
-      '@types/node':
-        specifier: ^24.19.2
-        version: 24.19.2
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  packages/kolorbot-scheduler:
-    dependencies:
-      kolorbot-agent-loop:
-        specifier: workspace:*
-        version: link:../kolorbot-agent-loop
-      kolorbot-sessions:
-        specifier: workspace:*
-        version: link:../kolorbot-sessions
-      kolorbot-skills:
-        specifier: workspace:*
-        version: link:../kolorbot-skills
-    devDependencies:
-      '@types/node':
-        specifier: ^24.19.2
-        version: 24.19.2
-      typescript:
-        specifier: ^5.9.3
-        version: 5.9.3
-
-  packages/kolorbot-sessions:
     dependencies:
       kolorbot-agent-loop:
         specifier: workspace:*
@@ -94,15 +72,12 @@ importers:
       kolorbot-agent-loop:
         specifier: workspace:*
         version: link:../kolorbot-agent-loop
+      kolorbot-conversation:
+        specifier: workspace:*
+        version: link:../kolorbot-conversation
       kolorbot-memory:
         specifier: workspace:*
         version: link:../kolorbot-memory
-      kolorbot-scheduler:
-        specifier: workspace:*
-        version: link:../kolorbot-scheduler
-      kolorbot-sessions:
-        specifier: workspace:*
-        version: link:../kolorbot-sessions
       kolorbot-skills:
         specifier: workspace:*
         version: link:../kolorbot-skills

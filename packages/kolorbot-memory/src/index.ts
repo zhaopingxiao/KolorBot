@@ -1,6 +1,7 @@
 ﻿export {
   MemoryStore,
   buildDiaryTaskMessage,
+  buildTopicDiaryMessage,
   buildSelfTellMessage,
   buildSelfUpdateMessage,
   diaryDateKey,
@@ -11,9 +12,18 @@
   isDiaryCommand,
   isSelfUpdateCommand,
   memorySignature,
+  personaSignature,
+  formatTopicMemoryBlock,
+  formatLastMessageBlock,
+  findLatestDiarySection,
+  parseDiarySections,
+  readTopicMemory,
+  topicMemoryPath,
   selfTellInfo,
 } from './memory.js';
 export type {
+  TopicMemoryInput,
+  DiaryTranscriptSegment,
   AppendDiaryOptions,
   AppendDiaryResult,
   DiaryRecord,

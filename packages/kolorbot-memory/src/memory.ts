@@ -9,7 +9,6 @@ import {
 } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { KolorStateError } from 'kolorbot-agent-loop';
-import { formatTimestamp } from 'kolorbot-sessions';
 
 /** Persisted memory switches; the diary is the first memory module. */
 export interface MemorySettings {
@@ -315,6 +314,132 @@ export function formatMemoryBlock(selfContent: string, diaryContent: string): st
   return sections.join('\n');
 }
 
+/** `workspace/topic/<slug>.md`. */
+export function topicMemoryPath(workspace: string, slug: string): string {
+  return join(workspace, 'topic', `${slug}.md`);
+}
+
+/** Read a topic's key-information file; empty when it does not exist yet. */
+export function readTopicMemory(workspace: string, slug: string): string {
+  const path = topicMemoryPath(workspace, slug);
+  return existsSync(path) ? readFileSync(path, 'utf8') : '';
+}
+
+/** Signature of the persona only (topic switches always resend the block). */
+export function personaSignature(content: string): string {
+  return content.trim() === '' ? '' : `v1:${createHash('sha1').update(content).digest('hex')}`;
+}
+
+export interface TopicMemoryInput {
+  persona: string;
+  topicName: string;
+  topicContent: string;
+  /** Date of the diary section used, `YYYY-MM-DD`. */
+  diaryDate?: string;
+  diaryContent?: string;
+}
+
+/** `<system-memory>` for one topic visit: persona + topic file + latest diary section. */
+export function formatTopicMemoryBlock(input: TopicMemoryInput): string {
+  const persona = input.persona.trim();
+  const topic = input.topicContent.trim();
+  const diary = input.diaryContent?.trim() ?? '';
+  if (persona === '' && topic === '' && diary === '') return '';
+  const sections: string[] = ['<system-memory>'];
+  const push = (heading: string, body: string): void => {
+    if (sections.length > 1) sections.push('');
+    sections.push(heading, '', body);
+  };
+  if (persona !== '') push('## AI self (AI.md)', clipSelf(persona));
+  if (topic !== '') push(`## Topic: ${input.topicName}`, topic);
+  if (diary !== '') {
+    push(`## Latest diary (${input.diaryDate ?? 'unknown'})`, diary);
+  }
+  sections.push('</system-memory>');
+  return sections.join('\n');
+}
+
+/** `<system-last-message>` with the previous topic's last text messages. */
+export function formatLastMessageBlock(
+  messages: ReadonlyArray<{ role: 'user' | 'assistant'; content: string }>,
+): string {
+  const lines = messages
+    .map((message) => `${message.role}: ${message.content.trim()}`)
+    .filter((line) => line !== '')
+    .join('\n');
+  return lines === '' ? '' : `<system-last-message>\n${lines}\n</system-last-message>`;
+}
+
+interface DiarySection {
+  topic: string;
+  body: string;
+}
+
+/** Split a diary file into `## Topic` sections (the `### time` blocks stay in the body). */
+export function parseDiarySections(content: string): DiarySection[] {
+  const sections: DiarySection[] = [];
+  let topic: string | undefined;
+  let body: string[] = [];
+  const flush = (): void => {
+    if (topic === undefined) return;
+    sections.push({ topic, body: body.join('\n').trim() });
+    topic = undefined;
+    body = [];
+  };
+  for (const line of content.split(/\r?\n/)) {
+    const match = /^##\s+(.+?)\s*$/.exec(line);
+    if (match !== null && !line.startsWith('###')) {
+      flush();
+      topic = match[1] as string;
+      continue;
+    }
+    if (topic !== undefined) body.push(line);
+  }
+  flush();
+  return sections;
+}
+
+/**
+ * Find the latest diary section for a topic: today, then backwards, then the
+ * earliest one ever written (the first mention).
+ */
+export function findLatestDiarySection(
+  dailyDir: string,
+  topicName: string,
+  today: Date = new Date(),
+): { date: string; content: string } | undefined {
+  if (!existsSync(dailyDir)) return undefined;
+  const wanted = topicName.trim().toLowerCase();
+  const dates = readdirSync(dailyDir)
+    .filter((name) => /^\d{4}-\d{2}-\d{2}\.md$/.test(name))
+    .sort();
+  const todayKey = diaryDateKey(today);
+  const candidates = dates.filter((name) => name.slice(0, 10) <= todayKey);
+
+  let earliest: { date: string; content: string } | undefined;
+  for (const name of dates) {
+    const date = name.slice(0, 10);
+    const parsed = parseDiarySections(readFileSync(join(dailyDir, name), 'utf8'));
+    const match = parsed.find((section) => section.topic.toLowerCase() === wanted);
+    if (match === undefined) continue;
+    const entry = { date, content: `## ${match.topic}\n\n${match.body}`.trim() };
+    if (earliest === undefined && date <= todayKey) earliest = entry;
+  }
+
+  for (let index = candidates.length - 1; index >= 0; index -= 1) {
+    const name = candidates[index] as string;
+    const parsed = parseDiarySections(readFileSync(join(dailyDir, name), 'utf8'));
+    const match = parsed.find((section) => section.topic.toLowerCase() === wanted);
+    if (match !== undefined) {
+      return {
+        date: name.slice(0, 10),
+        content: `## ${match.topic}\n\n${match.body}`.trim(),
+      };
+    }
+  }
+  return earliest;
+}
+
 /** Combined signature of AI.md + today's diary, or '' when both are empty. */
 export function memorySignature(selfContent: string, diaryContent: string): string {
   if (selfContent.trim() === '' && diaryContent.trim() === '') return '';
@@ -337,6 +462,64 @@ export function buildDiaryTaskMessage(now: Date): string {
 }
 
 /** True when the text is the manual "organize the diary now" command. */
+export interface DiaryTranscriptSegment {
+  topicName: string;
+  topicSlug: string;
+  startedAt: string;
+  messages: ReadonlyArray<{ role: string; content: string }>;
+}
+
+/**
+ * Trigger message for the topic-structured diary.
+ *
+ * The diary layout is `# date` → `## topic` (first appearance order) →
+ * `### HH:mm`; topic files live at `workspace/topic/<slug>.md` and are written
+ * with `write_file` at the same time as the first diary section.
+ */
+export function buildTopicDiaryMessage(
+  now: Date,
+  segments: readonly DiaryTranscriptSegment[],
+): string {
+  const date = diaryDateKey(now);
+  const time = diaryTimeKey(now);
+  const lines: string[] = [
+    `It's ${formatTimestamp(now)}. Update today's diary for the topics below.`,
+    '',
+    `Today's file: daily/${date}.md`,
+    '',
+  ];
+  if (segments.length === 0) {
+    lines.push('No new segment transcript is attached; use the current conversation context.');
+  } else {
+    lines.push('Transcript since the last diary (grouped by topic):');
+    for (const segment of segments) {
+      lines.push('', `## ${segment.topicName} (${segment.topicSlug})`, `### ${timeFromIso(segment.startedAt)}`);
+      for (const message of segment.messages) {
+        if (message.role !== 'user' && message.role !== 'assistant') continue;
+        const text = message.content.replace(/\s+/g, ' ').trim();
+        if (text === '') continue;
+        lines.push(`${message.role}: ${text.slice(0, 1200)}`);
+      }
+    }
+  }
+  lines.push(
+    '',
+    'Rules:',
+    `1. Read daily/${date}.md first when it exists; otherwise create it with "# ${date}".`,
+    '2. For each topic: if the file already has "## <topic name>", append a "### HH:mm" entry under it; otherwise append "## <topic name>" at the end first (first-appearance order), then "### HH:mm".',
+    '3. Keep one "## <topic name>" section per day; later updates to the same topic stay under the same section.',
+    '4. For every topic, create or update workspace/topic/<slug>.md with its key information (facts, decisions, state, next steps, related paths). Use write_file; do not write a chat transcript.',
+    '5. If there is genuinely no new content, reply "No new content." and write nothing.',
+    `6. Use local time ${time} for the new entries.`,
+  );
+  return lines.join('\n');
+}
+
+function timeFromIso(iso: string): string {
+  const date = new Date(iso);
+  return Number.isNaN(date.getTime()) ? '00:00' : diaryTimeKey(date);
+}
+
 export function isDiaryCommand(text: string): boolean {
   return text.trim().toLowerCase() === '/update-daily-memory';
 }
@@ -387,4 +570,23 @@ function pad(value: number): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+const ENGLISH_WEEKDAYS = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+];
+
+/** `2026/10/27 20:16:00 Tuesday` in the local time zone. */
+export function formatTimestamp(date: Date): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  const weekday = ENGLISH_WEEKDAYS[date.getDay()] as string;
+  return `${date.getFullYear()}/${pad(date.getMonth() + 1)}/${pad(date.getDate())} ${pad(
+    date.getHours(),
+  )}:${pad(date.getMinutes())}:${pad(date.getSeconds())} ${weekday}`;
 }

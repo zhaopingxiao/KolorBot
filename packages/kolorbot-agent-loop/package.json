@@ -1,6 +1,6 @@
 ﻿{
   "name": "kolorbot-agent-loop",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "KolorBot's agent loop: an OpenAI-compatible agent runtime with MCP tool support, modelled on the design of dsh-agent-loop.",
   "license": "MIT",
   "type": "module",

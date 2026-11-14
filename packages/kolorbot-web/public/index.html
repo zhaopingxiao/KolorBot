@@ -15,10 +15,7 @@
           <img class="brand-mark" src="/logo.png" alt="" width="22" height="22" />
           <span class="brand-name">KolorBot</span>
         </div>
-
-        <button id="new-chat" class="new-chat">新对话</button>
-        <input id="session-filter" class="search" placeholder="搜索对话" autocomplete="off" />
-        <nav id="session-list" class="sessions"></nav>
+        <div class="sidebar-spacer"></div>
 
         <div class="sidebar-footer">
           <button id="open-skills" class="link-button">技能</button>
@@ -29,22 +26,15 @@
 
       <main class="main">
         <header class="header">
-          <button id="toggle-sidebar" class="mobile-menu" aria-label="打开对话列表" aria-expanded="false">
+          <button id="toggle-sidebar" class="mobile-menu" aria-label="打开菜单" aria-expanded="false">
             <span></span><span></span><span></span>
           </button>
           <div class="heading">
-            <h1 id="session-title">新对话</h1>
+            <h1 id="session-title">对话</h1>
             <p id="session-meta"></p>
           </div>
-          <button id="toggle-actions" class="mobile-menu" aria-label="打开会话操作" aria-expanded="false">
-            <span></span><span></span><span></span>
-          </button>
           <div class="header-actions">
-            <div class="drawer-title">会话操作</div>
-            <button id="edit-topic" class="text-button" disabled>主题</button>
-            <button id="schedule-chat" class="text-button" disabled>定时</button>
-            <button id="reset-chat" class="text-button" disabled>重置</button>
-            <button id="delete-chat" class="text-button danger" disabled>删除</button>
+            <span id="current-topic" class="topic-pill"></span>
           </div>
         </header>
 
@@ -67,66 +57,6 @@
 
     <div id="drawer-backdrop" class="drawer-backdrop hidden"></div>
     <div id="toasts" class="toasts" aria-live="polite"></div>
-
-    <dialog id="topic-dialog" class="dialog">
-      <div class="dialog-head">
-        <h2>主题</h2>
-        <button class="text-button" data-close="topic-dialog">关闭</button>
-      </div>
-      <textarea id="topic-input" rows="10" spellcheck="false" placeholder="写下需要 AI 记住的项目背景…"></textarea>
-      <div class="dialog-row">
-        <button id="topic-save" class="primary-button">保存</button>
-        <button id="topic-clear" class="text-button">清除</button>
-        <span id="topic-error" class="form-error"></span>
-      </div>
-    </dialog>
-
-    <dialog id="schedule-dialog" class="dialog">
-      <div class="dialog-head">
-        <h2>定时</h2>
-        <button class="text-button" data-close="schedule-dialog">关闭</button>
-      </div>
-      <div id="task-unavailable" class="form-error hidden"></div>
-      <div id="task-list" class="list"></div>
-
-      <div class="form-block">
-        <input id="task-name" placeholder="任务名" autocomplete="off" />
-        <select id="task-type">
-          <option value="daily">每天</option>
-          <option value="weekly">每周</option>
-          <option value="monthly">每月</option>
-          <option value="hourly">每小时</option>
-        </select>
-        <div id="task-times-field" class="node-field">
-          <span class="node-label">时间</span>
-          <div id="task-times" class="node-list"></div>
-          <button id="task-add-time" class="node-add" type="button" title="添加时间">+</button>
-        </div>
-        <div id="task-weekly" class="weekdays hidden">
-          <label><input type="checkbox" value="1" checked />一</label>
-          <label><input type="checkbox" value="2" />二</label>
-          <label><input type="checkbox" value="3" />三</label>
-          <label><input type="checkbox" value="4" />四</label>
-          <label><input type="checkbox" value="5" />五</label>
-          <label><input type="checkbox" value="6" />六</label>
-          <label><input type="checkbox" value="7" />日</label>
-        </div>
-        <div id="task-days-field" class="node-field hidden">
-          <span class="node-label">每月几号</span>
-          <div id="task-days" class="node-list"></div>
-          <button id="task-add-day" class="node-add" type="button" title="添加日期">+</button>
-        </div>
-        <div id="task-minutes-field" class="node-field hidden">
-          <span class="node-label">每小时的哪一分</span>
-          <div id="task-minutes" class="node-list"></div>
-          <button id="task-add-minute" class="node-add" type="button" title="添加分钟">+</button>
-        </div>
-        <div class="dialog-row">
-          <button id="task-add" class="primary-button">添加</button>
-          <span id="task-error" class="form-error"></span>
-        </div>
-      </div>
-    </dialog>
 
     <dialog id="models-dialog" class="dialog">
       <div class="dialog-head">

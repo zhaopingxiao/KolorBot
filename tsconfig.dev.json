@@ -1,14 +1,13 @@
-﻿{
+{
   "$schema": "https://json.schemastore.org/tsconfig",
   "extends": "./tsconfig.base.json",
   "compilerOptions": {
     "baseUrl": ".",
     "paths": {
       "kolorbot-agent-loop": ["./packages/kolorbot-agent-loop/src/index.ts"],
-      "kolorbot-sessions": ["./packages/kolorbot-sessions/src/index.ts"],
+      "kolorbot-conversation": ["./packages/kolorbot-conversation/src/index.ts"],
       "kolorbot-skills": ["./packages/kolorbot-skills/src/index.ts"],
-      "kolorbot-memory": ["./packages/kolorbot-memory/src/index.ts"],
-      "kolorbot-scheduler": ["./packages/kolorbot-scheduler/src/index.ts"]
+      "kolorbot-memory": ["./packages/kolorbot-memory/src/index.ts"]
     }
   }
 }
