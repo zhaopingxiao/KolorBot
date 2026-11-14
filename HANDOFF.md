@@ -93,7 +93,7 @@ D:\code\kolorbot\
 - 任务支持每天 / 每周（多选周几）/ 每月（多个 1-31 号）/ 每小时（多个第 M 分）。
 - **多时间节点（2026-11-07 新增）**：每天 / 每周 / 每月都可以用 `+` 添加多个 `HH:mm`，每月还可以添加多个日期，每小时添加多个分钟。schedule 的规范字段是 `times: string[]` / `days: number[]` / `minutes: number[]`；旧的单值 `time` / `day` / `minute` 仍被接受并自动转成数组（老任务行不需要迁移）。多个节点是「或」关系，`matchesSchedule` 任一命中即触发，`nextRun` 取所有候选里最早的。
 - **不再是 Web 的一部分**：`TaskStore`、15 秒 ticker、`session_tasks` 表和运行逻辑全在 `kolorbot-scheduler`；Web 通过 `SchedulerClient` 走内部 HTTP（默认 `http://127.0.0.1:3400`）列表/新建/删除任务，绝不直接读写任务表。
-- **三种启动方式**：`run web`（只有 Web，任务面板显示不可用）、`run scheduler`（只有调度器，没有 Web）、`run gateway`（同一进程里同时起两个守护进程）。
+- **三种启动方式**：`run web`（只有 Web，任务面板显示不可用）、`run scheduler`（只有调度器，没有 Web）、`run gateway`（同一进程里同时起两个守护进程）。`run web` 若发现 3400 已有调度器，只连接不启动，日志明确写「外部进程」；`run gateway` 若发现已有调度器则复用，不报 EADDRINUSE。
 - 调度器自己创建 agent 跑无头轮次并把上下文写回 `sessions.db`；Web 没启动也照常触发，停机不补跑；同一任务同一分钟只触发一次；会话/任务被删时清理。
 - 调度器模型来自 `~/.kolor/providers.json` 的 active 项，环境变量回退 `KOLOR_API_URL` / `KOLOR_API_MODEL` / `KOLOR_API_KEY`（或 `DEEPSEEK_API_KEY`）；没有模型时记日志并跳过。providers.json 允许带 BOM。
 - Web 的 `/api/scheduler` 返回 `{available,url,error?}`；任务列表离线时返回 `available:false`，新建/删除返回 503，前端「定时」面板显示「调度器守护进程没有运行（用 run scheduler 启动）」。
