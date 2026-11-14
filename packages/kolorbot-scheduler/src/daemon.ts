@@ -61,7 +61,6 @@ export class SchedulerDaemon {
     });
     this.#server = server;
     this.#scheduler.start();
-    this.#options.logger?.(`scheduler listening on ${this.url}`);
   }
 
   async close(): Promise<void> {

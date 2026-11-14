@@ -58,11 +58,7 @@ async function runWeb(options: CommandOptions): Promise<void> {
 
   logWeb(app);
   const status = await app.scheduler.status();
-  console.log(
-    status.available
-      ? `scheduler  已连接 ${status.url}（外部进程，本进程没有启动它；要和 Web 一起启动请用 run gateway）`
-      : 'scheduler  未启动（定时任务不可用，用 run scheduler 启动）',
-  );
+  console.log(status.available ? `scheduler  ${status.url}` : 'scheduler  offline');
   installShutdown(async () => {
     await app.close();
   });
@@ -75,7 +71,7 @@ async function runScheduler(options: CommandOptions): Promise<void> {
     ...(options.schedulerPort === undefined ? {} : { port: options.schedulerPort }),
   });
   const { daemon, sessions, tasks } = await startScheduler(config);
-  console.log(`KolorBot scheduler  ${daemon.url}`);
+  console.log(`scheduler  ${daemon.url}`);
   installShutdown(async () => {
     await daemon.close();
     sessions.close();
@@ -103,7 +99,7 @@ async function runGateway(options: CommandOptions): Promise<void> {
       schedulerUrl: url,
     });
     logWeb(app);
-    console.log(`scheduler  复用已在运行的 ${url}（本进程没有重复启动它）`);
+    console.log(`scheduler  ${url}`);
     installShutdown(async () => {
       await app.close();
     });
