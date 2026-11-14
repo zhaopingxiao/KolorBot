@@ -1,4 +1,4 @@
-﻿import { createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -663,7 +663,7 @@ export function buildTopicDiaryMessage(
     '',
     'Rules:',
     '1. Use the exact slug from the transcript (or list_topics if unsure). write_diary rejects an unknown slug.',
-    '2. Call read_diary for the topic first when it may already have notes today, so you only add genuinely new information.',
+    `2. Call read_diary({ slug, date: "${date}" }) first when it may already have notes today, so you only add genuinely new information.`,
     '3. Pass only the new markdown body to write_diary. Never write headings, dates or times yourself.',
     '4. Never use write_file on daily/*.md. The diary tools own that file and its "## topic" / "### HH:mm" layout.',
     '5. For every topic, also keep workspace/topic/<slug>.md up to date with write_file: facts, decisions, state, next steps and related paths; no chat transcript.',
