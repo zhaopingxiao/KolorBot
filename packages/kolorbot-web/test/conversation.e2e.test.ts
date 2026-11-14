@@ -337,10 +337,10 @@ test('the idle diary writes a topic section and creates the topic file', async (
                     id: 'call_daily',
                     type: 'function',
                     function: {
-                      name: 'write_file',
+                      name: 'write_diary',
                       arguments: JSON.stringify({
-                        path: `daily/${today}.md`,
-                        content: `# ${today}\n\n## 工作区 Remotion 环境\n\n### 10:00\n\n把 remotion 的时间轴改好了。\n`,
+                        slug: 'remotion',
+                        content: '把 remotion 的时间轴改好了。',
                       }),
                     },
                   },
@@ -403,7 +403,7 @@ test('the idle diary writes a topic section and creates the topic file', async (
   const daily = readFileSync(dailyPath, 'utf8');
   assert.match(daily, new RegExp(`^# ${today}`, 'm'));
   assert.match(daily, /^## 工作区 Remotion 环境/m);
-  assert.match(daily, /^### 10:00/m);
+  assert.match(daily, /^### \d{2}:\d{2}$/m);
   assert.match(readFileSync(join(frameRoot, 'topic', 'remotion.md'), 'utf8'), /时间轴已改好/);
 });
 test('lists topics and returns a topic day with segments and diary', async (t) => {

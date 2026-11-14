@@ -413,6 +413,90 @@ export function normalizeTopicLabel(value: string): string {
     .replace(/[-_/]+$/u, '');
 }
 
+export interface AppendDiaryEntryResult {
+  date: string;
+  time: string;
+  path: string;
+  createdTopic: boolean;
+  createdTime: boolean;
+}
+
+/**
+ * Append a topic entry to one day's diary.
+ *
+ * `write_diary` only needs the slug and content: this keeps the heading layout
+ * (`## topic`, `### HH:mm`) and the first-appearance ordering in one place.
+ */
+export function appendDiaryEntry(
+  dailyDir: string,
+  date: string,
+  topicName: string,
+  content: string,
+  at: Date = new Date(),
+): AppendDiaryEntryResult {
+  const body = content.trim();
+  if (body === '') throw new Error('diary content is empty');
+  const safeName = topicName.replace(/[\r\n]+/g, ' ').trim();
+  const time = diaryTimeKey(at);
+  mkdirSync(dailyDir, { recursive: true });
+  const path = join(dailyDir, `${date}.md`);
+  const existing = existsSync(path) ? readFileSync(path, 'utf8') : '';
+  const lines = existing === '' ? [`# ${date}`, ''] : existing.split(/\r?\n/);
+  if (lines.length > 0 && !/^#\s+/.test(lines[0] ?? '')) lines.unshift(`# ${date}`, '');
+  const labels = new Map<string, number>();
+  for (let index = 0; index < lines.length; index += 1) {
+    const match = /^##\s+(.+?)\s*$/.exec(lines[index] ?? '');
+    if (match !== null) labels.set(normalizeTopicLabel(match[1] as string), index);
+  }
+  const topicIndex = labels.get(normalizeTopicLabel(safeName));
+  const contentLines = body.split(/\r?\n/);
+  const result: AppendDiaryEntryResult = {
+    date,
+    time,
+    path,
+    createdTopic: topicIndex === undefined,
+    createdTime: false,
+  };
+
+  if (topicIndex === undefined) {
+    while (lines.length > 0 && (lines[lines.length - 1] ?? '').trim() === '') lines.pop();
+    lines.push('', `## ${safeName}`, '', `### ${time}`, '', ...contentLines, '');
+    result.createdTime = true;
+  } else {
+    let sectionEnd = lines.length;
+    for (let index = topicIndex + 1; index < lines.length; index += 1) {
+      if (/^##\s+/.test(lines[index] ?? '')) {
+        sectionEnd = index;
+        break;
+      }
+    }
+    let timeIndex = -1;
+    for (let index = topicIndex + 1; index < sectionEnd; index += 1) {
+      if (new RegExp(`^###\\s+${time.replace(':', '\\:')}\\s*$`).test(lines[index] ?? '')) {
+        timeIndex = index;
+        break;
+      }
+    }
+    if (timeIndex === -1) {
+      lines.splice(sectionEnd, 0, '', `### ${time}`, '', ...contentLines, '');
+      result.createdTime = true;
+    } else {
+      let timeEnd = sectionEnd;
+      for (let index = timeIndex + 1; index < sectionEnd; index += 1) {
+        if (/^###\s+/.test(lines[index] ?? '')) {
+          timeEnd = index;
+          break;
+        }
+      }
+      let insertAt = timeEnd;
+      while (insertAt > timeIndex + 1 && (lines[insertAt - 1] ?? '').trim() === '') insertAt -= 1;
+      lines.splice(insertAt, 0, '', ...contentLines, '');
+    }
+  }
+
+  writeFileSync(path, `${lines.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd()}\n`, 'utf8');
+  return result;
+}
 /** One diary section found in a daily file. */
 export interface DiaryEntry {
   date: string;
@@ -524,17 +608,15 @@ export function memorySignature(selfContent: string, diaryContent: string): stri
 /**
  * The user message that triggers a diary turn.
  *
- * The diary rules (location, format, `## Previous Topic`, write_file/append)
- * live in the built-in `kolor` skill; the trigger only states the task and
- * points at that skill, so the full prompt is not injected every time. Manual
- * `/update-daily-memory` produces exactly the same message as the automatic
- * trigger.
+ * The model writes through the dedicated `list_topics` / `read_diary` /
+ * `write_diary` tools; manual `/update-daily-memory` produces the same
+ * trigger as the automatic idle timer.
  */
 export function buildDiaryTaskMessage(now: Date): string {
-  return `It's ${formatTimestamp(now)}. Update today's diary. Use the built-in kolor skill (skills("kolor")) for the diary rules and file format.`;
+  return `It's ${formatTimestamp(now)}. Update today's diary with list_topics, read_diary and write_diary.`;
 }
 
-/** True when the text is the manual "organize the diary now" command. */
+/** One transcript group attached to a diary turn. */
 export interface DiaryTranscriptSegment {
   topicName: string;
   topicSlug: string;
@@ -554,11 +636,13 @@ export function buildTopicDiaryMessage(
   segments: readonly DiaryTranscriptSegment[],
 ): string {
   const date = diaryDateKey(now);
-  const time = diaryTimeKey(now);
   const lines: string[] = [
     `It's ${formatTimestamp(now)}. Update today's diary for the topics below.`,
     '',
-    `Today's file: daily/${date}.md`,
+    'Use the dedicated diary tools:',
+    '- list_topics: all topic slugs, with the current topic marked.',
+    '- read_diary({ slug, date? }): without date, list the dates that have this topic; with date, read that day\'s section.',
+    '- write_diary({ slug, content }): append new content at the current local time. It creates the day file, the "## <topic>" section and the "### HH:mm" block when needed, and keeps the first-appearance order.',
     '',
   ];
   if (segments.length === 0) {
@@ -578,16 +662,16 @@ export function buildTopicDiaryMessage(
   lines.push(
     '',
     'Rules:',
-    `1. Read daily/${date}.md first when it exists; otherwise create it with "# ${date}".`,
-    '2. For each topic: if the file already has "## <topic name>", append a "### HH:mm" entry under it; otherwise append "## <topic name>" at the end first (first-appearance order), then "### HH:mm".',
-    '3. Keep one "## <topic name>" section per day; later updates to the same topic stay under the same section.',
-    '4. For every topic, create or update workspace/topic/<slug>.md with its key information (facts, decisions, state, next steps, related paths). Use write_file; do not write a chat transcript.',
-    '5. If there is genuinely no new content, reply "No new content." and write nothing.',
-    `6. Use local time ${time} for the new entries.`,
+    '1. Use the exact slug from the transcript (or list_topics if unsure). write_diary rejects an unknown slug.',
+    '2. Call read_diary for the topic first when it may already have notes today, so you only add genuinely new information.',
+    '3. Pass only the new markdown body to write_diary. Never write headings, dates or times yourself.',
+    '4. Never use write_file on daily/*.md. The diary tools own that file and its "## topic" / "### HH:mm" layout.',
+    '5. For every topic, also keep workspace/topic/<slug>.md up to date with write_file: facts, decisions, state, next steps and related paths; no chat transcript.',
+    '6. If there is genuinely no new content, reply "No new content." and do not call write_diary.',
+    `7. Today is ${date}; write_diary uses the current local time automatically.`,
   );
   return lines.join('\n');
 }
-
 function timeFromIso(iso: string): string {
   const date = new Date(iso);
   return Number.isNaN(date.getTime()) ? '00:00' : diaryTimeKey(date);
@@ -622,7 +706,7 @@ export function selfTellInfo(text: string): string | undefined {
 export function buildSelfUpdateMessage(): string {
   return [
     'Update your self-description (AI.md) from this conversation.',
-    'Use the built-in kolor skill (skills("kolor")) for the AI.md rules, allowed content and format.',
+    'Write it to workspace/AI.md with write_file. Keep only your name, personality and self-knowledge (optional self-image path); do not store user facts or chat logs. Keep it under 1 MiB.',
   ].join(' ');
 }
 
@@ -633,7 +717,7 @@ export function buildSelfTellMessage(info: string): string {
     '',
     info.trim(),
     '',
-    'Use the built-in kolor skill (skills("kolor")) for the AI.md rules, allowed content and format.',
+    'Write it to workspace/AI.md with write_file. Keep only your name, personality and self-knowledge (optional self-image path); do not store user facts or chat logs. Keep it under 1 MiB.',
   ].join('\n');
 }
 

@@ -53,6 +53,7 @@ import {
 } from './providers.js';
 import { RunBroker, type Run, type RunListener } from './runs.js';
 import { classifyTopic, type TopicDecision } from './topic-classifier.js';
+import { createDiaryTools } from './diary-tools.js';
 import { VERSION } from './version.js';
 
 
@@ -68,15 +69,12 @@ function diaryTopicMatches(topicName: string, topicSlug: string, sectionTopic: s
 const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
 
 /**
- * System prompt: the generic agent-loop prompt plus a pointer to the built-in
- * `kolor` skill, which carries the framework documentation (three skill areas,
- * writing skills, MCP config, diary location and prompts).
+ * System prompt: the generic agent-loop prompt plus the topic diary tools.
  */
 const KOLOR_SYSTEM_PROMPT = [
   DEFAULT_SYSTEM_PROMPT,
   '',
-  'KolorBot framework knowledge lives in the built-in skill "kolor": the three skill areas, how to write a skill, MCP configuration, the diary (where it is stored and the rules to update it), the persona/self settings (AI.md), sessions, providers and the HTTP API.',
-  'When the user asks how KolorBot itself works, call the `skills` tool with id "kolor" and read it instead of guessing. Do not load it for ordinary coding, browsing or office tasks.',
+  'The conversation is organized into topics. Use list_topics to see the slugs, read_diary to inspect notes, and write_diary({slug, content}) to append a diary entry at the current time. Never edit daily/*.md with write_file.',
   'Finish what you start: do not end a turn with a promise to do something later, and do not stop after a plan or a partial implementation. Keep calling tools and verifying until the task is actually done, then report briefly. Only stop early when you need information or permission from the user.',
 ].join('\n');
 
@@ -207,6 +205,12 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   const pool = new AgentPool({
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
     systemPrompt: KOLOR_SYSTEM_PROMPT,
+    toolsForSession: () =>
+      createDiaryTools({
+        store: store.store,
+        diaryDir: memory.diaryDir,
+        currentTopicSlug: () => store.current().topic.slug,
+      }),
     kolorFrame: {
       root: config.frameRoot,
       skillsRoot: config.skillsDir,
@@ -699,7 +703,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     await pool.ensureSignature();
 
     // `/update-daily-memory`, `/self-md-update` and `/self-md-tell` become
-    // task messages; the rules for both live in the built-in kolor skill.
+    // task messages; diary writes go through the dedicated tools.
     const selfInfo = selfTellInfo(text);
     let outgoing = text;
     if (isDiaryCommand(text)) {

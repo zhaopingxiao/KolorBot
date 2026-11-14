@@ -38,7 +38,6 @@ kolorbot/
 ├── docs/tool-call.png           # 工具调用详情截图
 ├── docs/mobile.png              # 移动端抽屉截图
 ├── inner/skills/browseruse/     # 内置技能：带 MCP 的无头浏览器（实时画面 + WebMCP）
-├── inner/skills/kolor/          # 内置技能：KolorBot 框架说明（技能区 / MCP / 话题 / 日记）
 ├── packages/
 │   ├── kolorbot-agent-loop/     # 主循环 + src/frame/（KolorFrame 工具）
 │   ├── kolorbot-conversation/   # topics / segments / messages（单对话）
@@ -63,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 103 个测试
+pnpm test      # 105 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -131,7 +130,7 @@ npm run web -- --host 0.0.0.0
 - 聊天：流式输出、工具调用卡片（**默认折叠**，点开看参数 / 结果 / 状态）、停止按钮、思考时的三个点。运行中继续输入并按 Enter 会先排队，等这一轮结束后自动发出。每次工具调用前后的文字各自成段；AI 回复**边出边渲染 Markdown**。
 - 断线不丢回答：一轮对话在服务端跑，关闭标签页、刷新、切网都只是断开镜像；回来时从服务端缓冲回放整轮。同一时间只允许一轮，重复发送返回 409。
 - 跟随滚动：只有离消息列表底部**一行字以内**时才自动拉到底；往上翻读历史时不会被拽走。
-- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image` 由 agent-loop 直接注册，和 MCP 无关；额外 MCP 只能写在技能目录的 `kolor.json` 里。
+- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image` 由 agent-loop 直接注册；话题日记另有 `list_topics` / `read_diary` / `write_diary`。额外 MCP 只能写在技能目录的 `kolor.json` 里。
 
 | 环境变量 | 默认值 | 作用 |
 | --- | --- | --- |
@@ -377,19 +376,27 @@ KolorFrame 提供：
 - 更新命令：
   - `/self-md-update`：让 AI 以当前对话为信息创建/更新 AI.md；
   - `/self-md-tell 你是一个温柔的 AI…`：按命令后面的信息更新（没写内容会被拒绝）。
-  两者都只发一条指向内置技能 `kolor` 的消息，完整规则在 kolor 技能里。
+  两者都只发一条包含 AI.md 保存规则的消息，直接要求模型用 `write_file` 写 `workspace/AI.md`。
 
 ### 日记
 
 开关「定时追加日记」打开后：
 
 1. 一轮对话结束后开始计时；10 分钟内没有新消息就整理一次日记（无 SSE 的后台轮次）。
-2. 整理时会把**上次日记之后的所有话题片段**按话题分组交给模型，模型用 `write_file` 读写 `daily/YYYY-MM-DD.md` 和 `topic/<slug>.md`。
+2. 整理时会把**上次日记之后的所有话题片段**按话题分组交给模型，模型通过专用工具 `write_diary` 写日记，用 `write_file` 维护 `topic/<slug>.md`。
 3. 日记格式是 `# 日期 → ## 话题（首次出现顺序）→ ### HH:mm`；每个话题当天只保留一个 `##` 块，后到的内容追加到同一块下面。
 4. 每个话题第一次写进日记时，同时创建/更新 `workspace/topic/<slug>.md`；之后关键信息变化由 AI 用 `write_file` 主动更新。
 5. 没有新内容时模型应回复 `No new content.`；如果什么都没写，服务端会记一条日志。
 
-也可以在输入框发送 `/update-daily-memory` 立即整理。日记和话题文件的路径、格式、注入规则都写在内置技能 `kolor` 里。
+### 日记工具
+
+- `list_topics`：列出所有话题 slug / name，当前话题标 `(current)`。
+- `read_diary({ slug, date? })`：不带 `date` 返回有哪些天写过这个话题；带 `date` 返回当天该话题的 `##` 段落。
+- `write_diary({ slug, content })`：在当前本地时间下追加内容。自动创建当天文件、`## 话题` 和 `### HH:mm`，并保持话题首次出现顺序；slug 不存在直接报错。
+
+`write_diary` 负责日记文件，模型不应再用 `write_file` 改 `daily/*.md`。话题文件 `workspace/topic/<slug>.md` 仍由模型用 `write_file` 维护。
+
+也可以发送 `/update-daily-memory` 立即整理。
 
 要点：
 
@@ -545,7 +552,7 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | --- | --- | --- |
 | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR` 可覆盖） | Claude 标准的兼容区，原来的安装位置 |
 | 专属技能 | `<workspace>/skills`，默认 `~/.kolor/workspace/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
-| 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` / `kolor` 放在这里 |
+| 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` 放在这里 |
 
 - 三个区都按 `<区>/<id>/SKILL.md` 组织；同名技能按 **专属 → 兼容 → 内置** 的优先级取第一个，不会重复注入。
 - 三个区的 `kolor.json` 都会被收集；同名 MCP server 同样按这个优先级取第一个。
@@ -553,7 +560,6 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 
 内置技能 [`inner/skills/browseruse`](inner/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径。**每个操作（打开/点击/输入/按键/执行 JS）都会自动附带一次 snapshot 和新截图**，截图按需展示（用户要截图或需要说明页面时才贴出来）；实时画面地址只在打开新网页后给一次（或用户主动问），文本快照够用时不额外读图。预览页支持鼠标/键盘/滚轮，**按住鼠标可以拖动网页元素**（滑块、画布、拖拽排序），触摸屏上单指上下滑动会滚动网页。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、按住拖动、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
 
-内置技能 [`inner/skills/kolor`](inner/skills/kolor) 是**框架说明书**：三个技能区、怎么写 skill、MCP 配置方法、日记位置/格式/整理提示词都在这；系统提示词要求模型遇到 KolorBot 自身的问题时先调用 `skills("kolor")` 读它，而不是凭记忆猜。
 
 ## Web HTTP API
 
@@ -598,13 +604,13 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 103 个测试：
+共 105 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（3）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
-- `kolorbot-memory`（9）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（24）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（新格式 + 话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
+- `kolorbot-memory`（10）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
+- `kolorbot-web`（25）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
 
 全部测试不需要网络和 API key。
 

@@ -1,6 +1,6 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
@@ -9,6 +9,7 @@ import {
   readDiaryEntries,
   readDiaryTopicSection,
   normalizeTopicLabel,
+  appendDiaryEntry,
   formatLastMessageBlock,
   formatTopicMemoryBlock,
   buildSelfTellMessage,
@@ -43,7 +44,7 @@ test('clips AI.md at 1 MiB with a marker', () => {
   assert.equal(block.includes('x'.repeat(1024 * 1024 + 10)), false);
 });
 
-test('self commands point at the kolor skill', () => {
+test('self commands include the AI.md rules inline', () => {
   assert.match(buildSelfUpdateMessage(), /AI\.md/);
   assert.match(buildSelfTellMessage('喜欢猫'), /喜欢猫/);
   assert.equal(selfTellInfo('/self-md-tell 喜欢猫'), '喜欢猫');
@@ -83,6 +84,9 @@ test('topic diary trigger carries the new layout and topic file instruction', ()
   assert.match(message, /### 19:00/);
   assert.match(message, /workspace\/topic\/<slug>\.md/);
   assert.match(message, /first-appearance order/);
+  assert.match(message, /write_diary/);
+  assert.match(message, /read_diary/);
+  assert.match(message, /list_topics/);
 });
 
 test('finds today, then the latest earlier, then the earliest diary section', () => {
@@ -135,6 +139,24 @@ test('indexes all diary topics and reads one topic section', () => {
     assert.equal(readDiaryTopicSection(daily, '2026-11-14', 'Workspace'), '');
     assert.equal(normalizeTopicLabel('Remotion 话题'), 'remotion');
     assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion 话题', 'remotion'), /remotion 14/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+test('appends diary entries at the current time without duplicating topic sections', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kolorbot-diary-write-'));
+  const daily = join(dir, 'daily');
+  try {
+    const at = new Date(2026, 10, 14, 19, 21);
+    appendDiaryEntry(daily, '2026-11-14', 'Remotion', '第一条', at);
+    appendDiaryEntry(daily, '2026-11-14', 'Remotion 话题', '同分钟追加', at);
+    appendDiaryEntry(daily, '2026-11-14', 'Deepseek Workspace', '另一个话题', at);
+    appendDiaryEntry(daily, '2026-11-14', 'Remotion', '下一分钟', new Date(2026, 10, 14, 19, 22));
+    const content = readFileSync(join(daily, '2026-11-14.md'), 'utf8');
+    assert.equal((content.match(/^## Remotion$/gm) ?? []).length, 1);
+    assert.match(content, /## Remotion\s+### 19:21\s+第一条\s+同分钟追加/);
+    assert.match(content, /### 19:22\s+下一分钟/);
+    assert.ok(content.indexOf('## Remotion') < content.indexOf('## Deepseek Workspace'));
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }

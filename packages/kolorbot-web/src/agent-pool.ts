@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+﻿import { createHash } from 'node:crypto';
 import {
   KolorAgent,
   type AgentMessage,
@@ -15,6 +15,8 @@ export interface AgentPoolOptions {
   mcpConfigs: () => McpServerConfig[];
   /** Built-in frame tools settings (workspace + skills root). */
   kolorFrame?: KolorFrameOptions;
+  /** Extra local tools for each newly created agent (topic diary tools). */
+  toolsForSession?: () => ToolDefinition[];
   /** System prompt for every agent (defaults to the agent-loop one). */
   systemPrompt?: string;
   onEvent?: (sessionId: string, event: KolorEvent) => void;
@@ -70,7 +72,7 @@ export class AgentPool {
       return agent;
     }
 
-    const tools: ToolDefinition[] = [];
+    const tools: ToolDefinition[] = this.#options.toolsForSession?.() ?? [];
 
     const creation = KolorAgent.create(
       {

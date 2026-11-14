@@ -1,4 +1,4 @@
-export {
+﻿export {
   MemoryStore,
   buildDiaryTaskMessage,
   buildTopicDiaryMessage,
@@ -18,6 +18,7 @@ export {
   findLatestDiarySection,
   parseDiarySections,
   readTopicMemory,
+  appendDiaryEntry,
   readDiaryEntries,
   normalizeTopicLabel,
   readDiaryTopicSection,
