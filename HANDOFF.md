@@ -1,4 +1,4 @@
-﻿# KolorBot 项目交接
+# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`  
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-07  
@@ -173,6 +173,7 @@ mcp__kolor-frame__read_file
 
 - 白色极简风，纯白背景 + 浅灰层级（`--bg: #ffffff`，侧栏/输入盒 `#fafafa`），无 1px 描边，`tabular-nums` 数字锁宽，toast 自动消失。
 - 流式输出逐字 blur 晕入。
+- **流式段落重置（2026-11-14）**：一个 turn 里工具调用前后的多段 assistant 文本，在 `handleRunEvent` 的 `tool/call`、`tool/result`、`tool/skipped` 分支会调 `resetSegment(stream)` 把 `stream.text`/`lastFragment` 清空；否则下一段助手气泡会把前面所有段落的文字重新渲染一遍，看起来像“上下文带着以前的回答”。`attachRun` 开始时也会 `dropStream`，避免复用一个已中断 turn 的流。
 - **Markdown 实时渲染（2026-11-07）**：`renderMarkdown` 支持标题 `#`-`######`、`> ` 引用、有序/无序列表（含嵌套和 `- [ ]` 任务项）、Github 风格表格（`| a | b |` + 分隔行）、` ```lang ` 围栏代码块（带语言标签）、`---` 分隔线、`**加粗**`、`*斜体*`、`~~删除线~~`、`` `行内代码` ``、`[链接](url)`、`![图片](url)`（渲染成 `.md-image`，因此 browseruse 的截图 URL 能直接显示）；HTML 全部转义后再套样式，代码内容不解析内联。流式时 `flushStream` 每一帧把已接收文本（去掉最新一段）重新 `innerHTML = renderMarkdown(prefix)`，**只有最新一段保持原始文本 + `.stream-chunk` 淡入动画**，下一帧它并入已渲染部分——所以是边出边渲染，而不是等整条回复结束。样式在 `styles.css` 的 "rendered markdown" 区块。
 - **思考指示**：发送后到第一个字（或工具卡片）出现前显示三个跳动的点；`step/start` / `reasoning/delta` 时显示，`text/delta`、`tool/call`、`tool/result`、`turn/end`、请求结束（含停止）时消失。实现是 `app.js` 的 `.thinking` + `.thinking-dot`，`prefers-reduced-motion` 时关闭动画。
 - 工具调用卡片显示：工具名、状态（运行中/完成/失败/跳过）、耗时、参数、结果；**默认折叠**，点 summary 展开。运行中的用户输入不再堆在输入框里：按 Enter 会存成 `state.queued`，本轮结束（`finishRun`）后自动发送，避免下一句把上一句一起带上。

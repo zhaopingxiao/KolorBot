@@ -552,6 +552,18 @@ function applyToolSkipped(card, reason) {
  */
 const streams = new Map();
 
+/** Remove a session's live turn state and its DOM element. */
+function dropStream(sessionId) {
+  const stream = streams.get(sessionId);
+  if (stream === undefined) return;
+  if (stream.frame !== 0) {
+    cancelAnimationFrame(stream.frame);
+    stream.frame = 0;
+  }
+  stream.turn.remove();
+  streams.delete(sessionId);
+}
+
 function syncBusy() {
   state.running = state.session !== null && state.runningIds.has(state.session.id);
   $('#send').classList.toggle('hidden', state.running);
@@ -676,6 +688,19 @@ function queueText(stream, text) {
  * A tool-only step leaves an empty placeholder; removing it keeps the card
  * from being separated by a blank bubble.
  */
+/**
+ * End one assistant text segment (a tool call came next).
+ *
+ * The DOM bubble keeps what it already rendered; the stream buffer must start
+ * empty again, otherwise the next bubble would render all previous segments
+ * plus the new text.
+ */
+function resetSegment(stream) {
+  stream.currentText = null;
+  stream.text = '';
+  stream.lastFragment = '';
+}
+
 function dropEmptyAssistant(stream) {
   const body = stream.currentText;
   if (body !== null && body.textContent === '') {
@@ -736,7 +761,7 @@ function handleRunEvent(sessionId, event) {
       arguments: event.arguments,
     });
     stream.cards.set(event.callId, card);
-    stream.currentText = null;
+    resetSegment(stream);
     if (stick) scrollMessagesToBottom();
   } else if (event.type === 'tool/result') {
     flushStream(stream);
@@ -749,7 +774,7 @@ function handleRunEvent(sessionId, event) {
       stream.cards.set(event.callId, card);
     }
     applyToolResult(card, event);
-    stream.currentText = null;
+    resetSegment(stream);
     if (stick) scrollMessagesToBottom();
   } else if (event.type === 'tool/skipped') {
     flushStream(stream);
@@ -762,7 +787,7 @@ function handleRunEvent(sessionId, event) {
       stream.cards.set(event.callId, card);
     }
     applyToolSkipped(card, event.reason ?? 'skipped');
-    stream.currentText = null;
+    resetSegment(stream);
     if (stick) scrollMessagesToBottom();
   } else if (event.type === 'turn/end') {
     hideThinking(stream);
@@ -814,6 +839,10 @@ async function consumeRun(response, sessionId) {
  */
 async function attachRun(sessionId, open) {
   detachRun();
+  // Every attach replays the whole run, so start from a clean turn. A stream
+  // left over from an aborted/dropped turn must never be reused: new text would
+  // append to the old answer and the two turns would merge into one message.
+  dropStream(sessionId);
   const controller = new AbortController();
   state.live = { sessionId, controller };
   let completed = false;
@@ -838,8 +867,7 @@ async function attachRun(sessionId, open) {
 function detachRun() {
   const live = state.live;
   if (live === null) return;
-  state.live = null;
-  live.controller.abort();
+  state.live = null;  live.controller.abort();
 
   const stream = streams.get(live.sessionId);
   if (stream !== undefined) {
