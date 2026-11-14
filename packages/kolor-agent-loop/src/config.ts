@@ -1,4 +1,4 @@
-import type { ConcurrencyMode } from './types.js';
+﻿import type { ConcurrencyMode } from './types.js';
 import { KolorConfigError } from './util/errors.js';
 
 /** MCP server reachable by spawning a child process and talking JSON-RPC over stdio. */
@@ -103,10 +103,10 @@ export const DEFAULT_SYSTEM_PROMPT = [
 ].join('\n');
 
 const DEFAULTS = {
-  maxSteps: 40,
+  maxSteps: 80,
   maxParallelToolCalls: 10,
-  requestTimeoutMs: 120_000,
-  toolTimeoutMs: 60_000,
+  requestTimeoutMs: 300_000,
+  toolTimeoutMs: 120_000,
   maxToolResultChars: 100_000,
   agentId: 'kolor-agent',
   mcpConnectTimeoutMs: 20_000,

@@ -33,6 +33,8 @@ export interface FrameToolDefinition {
   name: string;
   description: string;
   inputSchema: JsonSchema;
+  /** Per-call deadline; long-running tools (bash) override the agent default. */
+  timeoutMs?: number;
 }
 
 /** A user-facing KolorFrame failure (bad path, missing file, ...). */
@@ -45,7 +47,7 @@ const MAX_IMAGE_BYTES = 8 * 1024 * 1024;
 const MAX_WRITE_BYTES = 8 * 1024 * 1024;
 const MAX_OUTPUT_CHARS = 100_000;
 const MAX_LIST_ENTRIES = 1000;
-const DEFAULT_BASH_TIMEOUT_MS = 60_000;
+const DEFAULT_BASH_TIMEOUT_MS = 10 * 60_000;
 
 const run = promisify(exec);
 
@@ -91,6 +93,7 @@ export const FRAME_TOOLS: FrameToolDefinition[] = [
   },
   {
     name: 'bash',
+    timeoutMs: 10 * 60_000,
     description:
       'Run a shell command with the workspace as working directory. Returns exit code, stdout and stderr. Commands are not sandboxed: use only in trusted environments.',
     inputSchema: {

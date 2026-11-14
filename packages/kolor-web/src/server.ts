@@ -64,6 +64,7 @@ const KOLOR_SYSTEM_PROMPT = [
   '',
   'KolorBot framework knowledge lives in the built-in skill "kolor": the three skill areas, how to write a skill, MCP configuration, the diary (where it is stored and the rules to update it), the persona/self settings (AI.md), sessions, providers and the HTTP API.',
   'When the user asks how KolorBot itself works, call the `skills` tool with id "kolor" and read it instead of guessing. Do not load it for ordinary coding, browsing or office tasks.',
+  'Finish what you start: do not end a turn with a promise to do something later, and do not stop after a plan or a partial implementation. Keep calling tools and verifying until the task is actually done, then report briefly. Only stop early when you need information or permission from the user.',
 ].join('\n');
 
 export interface KolorWebOptions extends WebConfigOverrides {

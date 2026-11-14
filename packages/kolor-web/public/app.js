@@ -1,4 +1,4 @@
-/* KolorBot web client: vanilla ES module, no build step. */
+﻿/* KolorBot web client: vanilla ES module, no build step. */
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -12,6 +12,8 @@ const state = {
   live: null,
   providerData: null,
   memory: null,
+  /** A message typed while a turn was running; sent when it finishes. */
+  queued: null,
 };
 
 /* ---------------- helpers ---------------- */
@@ -347,6 +349,7 @@ function newChat() {
   if (state.live !== null) detachRun();
   closeDrawers();
   state.session = null;
+  state.queued = null;
   renderHeader();
   renderMessages(true);
   renderSessions();
@@ -490,7 +493,6 @@ function formatDuration(ms) {
 
 function appendToolCard(turn, call, result) {
   const details = el('details', 'tool-call');
-  details.open = true;
 
   const summary = el('summary', 'tool-head');
   summary.appendChild(el('span', 'tool-caret', '›'));
@@ -870,6 +872,23 @@ async function finishRun(sessionId) {
   } catch {
     // Keep the live view if the session cannot be reloaded.
   }
+  await flushQueuedMessage();
+}
+
+/** Send a message that was queued while the previous turn was running. */
+async function flushQueuedMessage() {
+  const queued = state.queued;
+  if (queued === null || state.running) return;
+  const sessionId = state.session?.id ?? null;
+  if (queued.sessionId !== sessionId) {
+    state.queued = null;
+    return;
+  }
+  state.queued = null;
+  const input = $('#input');
+  input.value = queued.text;
+  input.style.height = 'auto';
+  await sendMessage();
 }
 
 /** Join a turn that is already running (page load, session switch, polling). */
@@ -887,13 +906,24 @@ async function attachLive(sessionId) {
   } catch {
     // Nothing running any more, or the stream could not be opened.
     toggleRunning(false, sessionId);
+    await flushQueuedMessage();
   }
 }
 
 async function sendMessage() {
   const input = $('#input');
   const text = input.value.trim();
-  if (text === '' || state.running) return;
+  if (text === '') return;
+
+  // A turn is already running: queue this text instead of leaving it in the
+  // box (pressing Enter again would accumulate the old text into the next send).
+  if (state.running) {
+    state.queued = { sessionId: state.session?.id ?? null, text };
+    input.value = '';
+    input.style.height = 'auto';
+    toast('已排队：当前这一轮结束后自动发送');
+    return;
+  }
 
   input.value = '';
   input.style.height = 'auto';
@@ -931,7 +961,10 @@ async function sendMessage() {
       // instead of leaving the stop button hidden until the next poll.
       await loadSessions().catch(() => {});
       if (state.runningIds.has(id)) await attachLive(id);
-      else toggleRunning(false, id);
+      else {
+        toggleRunning(false, id);
+        await flushQueuedMessage();
+      }
     }
   }
 }

@@ -1,4 +1,4 @@
-import { FRAME_TOOLS, callFrameTool, type FrameContext } from 'kolor-frame';
+﻿import { FRAME_TOOLS, callFrameTool, type FrameContext } from 'kolor-frame';
 import { resolveConfig, type KolorConfig, type ResolvedKolorConfig } from './config.js';
 import { validateAgentContext } from './context.js';
 import type { KolorEvent, KolorEventListener, KolorEventType } from './events.js';
@@ -445,6 +445,7 @@ export class KolorAgent {
         name,
         description: definition.description,
         inputSchema: definition.inputSchema,
+        ...(definition.timeoutMs === undefined ? {} : { timeoutMs: definition.timeoutMs }),
         execute: async (input) => {
           const result = await callFrameTool(name, input, context);
           return {

@@ -118,7 +118,7 @@ It's 2026/10/27 20:16:00 Tuesday. Do: 任务名
 - `SkillsRegistry({ roots })` 接收 `SkillRoot[]`（`source` + `path`）；`list()` 合并去重、`listSource(source)` 保留分区、`get(id)` 从实际路径读文件；`signature()` 是 `v2:<sha1>`（包含 id/描述/来源），来源变化会重新注入。
 - 生成 `<system-skills>` 列表，格式 `id - description`。
 - 对话开始、重置、或技能列表指纹变化时注入；发送后记录 `skills_signature`。
-- 内置 `skills(id)` 工具读取完整 `SKILL.md` 和文件列表（`kolorFrame.extraSkillRoots` 让三个区都能查）。`inner/skills/kolor` 就是框架说明书：三个技能区、制作 skill、MCP 配置方法、设定（AI.md）规则、日记位置/格式/完整整理提示词。`server.ts` 的 `KOLOR_SYSTEM_PROMPT` = agent-loop 默认提示词 + 「框架知识在内置技能 kolor，遇到框架问题先 `skills("kolor")`」，通过 `AgentPool.systemPrompt` 传给 `KolorAgent.create`。
+- 内置 `skills(id)` 工具读取完整 `SKILL.md` 和文件列表（`kolorFrame.extraSkillRoots` 让三个区都能查）。`inner/skills/kolor` 就是框架说明书：三个技能区、制作 skill、MCP 配置方法、设定（AI.md）规则、日记位置/格式/完整整理提示词。`server.ts` 的 `KOLOR_SYSTEM_PROMPT` = agent-loop 默认提示词 + 「框架知识在内置技能 kolor，遇到框架问题先 `skills("kolor")`」+ 「不要停在计划/半成品，做到完成再汇报，除非需要用户确认」，通过 `AgentPool.systemPrompt` 传给 `KolorAgent.create`。
 - Web 侧栏「技能」面板按三个区分组展示（标题 + 数量 + 空区目录提示），有 MCP 的技能带 **MCP** 标识，点开详情能看到它声明的所有 server（名称 + transport）。`/api/skills` 返回 `roots: [{ source, label, path, count }]`。
 - 每技能可用 `kolor.json` 声明 MCP：
 
@@ -175,7 +175,7 @@ mcp__kolor-frame__read_file
 - 流式输出逐字 blur 晕入。
 - **Markdown 实时渲染（2026-11-07）**：`renderMarkdown` 支持标题 `#`-`######`、`> ` 引用、有序/无序列表（含嵌套和 `- [ ]` 任务项）、Github 风格表格（`| a | b |` + 分隔行）、` ```lang ` 围栏代码块（带语言标签）、`---` 分隔线、`**加粗**`、`*斜体*`、`~~删除线~~`、`` `行内代码` ``、`[链接](url)`、`![图片](url)`（渲染成 `.md-image`，因此 browseruse 的截图 URL 能直接显示）；HTML 全部转义后再套样式，代码内容不解析内联。流式时 `flushStream` 每一帧把已接收文本（去掉最新一段）重新 `innerHTML = renderMarkdown(prefix)`，**只有最新一段保持原始文本 + `.stream-chunk` 淡入动画**，下一帧它并入已渲染部分——所以是边出边渲染，而不是等整条回复结束。样式在 `styles.css` 的 "rendered markdown" 区块。
 - **思考指示**：发送后到第一个字（或工具卡片）出现前显示三个跳动的点；`step/start` / `reasoning/delta` 时显示，`text/delta`、`tool/call`、`tool/result`、`turn/end`、请求结束（含停止）时消失。实现是 `app.js` 的 `.thinking` + `.thinking-dot`，`prefers-reduced-motion` 时关闭动画。
-- 工具调用卡片显示：工具名、状态（运行中/完成/失败/跳过）、耗时、参数、结果，可折叠。
+- 工具调用卡片显示：工具名、状态（运行中/完成/失败/跳过）、耗时、参数、结果；**默认折叠**，点 summary 展开。运行中的用户输入不再堆在输入框里：按 Enter 会存成 `state.queued`，本轮结束（`finishRun`）后自动发送，避免下一句把上一句一起带上。
 - **断线重连**：turn 在服务端的 `RunBroker` 里跑，SSE 只是镜像；关标签/刷新/切会话只断开监听，回来从缓冲回放整轮。会话列表有 `running` 时显示跳动的点；轮询发现当前会话在跑会自动 `attachLive`。停止按钮走 `/api/chat/cancel`，服务端发 `run/cancelled` 再正常结束。
 - **跟随滚动**：只有离底部一行字（按 `.assistant-message` 的 `line-height` 计算）以内才自动贴底；往上翻时不拽走，轮次结束 `renderMessages` 重建也保持原位置（`renderMessages(forceBottom, note)`，会话切换才强制到底）。
 - 取消的轮次在重建后仍显示「已停止」标记（`run-note`），但部分回答不落库。

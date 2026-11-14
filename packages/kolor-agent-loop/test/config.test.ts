@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import test from 'node:test';
 import {
   DEFAULT_SYSTEM_PROMPT,
@@ -37,9 +37,9 @@ test('fills defaults and keeps required fields', () => {
   const config = resolveConfig(base);
   assert.equal(config.endpoint, 'https://api.deepseek.com/chat/completions');
   assert.equal(config.apiModelName, 'deepseek-chat');
-  assert.equal(config.maxSteps, 40);
+  assert.equal(config.maxSteps, 80);
   assert.equal(config.maxParallelToolCalls, 10);
-  assert.equal(config.toolTimeoutMs, 60_000);
+  assert.equal(config.toolTimeoutMs, 120_000);
   assert.equal(config.systemPrompt, DEFAULT_SYSTEM_PROMPT);
   assert.deepEqual(config.mcpServers, []);
 });
