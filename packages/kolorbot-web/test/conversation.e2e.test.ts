@@ -406,3 +406,42 @@ test('the idle diary writes a topic section and creates the topic file', async (
   assert.match(daily, /^### 10:00/m);
   assert.match(readFileSync(join(frameRoot, 'topic', 'remotion.md'), 'utf8'), /时间轴已改好/);
 });
+test('lists topics and returns a topic day with segments and diary', async (t) => {
+  const model = await startModel();
+  t.after(() => model.close());
+  const { app, frameRoot } = await tempApp(t, model.url);
+  const today = diaryDateKey(new Date());
+  writeFileSync(
+    join(frameRoot, 'daily', `${today}.md`),
+    `# ${today}\n\n## 工作区 Remotion 环境\n\n### 09:00\n\nremotion 日记段落。\n\n## Deepseek Workspace\n\n### 10:00\n\nworkspace 日记段落。\n`,
+    'utf8',
+  );
+
+  await postChat(app, 'remotion 第一次');
+  await postChat(app, 'workspace 切换一下');
+  await postChat(app, 'remotion 第二次');
+
+  const topics = (await (await fetch(`${app.url}/api/topics`)).json()) as {
+    topics: Array<{ slug: string; name: string; diaryDays: number }>;
+  };
+  const remotion = topics.topics.find((topic) => topic.slug === 'remotion');
+  assert.equal(remotion?.diaryDays, 1);
+
+  const calendar = (await (await fetch(`${app.url}/api/topics/remotion`)).json()) as {
+    dates: string[];
+    months: Array<{ month: string; days: string[] }>;
+  };
+  assert.deepEqual(calendar.dates, [today]);
+  assert.equal(calendar.months[0]?.month, today.slice(0, 7));
+
+  const day = (await (
+    await fetch(`${app.url}/api/topics/remotion/days/${today}`)
+  ).json()) as {
+    segments: Array<{ messages: Array<{ role: string; content: string }> }>;
+    diary: string;
+  };
+  assert.equal(day.segments.length, 2);
+  assert.match(day.diary, /remotion 日记段落/);
+  assert.equal(day.diary.includes('workspace 日记段落'), false);
+  assert.ok(day.segments[0]?.messages.some((message) => message.role === 'assistant'));
+});

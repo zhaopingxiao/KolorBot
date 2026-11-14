@@ -31,6 +31,7 @@ import {
   buildTopicDiaryMessage,
   buildSelfTellMessage,
   buildSelfUpdateMessage,
+  diaryDateKey,
   findLatestDiarySection,
   formatLastMessageBlock,
   formatTopicMemoryBlock,
@@ -38,6 +39,8 @@ import {
   isSelfUpdateCommand,
   memorySignature,
   personaSignature,
+  readDiaryEntries,
+  readDiaryTopicSection,
   readTopicMemory,
   selfTellInfo,
 } from 'kolorbot-memory';
@@ -276,6 +279,84 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       sendJson(response, 200, {
         conversation: store.view(),
         current: { topic: current.topic, segment: current.segment },
+      });
+      return;
+    }
+
+    if (pathname === '/api/topics' && method === 'GET') {
+      const entries = readDiaryEntries(memory.diaryDir);
+      const counts = new Map<string, Set<string>>();
+      for (const entry of entries) {
+        let dates = counts.get(entry.topic);
+        if (dates === undefined) {
+          dates = new Set<string>();
+          counts.set(entry.topic, dates);
+        }
+        dates.add(entry.date);
+      }
+      sendJson(response, 200, {
+        topics: store.store.listTopics().map((topic) => ({
+          ...topic,
+          diaryDays: counts.get(topic.name)?.size ?? 0,
+        })),
+      });
+      return;
+    }
+
+    const topicDayMatch = /^\/api\/topics\/([^/]+)\/days\/(\d{4}-\d{2}-\d{2})$/.exec(pathname);
+    if (topicDayMatch !== null && method === 'GET') {
+      const slug = decodeURIComponent(topicDayMatch[1] as string);
+      const date = topicDayMatch[2] as string;
+      const topic = store.store.topic(slug);
+      if (topic === undefined) throw new HttpError(404, 'unknown topic');
+      const segments = store.store
+        .listSegments()
+        .filter(
+          (segment) =>
+            segment.topicSlug === slug &&
+            diaryDateKey(new Date(segment.startedAt)) === date,
+        )
+        .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+        .map((segment) => ({
+          id: segment.id,
+          startedAt: segment.startedAt,
+          endedAt: segment.endedAt,
+          messages: store.store.segmentMessages(segment.id),
+        }));
+      sendJson(response, 200, {
+        topic,
+        date,
+        segments,
+        diary: readDiaryTopicSection(memory.diaryDir, date, topic.name),
+      });
+      return;
+    }
+
+    const topicCalendarMatch = /^\/api\/topics\/([^/]+)$/.exec(pathname);
+    if (topicCalendarMatch !== null && method === 'GET') {
+      const slug = decodeURIComponent(topicCalendarMatch[1] as string);
+      const topic = store.store.topic(slug);
+      if (topic === undefined) throw new HttpError(404, 'unknown topic');
+      const dates = [
+        ...new Set(
+          readDiaryEntries(memory.diaryDir)
+            .filter((entry) => entry.topic === topic.name)
+            .map((entry) => entry.date),
+        ),
+      ].sort();
+      const byMonth = new Map<string, string[]>();
+      for (const date of dates) {
+        const month = date.slice(0, 7);
+        const days = byMonth.get(month);
+        if (days === undefined) byMonth.set(month, [date]);
+        else days.push(date);
+      }
+      sendJson(response, 200, {
+        topic,
+        dates,
+        months: [...byMonth.entries()]
+          .sort(([a], [b]) => b.localeCompare(a))
+          .map(([month, days]) => ({ month, days })),
       });
       return;
     }

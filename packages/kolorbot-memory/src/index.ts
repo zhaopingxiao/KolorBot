@@ -1,4 +1,4 @@
-﻿export {
+export {
   MemoryStore,
   buildDiaryTaskMessage,
   buildTopicDiaryMessage,
@@ -18,6 +18,8 @@
   findLatestDiarySection,
   parseDiarySections,
   readTopicMemory,
+  readDiaryEntries,
+  readDiaryTopicSection,
   topicMemoryPath,
   selfTellInfo,
 } from './memory.js';

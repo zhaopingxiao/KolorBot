@@ -1,4 +1,4 @@
-# KolorBot
+﻿# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -63,7 +63,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 101 个测试
+pnpm test      # 103 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -122,6 +122,7 @@ npm run web -- --host 0.0.0.0
 ![移动端](docs/mobile.png)
 
 - **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolor/conversation.db`。
+- **话题页**：左侧「话题」列出所有话题；点进话题看到日记里出现过的所有月份日历，紫色日期可点开当天的话题聊天记录和日记片段。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与日记](#单对话话题与日记)。
 - 模型：侧栏「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。详见 [模型提供商](#模型提供商)。
 - 记忆：侧栏「记忆」管理「设定」（workspace/AI.md）和「日记」；设定可用 `/self-md-update` / `/self-md-tell …` 创建或更新，日记打开「定时追加日记」后对话结束 10 分钟没有新消息就自动整理；两者按话题注入 `<system-memory>`。
@@ -560,6 +561,9 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | --- | --- | --- |
 | GET | `/api/config` | 配置 + 当前模型 + MCP 列表 + `conversationDbPath` |
 | GET | `/api/conversation` | 单对话的 `topics` / `segments` / `messages` + 当前话题 |
+| GET | `/api/topics` | 所有话题 + 每个话题有日记的天数 |
+| GET | `/api/topics/:slug` | 该话题的日记日期和按月份分组的日历数据 |
+| GET | `/api/topics/:slug/days/:date` | 该话题某天的聊天片段 + 当天话题日记 |
 | GET/POST | `/api/providers` | 提供商列表（key 已脱敏）/ 添加并识别模型 |
 | DELETE | `/api/providers/:id` | 删除提供商 |
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
@@ -594,13 +598,13 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 101 个测试：
+共 103 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（3）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
-- `kolorbot-memory`（8）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（23）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（新格式 + 话题文件）、CLI 子命令、提供商存储与模型切换。
+- `kolorbot-memory`（9）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
+- `kolorbot-web`（24）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（新格式 + 话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
 
 全部测试不需要网络和 API key。
 

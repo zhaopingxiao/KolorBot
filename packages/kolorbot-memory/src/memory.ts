@@ -399,6 +399,59 @@ export function parseDiarySections(content: string): DiarySection[] {
   return sections;
 }
 
+/** One diary section found in a daily file. */
+export interface DiaryEntry {
+  date: string;
+  topic: string;
+  body: string;
+}
+
+/** All topic sections from all daily files, oldest date first. */
+export function readDiaryEntries(dailyDir: string): DiaryEntry[] {
+  if (!existsSync(dailyDir)) return [];
+  let names: string[];
+  try {
+    names = readdirSync(dailyDir);
+  } catch {
+    return [];
+  }
+  const dates = names
+    .map((name) => /^(\d{4}-\d{2}-\d{2})\.md$/.exec(name)?.[1])
+    .filter((date): date is string => date !== undefined)
+    .sort();
+  const entries: DiaryEntry[] = [];
+  for (const date of dates) {
+    let content: string;
+    try {
+      content = readFileSync(join(dailyDir, `${date}.md`), 'utf8');
+    } catch {
+      continue;
+    }
+    for (const section of parseDiarySections(content)) {
+      entries.push({ date, topic: section.topic, body: section.body });
+    }
+  }
+  return entries;
+}
+
+/** The `## Topic` section for one day, including its heading, or ''. */
+export function readDiaryTopicSection(
+  dailyDir: string,
+  date: string,
+  topicName: string,
+): string {
+  const path = join(dailyDir, `${date}.md`);
+  if (!existsSync(path)) return '';
+  let content: string;
+  try {
+    content = readFileSync(path, 'utf8');
+  } catch {
+    return '';
+  }
+  const section = parseDiarySections(content).find((entry) => entry.topic === topicName);
+  if (section === undefined) return '';
+  return `## ${section.topic}\n\n${section.body}`.trim();
+}
 /**
  * Find the latest diary section for a topic: today, then backwards, then the
  * earliest one ever written (the first mention).

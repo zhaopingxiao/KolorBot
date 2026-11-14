@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import {
   buildTopicDiaryMessage,
   findLatestDiarySection,
+  readDiaryEntries,
+  readDiaryTopicSection,
   formatLastMessageBlock,
   formatTopicMemoryBlock,
   buildSelfTellMessage,
@@ -103,6 +105,33 @@ test('finds today, then the latest earlier, then the earliest diary section', ()
 
     const earliest = findLatestDiarySection(daily, 'Remotion', new Date(2026, 10, 12, 12, 0));
     assert.equal(earliest?.date, '2026-11-10');
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+test('indexes all diary topics and reads one topic section', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kolorbot-diary-index-'));
+  const daily = join(dir, 'daily');
+  mkdirSync(daily, { recursive: true });
+  try {
+    writeFileSync(
+      join(daily, '2026-11-13.md'),
+      '# 2026-11-13\n\n## Remotion\n\n### 10:00\n\nremotion 13\n\n## Workspace\n\n### 11:00\n\nworkspace 13\n',
+      'utf8',
+    );
+    writeFileSync(
+      join(daily, '2026-11-14.md'),
+      '# 2026-11-14\n\n## Remotion\n\n### 19:00\n\nremotion 14\n',
+      'utf8',
+    );
+    const entries = readDiaryEntries(daily);
+    assert.deepEqual(
+      entries.map((entry) => `${entry.date}:${entry.topic}`),
+      ['2026-11-13:Remotion', '2026-11-13:Workspace', '2026-11-14:Remotion'],
+    );
+    assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion'), /## Remotion/);
+    assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion'), /remotion 14/);
+    assert.equal(readDiaryTopicSection(daily, '2026-11-14', 'Workspace'), '');
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }

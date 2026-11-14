@@ -4,7 +4,7 @@
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-14  
 > 当前版本：**0.4.0**  
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（101 个测试）；已改成单对话 + 话题驱动：conversation 存储 topics/segments/messages，memory 负责话题文件与日记片段，定时任务功能移除。
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（103 个测试）；已改成单对话 + 话题驱动：conversation 存储 topics/segments/messages，memory 负责话题文件与日记片段，定时任务功能移除。
 
 ## 1. 这个项目是什么
 
@@ -88,6 +88,7 @@ D:\code\kolorbot\
 - **segment**：每次切换话题（包括切回旧话题）新建一个 segment，模型上下文只包含当前 segment；UI 在 segment 之间显示话题分割线。
 - **记忆注入**：新 segment 第一条带 `<system-memory>`（AI.md + `workspace/topic/<slug>.md` + 该话题最新日记片段）和 `<system-last-message>`（上一 segment 最后 10 条 user/assistant 文本）。同一 segment 内只有 AI.md 变化才重发 `<system-memory>`。
 - **日记**：`# 日期 → ## 话题（首次出现顺序）→ ### HH:mm`；第一次写某话题时创建/更新 `workspace/topic/<slug>.md`，AI 用 `write_file` 维护。
+- **话题页**：`/api/topics` 列出所有话题和日记天数；`/api/topics/:slug` 返回按月份分组的日记日历；`/api/topics/:slug/days/:date` 返回当天该话题的 segments 和日记片段。前端左侧「话题」页展示日历和当天详情（聊天记录 / 日记两个分页）。
 - **定时任务已移除**：`kolorbot-scheduler`、`schedule_reminder`、任务 API/UI/测试全部删除；旧任务表随旧库归档。
 - **旧记忆归档**：`D:\deepseek_harness_workspace\backup\kolorbot-memory-2026-11-14`（AI.md、daily、memory.json、sessions.db）。
 
@@ -273,7 +274,7 @@ mcp__kolorbot-agent-loop__read_file
 - **记忆**：`kolorbot-memory` 新增话题文件读取、日记片段查找、`<system-memory>` / `<system-last-message>`。
 - **日记**：`# 日期 → ## 话题（首次出现顺序）→ ### 时间`；segment 用 `diary_at` 标记是否已整理。
 - **定时任务移除**：`run web` 是唯一命令，任务 API/UI/提醒工具/测试全部删除。
-- 测试：101 个（agent-loop 53、conversation 3、skills 14、memory 8、web 23）。
+- 测试：103 个（agent-loop 53、conversation 3、skills 14、memory 9、web 24）。
 
 ## 4. 关键约束 / 容易踩的坑
 
@@ -416,12 +417,12 @@ UI 不再提供会话列表 / 导入 / 导出 / 改名 / 重置入口；`/api/se
 
 ```text
 pnpm build  ✅
-pnpm test   ✅ 101/101
+pnpm test   ✅ 103/103
   kolorbot-agent-loop 53
   kolorbot-conversation 3
   kolorbot-skills     14
-  kolorbot-memory      8
-  kolorbot-web        23
+  kolorbot-memory      9
+  kolorbot-web        24
 ```
 
 Web 端到端覆盖：单对话 API、话题判定与切换、`<system-memory>`（AI.md + topic 文件 + 日记片段）、`<system-last-message>`、同一话题不重复注入、工具调用落库、`/api/memory`、闲置日记整理（新格式 + 话题文件）；提供商测试覆盖存储、模型发现、切换模型。

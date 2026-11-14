@@ -1635,3 +1635,32 @@ button:focus-visible {
 @media (max-width: 900px) {
   .page-inner { padding: 20px 16px 50px; }
 }
+
+/* Topics tab: list, calendars, day detail */
+.topic-back { margin: 0 0 14px; padding-left: 0; }
+.topic-page-title { margin: 0 0 6px; font-size: 20px; color: #0f172a; }
+.topic-row { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 14px 16px; margin-bottom: 8px; border: 1px solid #e5e7eb; border-radius: 12px; background: #fff; cursor: pointer; font: inherit; }
+.topic-row:hover { border-color: #c4b5fd; background: #faf5ff; }
+.topic-row-main { flex: 1 1 auto; min-width: 0; }
+.topic-row-name { font-size: 15px; font-weight: 600; color: #0f172a; }
+.topic-row-slug { font-size: 12px; color: #94a3b8; margin-top: 3px; }
+.topic-row-count { flex: 0 0 auto; font-size: 12px; color: #6d28d9; background: #f3e8ff; border-radius: 999px; padding: 4px 9px; }
+.topic-calendars { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 20px; margin-top: 18px; }
+.calendar-month { border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; padding: 14px 14px 16px; }
+.calendar-month-title { font-size: 14px; font-weight: 600; color: #334155; margin: 0 0 10px; }
+.calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.calendar-weekday { font-size: 11px; color: #94a3b8; text-align: center; padding: 2px 0 4px; }
+.calendar-day { aspect-ratio: 1 / 1; display: flex; align-items: center; justify-content: center; border: 0; border-radius: 8px; background: transparent; color: #cbd5e1; font: inherit; font-size: 12px; }
+.calendar-day.has-entry { background: #ede9fe; color: #6d28d9; font-weight: 700; cursor: pointer; }
+.calendar-day.has-entry:hover { background: #ddd6fe; }
+.calendar-day.today { box-shadow: inset 0 0 0 1px #a78bfa; }
+.topic-empty { color: #94a3b8; font-size: 13px; padding: 20px 0; }
+.topic-tabs { display: flex; gap: 6px; border-bottom: 1px solid #e5e7eb; margin: 18px 0 20px; }
+.topic-tab { appearance: none; border: 0; background: transparent; padding: 9px 12px; font: inherit; font-size: 14px; color: #64748b; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.topic-tab.active { color: #6d28d9; border-bottom-color: #8b5cf6; font-weight: 600; }
+.topic-day-panel { min-height: 80px; }
+#topic-day-diary { background: transparent; padding: 0; max-width: none; }
+.topic-segment-divider { display: flex; align-items: center; gap: 10px; margin: 26px 0 10px; color: #94a3b8; }
+.topic-segment-divider .topic-divider-line { flex: 1 1 auto; height: 1px; background: #e5e7eb; }
+.topic-segment-divider .topic-divider-name { font-size: 12px; white-space: nowrap; }
+.topic-day-chat-empty { color: #94a3b8; font-size: 13px; padding: 12px 0; }

@@ -18,6 +18,10 @@ const state = {
   queued: null,
   /** Optimistic user bubble shown while the topic is being classified. */
   pending: null,
+  /** Current page: chat | topics | skills | models | memory. */
+  page: 'chat',
+  topicSlug: null,
+  topicDate: null,
 };
 
 /* ---------------- helpers ---------------- */
@@ -335,12 +339,14 @@ function newChat() {
 
 const PAGES = {
   chat: { title: '对话', subtitle: '' },
+  topics: { title: '话题', subtitle: '话题 / 日记日历' },
   skills: { title: '技能', subtitle: '三个技能区 / MCP' },
   models: { title: '模型', subtitle: 'OpenAI Chat Completions 提供商' },
   memory: { title: '记忆', subtitle: '设定 / 话题 / 日记' },
 };
 
 function pageFromHash() {
+  if (location.hash.startsWith('#/topics')) return 'topics';
   const match = /^#\/(chat|skills|models|memory)$/.exec(location.hash);
   return match === null ? 'chat' : match[1];
 }
@@ -355,9 +361,19 @@ function showPage(name, syncHash = true) {
   for (const item of document.querySelectorAll('.sidebar-nav [data-page]')) {
     item.classList.toggle('active', item.dataset.page === name);
   }
-  if (syncHash && pageFromHash() !== name) location.hash = `#/${name}`;
+  if (syncHash) {
+    if (name === 'topics') {
+      if (location.hash !== '#/topics') location.hash = '#/topics';
+    } else if (pageFromHash() !== name) {
+      location.hash = `#/${name}`;
+    }
+  }
   closeDrawers();
   renderHeader();
+  if (name === 'topics') {
+    if (!syncHash || location.hash === '#/topics') void routeTopics();
+    return;
+  }
   if (!changed) return;
   if (name === 'skills') void loadSkills();
   else if (name === 'models') void loadProviders();
@@ -388,6 +404,221 @@ function renderHeader() {
   if (pill !== null) pill.textContent = state.page === 'chat' && topic ? `话题 · ${topic.name}` : '';
 }
 
+/* ---------------- topics ---------------- */
+
+let topicRouteToken = 0;
+
+function setTopicsView(view) {
+  $('#topics-list-view').classList.toggle('hidden', view !== 'list');
+  $('#topic-calendar-view').classList.toggle('hidden', view !== 'calendar');
+  $('#topic-day-view').classList.toggle('hidden', view !== 'day');
+}
+
+async function routeTopics() {
+  const token = ++topicRouteToken;
+  const path = location.hash.replace(/^#\/topics\/?/, '');
+  const parts = path
+    .split('/')
+    .filter((part) => part !== '')
+    .map((part) => decodeURIComponent(part));
+  try {
+    if (parts.length === 0) await loadTopicsList(token);
+    else if (parts.length === 1) await loadTopicCalendar(parts[0], token);
+    else await loadTopicDay(parts[0], parts[1], token);
+  } catch (error) {
+    if (token !== topicRouteToken) return;
+    toast(error?.message ?? String(error), 'error');
+  }
+}
+
+async function loadTopicsList(token) {
+  setTopicsView('list');
+  const list = $('#topics-list');
+  list.textContent = '加载中…';
+  const data = await api('/api/topics');
+  if (token !== topicRouteToken) return;
+  const topics = data.topics ?? [];
+  list.innerHTML = '';
+  if (topics.length === 0) {
+    list.appendChild(el('p', 'topic-empty', '还没有话题。先在「对话」里聊几句。'));
+    return;
+  }
+  for (const topic of topics) {
+    const row = el('button', 'topic-row');
+    row.type = 'button';
+    const main = el('div', 'topic-row-main');
+    main.appendChild(el('div', 'topic-row-name', topic.name));
+    main.appendChild(el('div', 'topic-row-slug', topic.slug));
+    row.appendChild(main);
+    row.appendChild(
+      el(
+        'span',
+        'topic-row-count',
+        topic.diaryDays > 0 ? `${topic.diaryDays} 天日记` : '还没有日记',
+      ),
+    );
+    row.addEventListener('click', () => {
+      location.hash = `#/topics/${encodeURIComponent(topic.slug)}`;
+    });
+    list.appendChild(row);
+  }
+}
+
+async function loadTopicCalendar(slug, token) {
+  setTopicsView('calendar');
+  const title = $('#topic-calendar-title');
+  const meta = $('#topic-calendar-meta');
+  const calendars = $('#topic-calendars');
+  title.textContent = '加载中…';
+  meta.textContent = '';
+  calendars.innerHTML = '';
+  const data = await api(`/api/topics/${encodeURIComponent(slug)}`);
+  if (token !== topicRouteToken) return;
+  title.textContent = data.topic.name;
+  meta.textContent =
+    data.dates.length > 0
+      ? `日记里出现过 ${data.dates.length} 天`
+      : '这个话题还没有日记记录';
+  if (data.months.length === 0) {
+    calendars.appendChild(el('p', 'topic-empty', '等这个话题第一次写进日记后，这里会出现日历。'));
+    return;
+  }
+  for (const month of data.months) {
+    calendars.appendChild(renderTopicMonth(slug, month));
+  }
+}
+
+function renderTopicMonth(slug, month) {
+  const [yearText, monthText] = month.month.split('-');
+  const year = Number(yearText);
+  const monthIndex = Number(monthText) - 1;
+  const days = new Set(month.days);
+  const card = el('div', 'calendar-month');
+  card.appendChild(el('div', 'calendar-month-title', `${year} 年 ${Number(monthText)} 月`));
+  const grid = el('div', 'calendar-grid');
+  for (const weekday of ['一', '二', '三', '四', '五', '六', '日']) {
+    grid.appendChild(el('div', 'calendar-weekday', weekday));
+  }
+  const first = new Date(year, monthIndex, 1);
+  const lead = (first.getDay() + 6) % 7;
+  for (let index = 0; index < lead; index += 1) {
+    grid.appendChild(el('div', 'calendar-day'));
+  }
+  const total = new Date(year, monthIndex + 1, 0).getDate();
+  const today = localDateKey(new Date());
+  for (let day = 1; day <= total; day += 1) {
+    const date = `${month.month}-${String(day).padStart(2, '0')}`;
+    if (days.has(date)) {
+      const button = el('button', 'calendar-day has-entry', String(day));
+      button.type = 'button';
+      if (date === today) button.classList.add('today');
+      button.title = `${date} · 有日记`;
+      button.addEventListener('click', () => {
+        location.hash = `#/topics/${encodeURIComponent(slug)}/${date}`;
+      });
+      grid.appendChild(button);
+    } else {
+      const cell = el('div', 'calendar-day', String(day));
+      if (date === today) cell.classList.add('today');
+      grid.appendChild(cell);
+    }
+  }
+  card.appendChild(grid);
+  return card;
+}
+
+async function loadTopicDay(slug, date, token) {
+  setTopicsView('day');
+  state.topicSlug = slug;
+  state.topicDate = date;
+  $('#topic-day-title').textContent = '加载中…';
+  $('#topic-day-chat').innerHTML = '';
+  $('#topic-day-diary').innerHTML = '';
+  setTopicTab('chat');
+  const data = await api(
+    `/api/topics/${encodeURIComponent(slug)}/days/${encodeURIComponent(date)}`,
+  );
+  if (token !== topicRouteToken) return;
+  $('#topic-day-title').textContent = `${data.topic.name} · ${date}`;
+  renderTopicDayChat(data.segments ?? []);
+  const diary = $('#topic-day-diary');
+  diary.innerHTML =
+    data.diary === ''
+      ? '<p class="topic-empty">这一天这个话题还没有日记。</p>'
+      : renderMarkdown(data.diary);
+  setTopicTab('chat');
+}
+
+function renderTopicDayChat(segments) {
+  const box = $('#topic-day-chat');
+  box.innerHTML = '';
+  if (segments.length === 0) {
+    box.appendChild(el('p', 'topic-day-chat-empty', '这一天没有这个话题的聊天记录。'));
+    return;
+  }
+  for (const [index, segment] of segments.entries()) {
+    if (index > 0) {
+      const divider = el('div', 'topic-segment-divider');
+      divider.appendChild(el('span', 'topic-divider-line'));
+      divider.appendChild(
+        el('span', 'topic-divider-name', `片段 ${index + 1} · ${hhmm(segment.startedAt)}`),
+      );
+      divider.appendChild(el('span', 'topic-divider-line'));
+      box.appendChild(divider);
+    }
+    const messages = segment.messages ?? [];
+    const toolResults = new Map();
+    for (const message of messages) {
+      if (message.role === 'tool') toolResults.set(message.toolCallId, message);
+    }
+    let turn = null;
+    for (const message of messages) {
+      if (message.role === 'user') {
+        const text = stripEnvelopes(message.content ?? '');
+        if (text === '') continue;
+        turn = el('div', 'turn');
+        turn.appendChild(el('div', 'user-message', text));
+        box.appendChild(turn);
+        continue;
+      }
+      if (message.role !== 'assistant') continue;
+      const text = message.content ?? '';
+      const calls = message.toolCalls ?? [];
+      if (text.trim() === '' && calls.length === 0) continue;
+      if (turn === null) {
+        turn = el('div', 'turn');
+        box.appendChild(turn);
+      }
+      if (text.trim() !== '') {
+        const body = el('div', 'assistant-message');
+        body.innerHTML = renderMarkdown(text);
+        turn.appendChild(body);
+      }
+      for (const call of calls) {
+        appendToolCard(turn, call, toolResults.get(call.id));
+      }
+    }
+  }
+}
+
+function setTopicTab(tab) {
+  for (const button of document.querySelectorAll('[data-topic-tab]')) {
+    button.classList.toggle('active', button.dataset.topicTab === tab);
+  }
+  $('#topic-day-chat').classList.toggle('hidden', tab !== 'chat');
+  $('#topic-day-diary').classList.toggle('hidden', tab !== 'diary');
+}
+
+function localDateKey(date) {
+  const pad = (value) => String(value).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
+}
+
+function hhmm(iso) {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  return `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+}
 /* ---------------- messages ---------------- */
 
 function topicDivider(name) {
@@ -1735,6 +1966,17 @@ function wire() {
 
   for (const item of document.querySelectorAll('.sidebar-nav [data-page]')) {
     item.addEventListener('click', () => showPage(item.dataset.page));
+  }
+  $('#topics-back').addEventListener('click', () => {
+    location.hash = '#/topics';
+  });
+  $('#topic-day-back').addEventListener('click', () => {
+    if (state.topicSlug !== null) {
+      location.hash = `#/topics/${encodeURIComponent(state.topicSlug)}`;
+    }
+  });
+  for (const tab of document.querySelectorAll('[data-topic-tab]')) {
+    tab.addEventListener('click', () => setTopicTab(tab.dataset.topicTab));
   }
   window.addEventListener('hashchange', () => showPage(pageFromHash(), false));
   $('#diary-auto').addEventListener('change', (event) =>
