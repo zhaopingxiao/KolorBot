@@ -16,6 +16,8 @@ const state = {
   memory: null,
   /** A message typed while a turn was running; sent when it finishes. */
   queued: null,
+  /** Optimistic user bubble shown while the topic is being classified. */
+  pending: null,
 };
 
 /* ---------------- helpers ---------------- */
@@ -230,22 +232,17 @@ function renderListItems(items) {
 
 function stripEnvelopes(content) {
   let text = content;
-  let previous;
-  do {
-    previous = text;
-    text = text.replace(/^<system-skills>\r?\n[\s\S]*?\r?\n<\/system-skills>\r?\n*/, '');
-    text = text.replace(/^<system-topic>\r?\n[\s\S]*?\r?\n<\/system-topic>\r?\n*/, '');
-    text = text.replace(/^<system-memory>\r?\n[\s\S]*?\r?\n<\/system-memory>\r?\n*/, '');
-    text = text.replace(
-      /^<system-daily-memory>\r?\n[\s\S]*?\r?\n<\/system-daily-memory>\r?\n*/,
+  // Injected blocks can be nested inside <system-last-message> (it quotes
+  // older user messages verbatim), so peel envelopes from the inside out.
+  for (;;) {
+    const next = text.replace(
+      /<system-([a-z-]+)>((?:(?!<system-)[\s\S])*?)<\/system-\1>\r?\n*/g,
       '',
     );
-    text = text.replace(
-      /^<system-daily-memory-task>\r?\n[\s\S]*?\r?\n<\/system-daily-memory-task>\r?\n*/,
-      '',
-    );
-  } while (text !== previous);
-  return text;
+    if (next === text) break;
+    text = next;
+  }
+  return text.replace(/^\s+/, '');
 }
 
 function timeAgo(iso) {
@@ -365,7 +362,7 @@ function showPage(name, syncHash = true) {
   if (name === 'skills') void loadSkills();
   else if (name === 'models') void loadProviders();
   else if (name === 'memory') void loadMemory();
-  else renderMessages(false);
+  else if (state.live === null) renderMessages(false);
 }
 
 function renderHeader() {
@@ -743,16 +740,51 @@ function dropEmptyAssistant(stream) {
   }
 }
 
+/** Show the user's message immediately while the server classifies its topic. */
+function beginPendingTurn(text) {
+  const container = $('#messages');
+  const turn = el('div', 'turn pending-turn');
+  turn.appendChild(el('div', 'user-message', text));
+  const thinking = appendThinking(turn);
+  container.appendChild(turn);
+  scrollMessagesToBottom();
+  state.pending = { text, turn, thinking };
+}
+
+function clearPendingTurn() {
+  if (state.pending === null) return;
+  state.pending.turn.remove();
+  state.pending = null;
+}
+
 function ensureStream(sessionId, run) {
   const existing = streams.get(sessionId);
-  if (existing !== undefined) return existing;
+  if (existing !== undefined) {
+    if (existing.turn.isConnected) return existing;
+    // A rebuild detached the live turn; start a fresh one instead of writing
+    // into DOM nodes that are no longer in the document.
+    streams.delete(sessionId);
+  }
 
   const container = $('#messages');
   const stick = atBottom();
-  const turn = el('div', 'turn');
-  const prompt = stripEnvelopes(run.prompt ?? '');
-  if (prompt !== '') turn.appendChild(el('div', 'user-message', prompt));
-  container.appendChild(turn);
+  let turn;
+  if (state.pending !== null) {
+    // Reuse the optimistic bubble: no duplicate message, drop its dots.
+    const pending = state.pending;
+    state.pending = null;
+    turn = pending.turn;
+    turn.classList.remove('pending-turn');
+    pending.thinking.remove();
+    const prompt = stripEnvelopes(run.prompt ?? '');
+    const bubble = turn.querySelector('.user-message');
+    if (prompt !== '' && bubble !== null) bubble.textContent = prompt;
+  } else {
+    turn = el('div', 'turn');
+    const prompt = stripEnvelopes(run.prompt ?? '');
+    if (prompt !== '') turn.appendChild(el('div', 'user-message', prompt));
+    container.appendChild(turn);
+  }
 
   const stream = {
     sessionId,
@@ -777,8 +809,8 @@ function handleRunEvent(sessionId, event) {
     return;
   }
 
-  const stream = streams.get(sessionId);
-  if (stream === undefined) return;
+  let stream = streams.get(sessionId);
+  if (stream === undefined) stream = ensureStream(sessionId, {});
 
   if (event.type === 'step/start' || event.type === 'reasoning/delta') {
     showThinking(stream);
@@ -901,7 +933,8 @@ async function attachRun(sessionId, open) {
 function detachRun() {
   const live = state.live;
   if (live === null) return;
-  state.live = null;  live.controller.abort();
+  state.live = null;
+  live.controller.abort();
 
   const stream = streams.get(live.sessionId);
   if (stream !== undefined) {
@@ -921,6 +954,7 @@ async function finishRun(sessionId) {
   }
 
   toggleRunning(false, sessionId);
+  clearPendingTurn();
   await loadConversation().catch(() => {});
   // The cancelled marker survives the rebuild; scroll position is kept when
   // the reader was not following the bottom.
@@ -980,6 +1014,7 @@ async function sendMessage() {
 
   input.value = '';
   input.style.height = 'auto';
+  beginPendingTurn(text);
 
   try {
     if (state.session === null) await loadConversation();
@@ -997,7 +1032,9 @@ async function sendMessage() {
       }),
     );
     if (completed) await finishRun(session.id);
+    else clearPendingTurn();
   } catch (error) {
+    clearPendingTurn();
     toast(error?.message ?? String(error), 'error');
     if (state.session !== null) {
       const id = state.session.id;
@@ -1710,8 +1747,16 @@ function wire() {
 
   setInterval(async () => {
     try {
+      // Never rebuild the message list under an active turn: it would detach
+      // the live stream and the UI would look frozen on the previous turn.
+      if (state.pending !== null) return;
+      if (state.live !== null) {
+        const live = await api('/api/sessions/main');
+        if (live.running !== true) await finishRun('main');
+        return;
+      }
       await loadConversation();
-      if (state.live === null && state.runningIds.has('main')) {
+      if (state.runningIds.has('main')) {
         await attachLive('main');
       }
     } catch {
