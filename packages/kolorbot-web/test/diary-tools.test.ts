@@ -17,7 +17,7 @@ async function run(
   return typeof result === 'string' ? { content: result } : result;
 }
 
-test('diary tools list topics, read dates and append entries', async () => {
+test('diary tools use the current topic and require topic memory', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'kolorbot-diary-tools-'));
   const store = new ConversationStore({ path: join(dir, 'conversation.db') });
   const daily = join(dir, 'daily');
@@ -28,6 +28,7 @@ test('diary tools list topics, read dates and append entries', async () => {
     const tools = createDiaryTools({
       store,
       diaryDir: daily,
+      workspace: dir,
       currentTopicSlug: () => 'remotion',
       now: () => at,
     });
@@ -35,34 +36,30 @@ test('diary tools list topics, read dates and append entries', async () => {
     const list = await run(tools, 'list_topics', {});
     assert.match(list.content, /remotion — Remotion \(current\)/);
 
-    const empty = await run(tools, 'read_diary', { slug: 'remotion' });
+    const empty = await run(tools, 'read_diary', {});
     assert.match(empty.content, /No diary entries/);
 
-    const written = await run(tools, 'write_diary', {
-      slug: 'remotion',
-      content: '第一条记录',
-    });
+    const written = await run(tools, 'write_diary', { content: '第一条记录' });
     assert.match(written.content, /Wrote diary/);
+    assert.match(written.content, /write_topic/);
     const raw = readFileSync(join(daily, '2026-11-14.md'), 'utf8');
     assert.match(raw, /## Remotion/);
     assert.match(raw, /### 19:21/);
     assert.match(raw, /第一条记录/);
 
-    const dates = await run(tools, 'read_diary', { slug: 'remotion' });
-    assert.match(dates.content, /2026-11-14/);
-    const section = await run(tools, 'read_diary', {
-      slug: 'remotion',
-      date: '2026-11-14',
+    const topicWritten = await run(tools, 'write_topic', {
+      content: '- 项目路径：workspace/remotion-project\n- 当前状态：测试中',
     });
+    assert.match(topicWritten.content, /Wrote topic memory/);
+    const topicRaw = readFileSync(join(dir, 'topic', 'remotion.md'), 'utf8');
+    assert.match(topicRaw, /^# Remotion/);
+    assert.match(topicRaw, /remotion-project/);
+
+    const dates = await run(tools, 'read_diary', {});
+    assert.match(dates.content, /2026-11-14/);
+    const section = await run(tools, 'read_diary', { date: '2026-11-14' });
     assert.match(section.content, /## Remotion/);
     assert.match(section.content, /第一条记录/);
-
-    const unknown = await run(tools, 'write_diary', {
-      slug: 'nope',
-      content: 'x',
-    });
-    assert.equal(unknown.isError, true);
-    assert.match(unknown.content, /Unknown topic slug/);
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

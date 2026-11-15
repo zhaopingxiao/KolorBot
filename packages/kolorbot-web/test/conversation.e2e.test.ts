@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -339,7 +339,6 @@ test('the idle diary writes a topic section and creates the topic file', async (
                     function: {
                       name: 'write_diary',
                       arguments: JSON.stringify({
-                        slug: 'remotion',
                         content: '把 remotion 的时间轴改好了。',
                       }),
                     },
@@ -349,10 +348,9 @@ test('the idle diary writes a topic section and creates the topic file', async (
                     id: 'call_topic',
                     type: 'function',
                     function: {
-                      name: 'write_file',
+                      name: 'write_topic',
                       arguments: JSON.stringify({
-                        path: 'topic/remotion.md',
-                        content: '# 工作区 Remotion 环境\n\n- 时间轴已改好\n',
+                        content: '- 时间轴已改好\n',
                       }),
                     },
                   },
@@ -416,6 +414,11 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
     `# ${today}\n\n## 工作区 Remotion 环境\n\n### 09:00\n\nremotion 日记段落。\n\n## Deepseek Workspace\n\n### 10:00\n\nworkspace 日记段落。\n`,
     'utf8',
   );
+  writeFileSync(
+    join(frameRoot, 'topic', 'remotion.md'),
+    '# 工作区 Remotion 环境\n\n- 关键记忆条目\n',
+    'utf8',
+  );
 
   await postChat(app, 'remotion 第一次');
   await postChat(app, 'workspace 切换一下');
@@ -429,10 +432,12 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
 
   const calendar = (await (await fetch(`${app.url}/api/topics/remotion`)).json()) as {
     dates: string[];
+    memory: string;
     months: Array<{ month: string; days: string[] }>;
   };
   assert.deepEqual(calendar.dates, [today]);
   assert.equal(calendar.months[0]?.month, today.slice(0, 7));
+  assert.match(calendar.memory, /关键记忆条目/);
 
   const day = (await (
     await fetch(`${app.url}/api/topics/remotion/days/${today}`)
@@ -444,4 +449,132 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
   assert.match(day.diary, /remotion 日记段落/);
   assert.equal(day.diary.includes('workspace 日记段落'), false);
   assert.ok(day.segments[0]?.messages.some((message) => message.role === 'assistant'));
+});
+test('topic calendar uses conversation dates, not only diary dates', async (t) => {
+  const model = await startModel();
+  t.after(() => model.close());
+  const { app } = await tempApp(t, model.url);
+  const today = diaryDateKey(new Date());
+  await postChat(app, 'remotion 聊两句');
+
+  const topics = (await (await fetch(`${app.url}/api/topics`)).json()) as {
+    topics: Array<{ slug: string; conversationDays: number; diaryDays: number }>;
+  };
+  const remotion = topics.topics.find((topic) => topic.slug === 'remotion');
+  assert.equal(remotion?.conversationDays, 1);
+  assert.equal(remotion?.diaryDays, 0);
+
+  const calendar = (await (await fetch(`${app.url}/api/topics/remotion`)).json()) as {
+    dates: string[];
+    diaryDates: string[];
+  };
+  assert.deepEqual(calendar.dates, [today]);
+  assert.deepEqual(calendar.diaryDates, []);
+
+  const day = (await (await fetch(`${app.url}/api/topics/remotion/days/${today}`)).json()) as {
+    hasDiary: boolean;
+    segments: unknown[];
+  };
+  assert.equal(day.hasDiary, false);
+  assert.equal(day.segments.length, 1);
+});
+test('backfills a missing diary for a conversation day', async (t) => {
+  const today = diaryDateKey(new Date());
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk as Buffer));
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+      messages?: ChatMessage[];
+    };
+    const messages = body.messages ?? [];
+    const system = String(messages.find((message) => message.role === 'system')?.content ?? '');
+    const lastUser = String(
+      [...messages].reverse().find((message) => message.role === 'user')?.content ?? '',
+    );
+    if (system.includes('route a single conversation into topics')) {
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ action: 'new', name: 'Remotion', slug: 'remotion' }),
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+    const send = (value: unknown): void => {
+      response.write(`data: ${JSON.stringify(value)}\n\n`);
+    };
+    if (lastUser.includes('Backfill the diary')) {
+      if (!messages.some((message) => message.role === 'tool')) {
+        send({
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_backfill',
+                    type: 'function',
+                    function: {
+                      name: 'write_diary',
+                      arguments: JSON.stringify({
+                        date: today,
+                        content: '补写的日记内容',
+                      }),
+                    },
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        });
+        for (const frame of finish('tool_calls')) send(frame);
+      } else {
+        send(textDelta('补写完成。'));
+        for (const frame of finish('stop')) send(frame);
+      }
+    } else {
+      send(textDelta('聊完了。'));
+      for (const frame of finish('stop')) send(frame);
+    }
+    response.write('data: [DONE]\n\n');
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const { app, frameRoot } = await tempApp(t, `http://127.0.0.1:${port}/v1`, {
+    diaryIdleMs: 3_600_000,
+  });
+  await postChat(app, 'remotion 聊两句');
+  const started = await fetch(`${app.url}/api/topics/remotion/days/${today}/diary`, {
+    method: 'POST',
+  });
+  assert.equal(started.status, 202);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const day = (await (
+      await fetch(`${app.url}/api/topics/remotion/days/${today}`)
+    ).json()) as { diary: string; hasDiary: boolean };
+    if (day.diary.includes('补写的日记内容')) {
+      assert.equal(day.hasDiary, true);
+      break;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  assert.match(
+    readFileSync(join(frameRoot, 'daily', `${today}.md`), 'utf8'),
+    /补写的日记内容/,
+  );
 });

@@ -20,7 +20,7 @@
   readTopicMemory,
   appendDiaryEntry,
   readDiaryEntries,
-  normalizeTopicLabel,
+
   readDiaryTopicSection,
   topicMemoryPath,
   selfTellInfo,

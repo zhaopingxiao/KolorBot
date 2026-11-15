@@ -1,16 +1,20 @@
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { dirname } from 'node:path';
 import type { ToolDefinition } from 'kolorbot-agent-loop';
 import type { ConversationStore, Topic } from 'kolorbot-conversation';
 import {
   appendDiaryEntry,
   diaryDateKey,
-  normalizeTopicLabel,
   readDiaryEntries,
   readDiaryTopicSection,
+  topicMemoryPath,
 } from 'kolorbot-memory';
 
 export interface DiaryToolsOptions {
   store: ConversationStore;
   diaryDir: string;
+  /** Workspace root; topic memory files live under `topic/`. */
+  workspace: string;
   /** Slug of the topic the current turn belongs to. */
   currentTopicSlug: () => string;
   now?: () => Date;
@@ -40,9 +44,9 @@ function unknownSlug(slug: string): { content: string; isError: true } {
 /**
  * Topic-aware diary tools.
  *
- * These replace handing the raw `daily/*.md` format to the model: the agent
- * only picks a valid slug plus the content, and the tool owns headings, time,
- * ordering and file creation.
+ * These replace handing the raw `daily/*.md` and `topic/*.md` formats to the
+ * model: tools own headings, time, ordering, file creation and the current
+ * topic lookup.
  */
 export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
   const now = options.now ?? (() => new Date());
@@ -101,13 +105,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
           const dates = [
             ...new Set(
               readDiaryEntries(options.diaryDir)
-                .filter((entry) => {
-                  const label = normalizeTopicLabel(entry.topic);
-                  return (
-                    label === normalizeTopicLabel(topic.name) ||
-                    label === normalizeTopicLabel(topic.slug)
-                  );
-                })
+                .filter((entry) => entry.topic.trim() === topic.name.trim())
                 .map((entry) => entry.date),
             ),
           ].sort();
@@ -125,7 +123,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
         if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
           return { content: `Invalid date "${date}"; expected YYYY-MM-DD.`, isError: true };
         }
-        const section = readDiaryTopicSection(options.diaryDir, date, topic.name, topic.slug);
+        const section = readDiaryTopicSection(options.diaryDir, date, topic.name);
         if (section === '') {
           return {
             content: `No diary section for ${topic.name} (${topic.slug}) on ${date}.`,
@@ -137,40 +135,90 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
     {
       name: 'write_diary',
       description:
-        'Append a new entry to a topic\'s diary at the current local time. Creates the day file, the topic section and the HH:mm block when needed. The slug must exist.\n\nInput: slug (topic slug) and content (markdown for the new entry).',
+        'Append a new entry to the CURRENT topic\'s diary at the current local time, or on an explicit date. Creates the day file, the topic section and the HH:mm block when needed. No slug argument is needed.\n\nInput: content (markdown for the new entry) and optional date (YYYY-MM-DD) for a backfill.',
       inputSchema: {
         type: 'object',
         properties: {
-          slug: {
-            type: 'string',
-            description: 'Existing topic slug (see list_topics)',
-          },
           content: {
             type: 'string',
             description: 'New diary entry in markdown; no heading needed',
           },
+          date: {
+            type: 'string',
+            description: 'Optional local date YYYY-MM-DD; defaults to today',
+          },
         },
-        required: ['slug', 'content'],
+        required: ['content'],
         additionalProperties: false,
       },
       concurrency: 'exclusive',
       execute: (input: unknown) => {
         const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
-        const slug = typeof args.slug === 'string' ? args.slug.trim() : '';
         const content = typeof args.content === 'string' ? args.content.trim() : '';
-        const topic = options.store.topic(slug);
-        if (topic === undefined) return unknownSlug(slug);
+        const dateArg = typeof args.date === 'string' ? args.date.trim() : '';
+        if (dateArg !== '' && !/^\d{4}-\d{2}-\d{2}$/.test(dateArg)) {
+          return { content: `Invalid date "${dateArg}"; expected YYYY-MM-DD.`, isError: true };
+        }
+        const topic = currentTopic(options);
+        if (topic === undefined) {
+          return { content: 'No current topic.', isError: true };
+        }
         if (content === '') return { content: 'content must not be empty.', isError: true };
         const at = now();
-        const date = diaryDateKey(at);
+        const date = dateArg === '' ? diaryDateKey(at) : dateArg;
         try {
           const result = appendDiaryEntry(options.diaryDir, date, topic.name, content, at);
+          const topicPath = topicMemoryPath(options.workspace, topic.slug);
+          const hasTopicMemory =
+            existsSync(topicPath) && readFileSync(topicPath, 'utf8').trim() !== '';
+          const requirement = hasTopicMemory
+            ? ''
+            : `\n\nThe current topic has no topic memory file yet. Call write_topic with its key facts, current state and next steps.`;
           return {
-            content: `Wrote diary for ${topic.name} (${topic.slug}) at ${date} ${result.time}.`,
+            content: `Wrote diary for ${topic.name} (${topic.slug}) at ${date} ${result.time}.${requirement}`,
           };
         } catch (error) {
           return {
             content: `Could not write diary: ${error instanceof Error ? error.message : String(error)}`,
+            isError: true,
+          };
+        }
+      },
+    },
+    {
+      name: 'write_topic',
+      description:
+        'Create or replace the CURRENT topic\'s memory file (workspace/topic/<slug>.md) with its key information: durable facts, decisions, current state, next steps and related paths. No slug argument is needed. Use this when write_diary says the topic memory is missing, or when important topic facts change.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description:
+              'Full topic memory in markdown. A "# <topic name>" heading is added automatically when missing.',
+          },
+        },
+        required: ['content'],
+        additionalProperties: false,
+      },
+      concurrency: 'exclusive',
+      execute: (input: unknown) => {
+        const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+        const content = typeof args.content === 'string' ? args.content.trim() : '';
+        const topic = currentTopic(options);
+        if (topic === undefined) return { content: 'No current topic.', isError: true };
+        if (content === '') return { content: 'content must not be empty.', isError: true };
+        const path = topicMemoryPath(options.workspace, topic.slug);
+        const body = /^#\s+/m.test(content) ? content : `# ${topic.name}\n\n${content}`;
+        try {
+          mkdirSync(dirname(path), { recursive: true });
+          writeFileSync(path, `${body.trimEnd()}\n`, 'utf8');
+          return {
+            content: `Wrote topic memory for ${topic.name} (${topic.slug}) to workspace/topic/${topic.slug}.md.`,
+          };
+        } catch (error) {
+          return {
+            content: `Could not write topic memory: ${error instanceof Error ? error.message : String(error)}`,
             isError: true,
           };
         }

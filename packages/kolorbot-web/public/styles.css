@@ -1,4 +1,4 @@
-:root {
+﻿:root {
   --bg: #ffffff;
   --bg-1: #fafafa;
   --bg-2: #f2f2f2;
@@ -1628,7 +1628,7 @@ button:focus-visible {
 .nav-item.active { background: #eef2ff; color: #4338ca; font-weight: 600; }
 .page { flex: 1 1 auto; min-height: 0; display: flex; flex-direction: column; }
 .page.hidden { display: none; }
-#page-skills, #page-models, #page-memory { overflow-y: auto; }
+#page-skills, #page-models, #page-memory, #page-topics { overflow-y: auto; overscroll-behavior: contain; }
 #page-chat { overflow: hidden; }
 .page-inner { width: 100%; max-width: 920px; margin: 0 auto; padding: 28px 30px 60px; }
 .page-lead { color: #64748b; font-size: 13px; margin: 0 0 18px; }
@@ -1664,3 +1664,12 @@ button:focus-visible {
 .topic-segment-divider .topic-divider-line { flex: 1 1 auto; height: 1px; background: #e5e7eb; }
 .topic-segment-divider .topic-divider-name { font-size: 12px; white-space: nowrap; }
 .topic-day-chat-empty { color: #94a3b8; font-size: 13px; padding: 12px 0; }
+
+.calendar-day.has-entry.no-diary { background: #faf5ff; box-shadow: inset 0 0 0 1px #e9d5ff; }
+.organize-diary { margin-top: 12px; }
+
+/* Topic memory rendered above the calendars */
+.topic-memory { margin: 4px 0 26px; padding: 16px 18px; border: 1px solid #e5e7eb; border-radius: 14px; background: #fff; }
+.topic-memory-head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; font-size: 13px; font-weight: 600; color: #334155; }
+.topic-memory-path { font-weight: 400; color: #94a3b8; font-size: 12px; }
+.topic-memory .assistant-message { max-width: none; }

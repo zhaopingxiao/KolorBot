@@ -71,3 +71,22 @@ test('rejects unknown topics and derives a fallback slug', () => {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
 });
+
+test('last-message texts drop injected system envelopes', () => {
+  const { store, dir } = tempStore();
+  try {
+    const topic = store.ensureTopic('Remotion', 'remotion');
+    const segment = store.startSegment(topic.slug);
+    store.appendMessages(segment.id, [
+      { role: 'user', content: '<system-skills>\nskill\n</system-skills>\n\n真实问题' },
+      { role: 'assistant', content: '<system-last-message>\nuser: old\n</system-last-message>\n\n回答', toolCalls: [] },
+    ]);
+    assert.deepEqual(store.lastTextMessages(segment.id, 10), [
+      { role: 'user', content: '真实问题' },
+      { role: 'assistant', content: '回答' },
+    ]);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});

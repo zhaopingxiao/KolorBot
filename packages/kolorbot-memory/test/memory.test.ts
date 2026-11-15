@@ -8,7 +8,6 @@ import {
   findLatestDiarySection,
   readDiaryEntries,
   readDiaryTopicSection,
-  normalizeTopicLabel,
   appendDiaryEntry,
   formatLastMessageBlock,
   formatTopicMemoryBlock,
@@ -110,6 +109,7 @@ test('finds today, then the latest earlier, then the earliest diary section', ()
 
     const earliest = findLatestDiarySection(daily, 'Remotion', new Date(2026, 10, 12, 12, 0));
     assert.equal(earliest?.date, '2026-11-10');
+    assert.equal(findLatestDiarySection(daily, 'Remotion 话题', new Date(2026, 10, 14, 12, 0)), undefined);
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
@@ -137,8 +137,7 @@ test('indexes all diary topics and reads one topic section', () => {
     assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion'), /## Remotion/);
     assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion'), /remotion 14/);
     assert.equal(readDiaryTopicSection(daily, '2026-11-14', 'Workspace'), '');
-    assert.equal(normalizeTopicLabel('Remotion 话题'), 'remotion');
-    assert.match(readDiaryTopicSection(daily, '2026-11-14', 'Remotion 话题', 'remotion'), /remotion 14/);
+    assert.equal(readDiaryTopicSection(daily, '2026-11-14', 'Remotion 话题'), '');
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
@@ -149,7 +148,7 @@ test('appends diary entries at the current time without duplicating topic sectio
   try {
     const at = new Date(2026, 10, 14, 19, 21);
     appendDiaryEntry(daily, '2026-11-14', 'Remotion', '第一条', at);
-    appendDiaryEntry(daily, '2026-11-14', 'Remotion 话题', '同分钟追加', at);
+    appendDiaryEntry(daily, '2026-11-14', 'Remotion', '同分钟追加', at);
     appendDiaryEntry(daily, '2026-11-14', 'Deepseek Workspace', '另一个话题', at);
     appendDiaryEntry(daily, '2026-11-14', 'Remotion', '下一分钟', new Date(2026, 10, 14, 19, 22));
     const content = readFileSync(join(daily, '2026-11-14.md'), 'utf8');

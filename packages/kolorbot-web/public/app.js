@@ -408,7 +408,17 @@ function renderHeader() {
 
 let topicRouteToken = 0;
 
+function resetTopicsScroll() {
+  const page = $('#page-topics');
+  if (page === null) return;
+  page.scrollTop = 0;
+  requestAnimationFrame(() => {
+    page.scrollTop = 0;
+  });
+}
+
 function setTopicsView(view) {
+  resetTopicsScroll();
   $('#topics-list-view').classList.toggle('hidden', view !== 'list');
   $('#topic-calendar-view').classList.toggle('hidden', view !== 'calendar');
   $('#topic-day-view').classList.toggle('hidden', view !== 'day');
@@ -454,7 +464,9 @@ async function loadTopicsList(token) {
       el(
         'span',
         'topic-row-count',
-        topic.diaryDays > 0 ? `${topic.diaryDays} 天日记` : '还没有日记',
+        topic.conversationDays > 0
+          ? `${topic.conversationDays} 天记录${topic.diaryDays < topic.conversationDays ? ` · ${topic.diaryDays} 天日记` : ''}`
+          : '还没有对话记录',
       ),
     );
     row.addEventListener('click', () => {
@@ -462,6 +474,7 @@ async function loadTopicsList(token) {
     });
     list.appendChild(row);
   }
+  resetTopicsScroll();
 }
 
 async function loadTopicCalendar(slug, token) {
@@ -469,26 +482,38 @@ async function loadTopicCalendar(slug, token) {
   const title = $('#topic-calendar-title');
   const meta = $('#topic-calendar-meta');
   const calendars = $('#topic-calendars');
+  const memory = $('#topic-memory');
+  const memoryBody = $('#topic-memory-body');
   title.textContent = '加载中…';
   meta.textContent = '';
   calendars.innerHTML = '';
+  memory.classList.add('hidden');
+  memoryBody.innerHTML = '';
   const data = await api(`/api/topics/${encodeURIComponent(slug)}`);
   if (token !== topicRouteToken) return;
   title.textContent = data.topic.name;
   meta.textContent =
     data.dates.length > 0
-      ? `日记里出现过 ${data.dates.length} 天`
-      : '这个话题还没有日记记录';
+      ? `对话里出现过 ${data.dates.length} 天`
+      : '这个话题还没有对话记录';
+  const memoryContent = (data.memory ?? '').trim();
+  if (memoryContent !== '') {
+    memory.classList.remove('hidden');
+    memoryBody.innerHTML = renderMarkdown(memoryContent);
+    $('#topic-memory-path').textContent = `workspace/topic/${slug}.md`;
+  }
   if (data.months.length === 0) {
-    calendars.appendChild(el('p', 'topic-empty', '等这个话题第一次写进日记后，这里会出现日历。'));
+    calendars.appendChild(el('p', 'topic-empty', '等这个话题第一次出现在对话后，这里会出现日历。'));
     return;
   }
+  const diaryDates = new Set(data.diaryDates ?? []);
   for (const month of data.months) {
-    calendars.appendChild(renderTopicMonth(slug, month));
+    calendars.appendChild(renderTopicMonth(slug, month, diaryDates));
   }
+  resetTopicsScroll();
 }
 
-function renderTopicMonth(slug, month) {
+function renderTopicMonth(slug, month, diaryDates = new Set()) {
   const [yearText, monthText] = month.month.split('-');
   const year = Number(yearText);
   const monthIndex = Number(monthText) - 1;
@@ -512,7 +537,8 @@ function renderTopicMonth(slug, month) {
       const button = el('button', 'calendar-day has-entry', String(day));
       button.type = 'button';
       if (date === today) button.classList.add('today');
-      button.title = `${date} · 有日记`;
+      if (!diaryDates.has(date)) button.classList.add('no-diary');
+      button.title = `${date} · ${diaryDates.has(date) ? '有日记' : '有对话，还没有日记'}`;
       button.addEventListener('click', () => {
         location.hash = `#/topics/${encodeURIComponent(slug)}/${date}`;
       });
@@ -541,12 +567,57 @@ async function loadTopicDay(slug, date, token) {
   if (token !== topicRouteToken) return;
   $('#topic-day-title').textContent = `${data.topic.name} · ${date}`;
   renderTopicDayChat(data.segments ?? []);
-  const diary = $('#topic-day-diary');
-  diary.innerHTML =
-    data.diary === ''
-      ? '<p class="topic-empty">这一天这个话题还没有日记。</p>'
-      : renderMarkdown(data.diary);
+  renderTopicDiary(data);
   setTopicTab('chat');
+  resetTopicsScroll();
+}
+
+function renderTopicDiary(data) {
+  const diary = $('#topic-day-diary');
+  diary.innerHTML = '';
+  if (data.diary !== '') {
+    diary.innerHTML = renderMarkdown(data.diary);
+    return;
+  }
+  diary.appendChild(
+    el('p', 'topic-empty', '这一天有对话记录，但还没有这个话题的日记。'),
+  );
+  const button = el('button', 'primary-button organize-diary', '整理这天的日记');
+  button.type = 'button';
+  button.addEventListener('click', () => {
+    void organizeTopicDiary(data.topic.slug, data.date, button);
+  });
+  diary.appendChild(button);
+}
+
+async function organizeTopicDiary(slug, date, button) {
+  const targetHash = `#/topics/${encodeURIComponent(slug)}/${date}`;
+  button.disabled = true;
+  button.textContent = '整理中…';
+  try {
+    await api(
+      `/api/topics/${encodeURIComponent(slug)}/days/${encodeURIComponent(date)}/diary`,
+      { method: 'POST' },
+    );
+    toast('已开始整理，这天的日记写好后会自动刷新');
+    for (let attempt = 0; attempt < 120; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      if (location.hash !== targetHash) return;
+      const data = await api(
+        `/api/topics/${encodeURIComponent(slug)}/days/${encodeURIComponent(date)}`,
+      );
+      if (data.diary !== '') {
+        renderTopicDiary(data);
+        toast('这天的日记已整理完成');
+        return;
+      }
+    }
+    toast('整理还在后台进行，稍后刷新看看');
+  } catch (error) {
+    button.disabled = false;
+    button.textContent = '整理这天的日记';
+    toast(error?.message ?? String(error), 'error');
+  }
 }
 
 function renderTopicDayChat(segments) {

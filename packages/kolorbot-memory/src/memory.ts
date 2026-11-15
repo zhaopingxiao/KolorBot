@@ -399,20 +399,6 @@ export function parseDiarySections(content: string): DiarySection[] {
   return sections;
 }
 
-/**
- * Calendar labels come from model-written diary headings while topics come
- * from the classifier. Normalize the small differences (case, spaces and a
- * trailing 话题/topic) so `Remotion` still matches `Remotion 话题`.
- */
-export function normalizeTopicLabel(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '')
-    .replace(/(话题|topic)$/u, '')
-    .replace(/[-_/]+$/u, '');
-}
-
 export interface AppendDiaryEntryResult {
   date: string;
   time: string;
@@ -446,9 +432,9 @@ export function appendDiaryEntry(
   const labels = new Map<string, number>();
   for (let index = 0; index < lines.length; index += 1) {
     const match = /^##\s+(.+?)\s*$/.exec(lines[index] ?? '');
-    if (match !== null) labels.set(normalizeTopicLabel(match[1] as string), index);
+    if (match !== null) labels.set((match[1] as string).trim(), index);
   }
-  const topicIndex = labels.get(normalizeTopicLabel(safeName));
+  const topicIndex = labels.get(safeName);
   const contentLines = body.split(/\r?\n/);
   const result: AppendDiaryEntryResult = {
     date,
@@ -537,7 +523,6 @@ export function readDiaryTopicSection(
   dailyDir: string,
   date: string,
   topicName: string,
-  topicSlug = '',
 ): string {
   const path = join(dailyDir, `${date}.md`);
   if (!existsSync(path)) return '';
@@ -547,12 +532,8 @@ export function readDiaryTopicSection(
   } catch {
     return '';
   }
-  const wanted = normalizeTopicLabel(topicName);
-  const wantedSlug = normalizeTopicLabel(topicSlug);
-  const section = parseDiarySections(content).find((entry) => {
-    const label = normalizeTopicLabel(entry.topic);
-    return label === wanted || (wantedSlug !== '' && label === wantedSlug);
-  });
+  const wanted = topicName.trim();
+  const section = parseDiarySections(content).find((entry) => entry.topic.trim() === wanted);
   if (section === undefined) return '';
   return `## ${section.topic}\n\n${section.body}`.trim();
 }
@@ -566,7 +547,7 @@ export function findLatestDiarySection(
   today: Date = new Date(),
 ): { date: string; content: string } | undefined {
   if (!existsSync(dailyDir)) return undefined;
-  const wanted = topicName.trim().toLowerCase();
+  const wanted = topicName.trim();
   const dates = readdirSync(dailyDir)
     .filter((name) => /^\d{4}-\d{2}-\d{2}\.md$/.test(name))
     .sort();
@@ -577,7 +558,7 @@ export function findLatestDiarySection(
   for (const name of dates) {
     const date = name.slice(0, 10);
     const parsed = parseDiarySections(readFileSync(join(dailyDir, name), 'utf8'));
-    const match = parsed.find((section) => section.topic.toLowerCase() === wanted);
+    const match = parsed.find((section) => section.topic.trim() === wanted);
     if (match === undefined) continue;
     const entry = { date, content: `## ${match.topic}\n\n${match.body}`.trim() };
     if (earliest === undefined && date <= todayKey) earliest = entry;
@@ -586,7 +567,7 @@ export function findLatestDiarySection(
   for (let index = candidates.length - 1; index >= 0; index -= 1) {
     const name = candidates[index] as string;
     const parsed = parseDiarySections(readFileSync(join(dailyDir, name), 'utf8'));
-    const match = parsed.find((section) => section.topic.toLowerCase() === wanted);
+    const match = parsed.find((section) => section.topic.trim() === wanted);
     if (match !== undefined) {
       return {
         date: name.slice(0, 10),
@@ -624,6 +605,20 @@ export interface DiaryTranscriptSegment {
   messages: ReadonlyArray<{ role: string; content: string }>;
 }
 
+/** Remove injected `<system-...>` envelopes from quoted transcript text. */
+function stripSystemBlocks(content: string): string {
+  let text = content;
+  for (;;) {
+    const next = text.replace(
+      /<system-([a-z-]+)>((?:(?!<system-)[\s\S])*?)<\/system-\1>\r?\n*/g,
+      '',
+    );
+    if (next === text) break;
+    text = next;
+  }
+  return text.trim();
+}
+
 /**
  * Trigger message for the topic-structured diary.
  *
@@ -634,15 +629,19 @@ export interface DiaryTranscriptSegment {
 export function buildTopicDiaryMessage(
   now: Date,
   segments: readonly DiaryTranscriptSegment[],
+  options: { targetDate?: string } = {},
 ): string {
-  const date = diaryDateKey(now);
+  const date = options.targetDate ?? diaryDateKey(now);
   const lines: string[] = [
-    `It's ${formatTimestamp(now)}. Update today's diary for the topics below.`,
+    options.targetDate === undefined
+      ? `It's ${formatTimestamp(now)}. Update today's diary for the topics below.`
+      : `It's ${formatTimestamp(now)}. Backfill the diary for ${date} for the topics below.`,
     '',
     'Use the dedicated diary tools:',
     '- list_topics: all topic slugs, with the current topic marked.',
     '- read_diary({ slug, date? }): without date, list the dates that have this topic; with date, read that day\'s section.',
-    '- write_diary({ slug, content }): append new content at the current local time. It creates the day file, the "## <topic>" section and the "### HH:mm" block when needed, and keeps the first-appearance order.',
+    '- write_diary({ content, date? }): append new content to the CURRENT topic at the current local time (or on date when supplied). It creates the day file, the "## <topic>" section and the "### HH:mm" block when needed, and keeps the first-appearance order.',
+    '- write_topic({ content }): create or replace the CURRENT topic memory file with its key facts, state and next steps.',
     '',
   ];
   if (segments.length === 0) {
@@ -653,7 +652,7 @@ export function buildTopicDiaryMessage(
       lines.push('', `## ${segment.topicName} (${segment.topicSlug})`, `### ${timeFromIso(segment.startedAt)}`);
       for (const message of segment.messages) {
         if (message.role !== 'user' && message.role !== 'assistant') continue;
-        const text = message.content.replace(/\s+/g, ' ').trim();
+        const text = stripSystemBlocks(message.content).replace(/\s+/g, ' ').trim();
         if (text === '') continue;
         lines.push(`${message.role}: ${text.slice(0, 1200)}`);
       }
@@ -662,13 +661,15 @@ export function buildTopicDiaryMessage(
   lines.push(
     '',
     'Rules:',
-    '1. Use the exact slug from the transcript (or list_topics if unsure). write_diary rejects an unknown slug.',
-    `2. Call read_diary({ slug, date: "${date}" }) first when it may already have notes today, so you only add genuinely new information.`,
+    '1. write_diary writes the CURRENT topic; do not pass a slug. The attached transcript is for that topic.',
+    `2. Call read_diary({ date: "${date}" }) first when the current topic may already have notes for that date, so you only add genuinely new information.`,
     '3. Pass only the new markdown body to write_diary. Never write headings, dates or times yourself.',
     '4. Never use write_file on daily/*.md. The diary tools own that file and its "## topic" / "### HH:mm" layout.',
-    '5. For every topic, also keep workspace/topic/<slug>.md up to date with write_file: facts, decisions, state, next steps and related paths; no chat transcript.',
+    '5. Use write_topic to create or update the CURRENT topic memory file (workspace/topic/<slug>.md) with facts, decisions, state, next steps and related paths; no chat transcript. If write_diary reports that topic memory is missing, call write_topic.',
     '6. If there is genuinely no new content, reply "No new content." and do not call write_diary.',
-    `7. Today is ${date}; write_diary uses the current local time automatically.`,
+    options.targetDate === undefined
+      ? `7. Today is ${date}; write_diary uses the current local time automatically.`
+      : `7. Target date is ${date}; pass date: "${date}" to write_diary so the entry lands on that day.`,
   );
   return lines.join('\n');
 }

@@ -46,6 +46,19 @@ const MAX_SLUG = 60;
  * the model context for a turn is only that segment's messages; the full
  * conversation stays available for the UI.
  */
+/** Remove injected `<system-...>` envelopes, including nested last-message quotes. */
+function stripSystemBlocks(content: string): string {
+  let text = content;
+  for (;;) {
+    const next = text.replace(
+      /<system-([a-z-]+)>((?:(?!<system-)[\s\S])*?)<\/system-\1>\r?\n*/g,
+      '',
+    );
+    if (next === text) break;
+    text = next;
+  }
+  return text.trim();
+}
 export class ConversationStore {
   readonly path: string;
   readonly #db: DatabaseSync;
@@ -230,7 +243,8 @@ export class ConversationStore {
     return rows.map((row) => JSON.parse(row.data_json) as AgentMessage);
   }
 
-  /** Last `limit` user/assistant text messages of a segment. */
+
+/** Last `limit` user/assistant text messages of a segment. */
   lastTextMessages(segmentId: string, limit = 10): Array<{ role: 'user' | 'assistant'; content: string }> {
     const rows = this.#db
       .prepare('SELECT * FROM messages WHERE segment_id = ? ORDER BY created_at DESC, rowid DESC')
@@ -240,7 +254,7 @@ export class ConversationStore {
       if (out.length >= limit) break;
       const message = JSON.parse(row.data_json) as AgentMessage;
       if (message.role !== 'user' && message.role !== 'assistant') continue;
-      const content = typeof message.content === 'string' ? message.content.trim() : '';
+      const content = typeof message.content === 'string' ? stripSystemBlocks(message.content) : '';
       if (content === '') continue;
       out.push({ role: message.role, content });
     }

@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 105 个测试
+pnpm test      # 108 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -121,7 +121,7 @@ npm run web -- --host 0.0.0.0
 ![移动端](docs/mobile.png)
 
 - **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolor/conversation.db`。
-- **话题页**：左侧「话题」列出所有话题；点进话题看到日记里出现过的所有月份日历，紫色日期可点开当天的话题聊天记录和日记片段。
+- **话题页**：左侧「话题」列出所有话题；点进话题先看到 Markdown 渲染的 `workspace/topic/<slug>.md` 话题记忆，下面是**对话里出现过**的所有月份日历，紫色日期可点开当天的话题聊天记录和日记片段；有对话但没日记的那天可以直接点「整理这天的日记」。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与日记](#单对话话题与日记)。
 - 模型：侧栏「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。详见 [模型提供商](#模型提供商)。
 - 记忆：侧栏「记忆」管理「设定」（workspace/AI.md）和「日记」；设定可用 `/self-md-update` / `/self-md-tell …` 创建或更新，日记打开「定时追加日记」后对话结束 10 分钟没有新消息就自动整理；两者按话题注入 `<system-memory>`。
@@ -130,7 +130,7 @@ npm run web -- --host 0.0.0.0
 - 聊天：流式输出、工具调用卡片（**默认折叠**，点开看参数 / 结果 / 状态）、停止按钮、思考时的三个点。运行中继续输入并按 Enter 会先排队，等这一轮结束后自动发出。每次工具调用前后的文字各自成段；AI 回复**边出边渲染 Markdown**。
 - 断线不丢回答：一轮对话在服务端跑，关闭标签页、刷新、切网都只是断开镜像；回来时从服务端缓冲回放整轮。同一时间只允许一轮，重复发送返回 409。
 - 跟随滚动：只有离消息列表底部**一行字以内**时才自动拉到底；往上翻读历史时不会被拽走。
-- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image` 由 agent-loop 直接注册；话题日记另有 `list_topics` / `read_diary` / `write_diary`。额外 MCP 只能写在技能目录的 `kolor.json` 里。
+- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image` 由 agent-loop 直接注册；话题日记另有 `list_topics` / `read_diary` / `write_diary` / `write_topic`。额外 MCP 只能写在技能目录的 `kolor.json` 里。
 
 | 环境变量 | 默认值 | 作用 |
 | --- | --- | --- |
@@ -383,8 +383,8 @@ KolorFrame 提供：
 开关「定时追加日记」打开后：
 
 1. 一轮对话结束后开始计时；10 分钟内没有新消息就整理一次日记（无 SSE 的后台轮次）。
-2. 整理时会把**上次日记之后的所有话题片段**按话题分组交给模型，模型通过专用工具 `write_diary` 写日记，用 `write_file` 维护 `topic/<slug>.md`。
-3. 日记格式是 `# 日期 → ## 话题（首次出现顺序）→ ### HH:mm`；每个话题当天只保留一个 `##` 块，后到的内容追加到同一块下面。
+2. 整理时会把**上次日记之后的所有话题片段**按话题分组，每个有未整理片段的话题依次跑一轮，模型通过 `write_diary` 写当前话题日记，用 `write_topic` 维护 `topic/<slug>.md`。
+3. 日记格式是 `# 日期 → ## 话题（首次出现顺序）→ ### HH:mm`；`##` 话题名必须与话题的 `name` 完全一致（不做后缀或 slug 兼容），每个话题当天只保留一个 `##` 块。
 4. 每个话题第一次写进日记时，同时创建/更新 `workspace/topic/<slug>.md`；之后关键信息变化由 AI 用 `write_file` 主动更新。
 5. 没有新内容时模型应回复 `No new content.`；如果什么都没写，服务端会记一条日志。
 
@@ -392,9 +392,10 @@ KolorFrame 提供：
 
 - `list_topics`：列出所有话题 slug / name，当前话题标 `(current)`。
 - `read_diary({ slug, date? })`：不带 `date` 返回有哪些天写过这个话题；带 `date` 返回当天该话题的 `##` 段落。
-- `write_diary({ slug, content })`：在当前本地时间下追加内容。自动创建当天文件、`## 话题` 和 `### HH:mm`，并保持话题首次出现顺序；slug 不存在直接报错。
+- `write_diary({ content, date? })`：写**当前话题**，不需要 slug。在当前本地时间（或指定日期）追加内容，自动创建当天文件、`## 话题` 和 `### HH:mm`，并保持话题首次出现顺序。
+- `write_topic({ content })`：创建或替换**当前话题**的记忆文件 `workspace/topic/<slug>.md`；`write_diary` 发现话题记忆缺失时会提示模型调用它。
 
-`write_diary` 负责日记文件，模型不应再用 `write_file` 改 `daily/*.md`。话题文件 `workspace/topic/<slug>.md` 仍由模型用 `write_file` 维护。
+`write_diary` / `write_topic` 负责日记和话题文件，模型不应再用 `write_file` 改 `daily/*.md` 或 `topic/*.md`。
 
 也可以发送 `/update-daily-memory` 立即整理。
 
@@ -568,8 +569,9 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | GET | `/api/config` | 配置 + 当前模型 + MCP 列表 + `conversationDbPath` |
 | GET | `/api/conversation` | 单对话的 `topics` / `segments` / `messages` + 当前话题 |
 | GET | `/api/topics` | 所有话题 + 每个话题有日记的天数 |
-| GET | `/api/topics/:slug` | 该话题的日记日期和按月份分组的日历数据 |
-| GET | `/api/topics/:slug/days/:date` | 该话题某天的聊天片段 + 当天话题日记 |
+| GET | `/api/topics/:slug` | 该话题的对话日期、已有日记日期和按月份分组的日历数据 |
+| GET | `/api/topics/:slug/days/:date` | 该话题某天的聊天片段 + 当天话题日记 + `hasDiary` |
+| POST | `/api/topics/:slug/days/:date/diary` | 为这一天补写该话题日记（异步 202） |
 | GET/POST | `/api/providers` | 提供商列表（key 已脱敏）/ 添加并识别模型 |
 | DELETE | `/api/providers/:id` | 删除提供商 |
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
@@ -604,13 +606,13 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 105 个测试：
+共 108 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
-- `kolorbot-conversation`（3）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝。
+- `kolorbot-conversation`（4）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（10）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（25）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
+- `kolorbot-web`（27）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
 
 全部测试不需要网络和 API key。
 
