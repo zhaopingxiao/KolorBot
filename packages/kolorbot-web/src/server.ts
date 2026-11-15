@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+﻿import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join } from 'node:path';
@@ -128,6 +128,11 @@ const STATIC_FILES = new Map<string, string>([
   ['/styles.css', 'styles.css'],
   ['/logo.png', 'logo.png'],
   ['/favicon.svg', 'favicon.svg'],
+  ['/icons/chat.svg', 'icons/chat.svg'],
+  ['/icons/topics.svg', 'icons/topics.svg'],
+  ['/icons/skills.svg', 'icons/skills.svg'],
+  ['/icons/models.svg', 'icons/models.svg'],
+  ['/icons/memory.svg', 'icons/memory.svg'],
 ]);
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -136,6 +141,11 @@ const CONTENT_TYPES: Record<string, string> = {
   'styles.css': 'text/css; charset=utf-8',
   'logo.png': 'image/png',
   'favicon.svg': 'image/svg+xml',
+  'icons/chat.svg': 'image/svg+xml',
+  'icons/topics.svg': 'image/svg+xml',
+  'icons/skills.svg': 'image/svg+xml',
+  'icons/models.svg': 'image/svg+xml',
+  'icons/memory.svg': 'image/svg+xml',
 };
 
 /** Convert skill-declared servers to the shape `KolorAgent` expects. */
