@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -49,9 +49,6 @@
             <h1 id="session-title">对话</h1>
             <p id="session-meta"></p>
           </div>
-          <div class="header-actions">
-            <span id="current-topic" class="topic-pill"></span>
-          </div>
         </header>
 
         <section id="page-chat" class="page">
@@ -63,9 +60,9 @@
                 <select id="model-select" class="model-select" aria-label="选择模型" title="当前模型"></select>
               </div>
               <div class="composer-box">
-                <textarea id="input" rows="1" placeholder="发消息…"></textarea>
-                <button id="send" class="send-button">发送</button>
-                <button id="stop" class="send-button stop hidden">停止</button>
+                <textarea id="input" rows="1" placeholder="给 KolorBot 发消息…"></textarea>
+                <button id="send" class="send-button" aria-label="发送">↑</button>
+                <button id="stop" class="send-button stop hidden" aria-label="停止">■</button>
               </div>
             </div>
           </footer>

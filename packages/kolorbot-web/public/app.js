@@ -5,6 +5,7 @@ const $ = (selector) => document.querySelector(selector);
 const state = {
   /** Single conversation: topics, segments and messages. */
   conversation: null,
+  conversationSignature: '',
   currentTopic: null,
   /** Virtual session used by the live-run/SSE code (always id `main`). */
   session: null,
@@ -310,7 +311,7 @@ async function loadConversation() {
     name: state.currentTopic?.name ?? '对话',
     topic: state.currentTopic?.name ?? '',
     messageCount: messages.length,
-    updatedAt: last?.createdAt ?? new Date().toISOString(),
+    updatedAt: last?.createdAt ?? null,
     context: [],
   };
   try {
@@ -319,8 +320,18 @@ async function loadConversation() {
   } catch {
     state.runningIds = new Set();
   }
+  const signature = [
+    state.currentTopic?.slug ?? '',
+    state.conversation?.segments.length ?? 0,
+    messages.length,
+    last?.id ?? '',
+  ].join(':');
+  const changed = signature !== state.conversationSignature;
+  state.conversationSignature = signature;
   renderHeader();
-  renderMessages(true);
+  if (changed && state.page === 'chat' && state.live === null && state.pending === null) {
+    renderMessages(false);
+  }
   syncBusy();
 }
 
@@ -386,22 +397,14 @@ function renderHeader() {
   const topic = state.currentTopic;
   const page = PAGES[state.page] ?? PAGES.chat;
   $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
-
-  let count = session?.messageCount ?? 0;
-  if (session && state.running && state.page === 'chat') {
-    count = Math.max(
-      count,
-      document.querySelectorAll('#messages .user-message, #messages .assistant-message').length,
-    );
-  }
   $('#session-meta').textContent =
     state.page === 'chat'
       ? session
-        ? `${count} 条消息 · ${timeAgo(session.updatedAt)}`
+        ? session.updatedAt
+          ? timeAgo(session.updatedAt)
+          : ''
         : ''
       : page.subtitle;
-  const pill = $('#current-topic');
-  if (pill !== null) pill.textContent = state.page === 'chat' && topic ? `话题 · ${topic.name}` : '';
 }
 
 /* ---------------- topics ---------------- */
@@ -708,6 +711,13 @@ function renderMessages(forceBottom = false, note = null) {
   container.innerHTML = '';
   const view = state.conversation;
   if (view === null) return;
+  if (view.messages.length === 0) {
+    const empty = el('div', 'chat-empty');
+    empty.appendChild(el('h2', 'chat-empty-title', '今天有什么可以帮到你？'));
+    empty.appendChild(el('p', 'chat-empty-sub', '直接说说你在做什么，或者想改什么。'));
+    container.appendChild(empty);
+    return;
+  }
 
   const topicNames = new Map(view.topics.map((topic) => [topic.slug, topic.name]));
   const segmentTopic = new Map(view.segments.map((segment) => [segment.id, segment.topicSlug]));
