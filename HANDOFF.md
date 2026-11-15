@@ -4,7 +4,7 @@
 > 交接时间：2026-11-01（从原 `D:\deepseek_harness_workspace\kolor` 迁移），最后更新 2026-11-14  
 > 当前版本：**0.4.0**  
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）  
-> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（108 个测试）；已改成单对话 + 话题驱动：conversation 存储 topics/segments/messages，memory 负责话题文件与日记片段，定时任务功能移除。
+> 当前状态：`pnpm build` 和 `pnpm test` 全部通过（109 个测试）；已改成单对话 + 话题驱动：conversation 存储 topics/segments/messages，memory 负责话题文件与日记片段，定时任务功能移除。
 
 ## 1. 这个项目是什么
 
@@ -221,10 +221,10 @@ mcp__kolorbot-agent-loop__read_file
   - `write_topic({ content })`：创建/替换当前话题记忆 `workspace/topic/<slug>.md`；日记工具发现话题记忆缺失时提示调用它。
 - **布局**：`# 日期 → ## 话题 → ### HH:mm`；`write_diary` 统一维护，模型不再写标题/时间；`##` 话题名严格等于 topics.name，不做模糊兼容。
 - **提示词**：`buildTopicDiaryMessage` 附上按话题分组的 transcript，并说明上述工具；`/update-daily-memory` 使用同一路径。
-- **话题文件**：`workspace/topic/<slug>.md` 由 `write_topic` 维护（事实、决定、状态、下一步）；`write_file` 不再用于日记或话题文件。
+- **话题文件**：`workspace/topic/<slug>.md` 由 `write_topic` 维护（事实、决定、状态、下一步）；`write_file` 不再用于日记或话题文件；`write_diary` / `write_topic` 只在日记轮次里启用，普通聊天调用会报错。
 - **设定（AI.md）**：`<workspace>/AI.md`，只放 AI 名字/性格/自我认知，可带形象路径，超过 1 MiB 截断。
 - **设定命令**：`/self-md-update`、`/self-md-tell <信息>` 直接要求模型用 `write_file` 写 AI.md，规则写在触发消息里。
-- **测试**：memory 10 个、web 27 个，覆盖工具、对话日期日历、补写日记、注入去重、设定命令和闲置整理。
+- **测试**：memory 10 个、web 28 个，覆盖工具、写入门禁、对话日期日历、补写日记、注入去重、设定命令和闲置整理。
 
 ### 3.13 运行中的 turn（`RunBroker`，2026-11-07 新增）
 
@@ -272,7 +272,7 @@ mcp__kolorbot-agent-loop__read_file
 - **记忆**：`kolorbot-memory` 新增话题文件读取、日记片段查找、`<system-memory>` / `<system-last-message>`。
 - **日记**：`# 日期 → ## 话题（首次出现顺序）→ ### 时间`；segment 用 `diary_at` 标记是否已整理。
 - **定时任务移除**：`run web` 是唯一命令，任务 API/UI/提醒工具/测试全部删除。
-- 测试：108 个（agent-loop 53、conversation 4、skills 14、memory 10、web 27）。
+- 测试：109 个（agent-loop 53、conversation 4、skills 14、memory 10、web 28）。
 
 ## 4. 关键约束 / 容易踩的坑
 
@@ -415,12 +415,12 @@ UI 不再提供会话列表 / 导入 / 导出 / 改名 / 重置入口；`/api/se
 
 ```text
 pnpm build  ✅
-pnpm test   ✅ 108/108
+pnpm test   ✅ 109/109
   kolorbot-agent-loop 53
   kolorbot-conversation 4
   kolorbot-skills     14
   kolorbot-memory     10
-  kolorbot-web        27
+  kolorbot-web        28
 ```
 
 Web 端到端覆盖：单对话 API、话题判定与切换、`<system-memory>`（AI.md + topic 文件 + 日记片段）、`<system-last-message>`、同一话题不重复注入、工具调用落库、`/api/memory`、闲置日记整理（新格式 + 话题文件）；提供商测试覆盖存储、模型发现、切换模型。

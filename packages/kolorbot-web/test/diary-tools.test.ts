@@ -1,4 +1,4 @@
-import assert from 'node:assert/strict';
+﻿import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -60,6 +60,31 @@ test('diary tools use the current topic and require topic memory', async () => {
     const section = await run(tools, 'read_diary', { date: '2026-11-14' });
     assert.match(section.content, /## Remotion/);
     assert.match(section.content, /第一条记录/);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+
+test('diary/topic writes are blocked outside a diary turn', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kolorbot-diary-tools-guard-'));
+  const store = new ConversationStore({ path: join(dir, 'conversation.db') });
+  try {
+    const topic = store.ensureTopic('Remotion', 'remotion');
+    store.startSegment(topic.slug);
+    const tools = createDiaryTools({
+      store,
+      diaryDir: join(dir, 'daily'),
+      workspace: dir,
+      currentTopicSlug: () => 'remotion',
+      writeEnabled: () => false,
+    });
+    const diary = await run(tools, 'write_diary', { content: '不应写入' });
+    assert.equal(diary.isError, true);
+    assert.match(diary.content, /only available during a diary turn/);
+    const topicWrite = await run(tools, 'write_topic', { content: '不应写入' });
+    assert.equal(topicWrite.isError, true);
+    assert.match(topicWrite.content, /only available during a diary turn/);
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

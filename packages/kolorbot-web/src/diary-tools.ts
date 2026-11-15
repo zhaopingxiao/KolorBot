@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+﻿import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ToolDefinition } from 'kolorbot-agent-loop';
 import type { ConversationStore, Topic } from 'kolorbot-conversation';
@@ -17,6 +17,8 @@ export interface DiaryToolsOptions {
   workspace: string;
   /** Slug of the topic the current turn belongs to. */
   currentTopicSlug: () => string;
+  /** Diary/topic writes are only legal inside a diary turn. */
+  writeEnabled?: () => boolean;
   now?: () => Date;
 }
 
@@ -50,6 +52,7 @@ function unknownSlug(slug: string): { content: string; isError: true } {
  */
 export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
   const now = options.now ?? (() => new Date());
+  const writeEnabled = options.writeEnabled ?? (() => true);
 
   return [
     {
@@ -153,6 +156,13 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
       },
       concurrency: 'exclusive',
       execute: (input: unknown) => {
+        if (!writeEnabled()) {
+          return {
+            content:
+              'Diary writing is only available during a diary turn. In normal chat, do not write diary entries.',
+            isError: true,
+          };
+        }
         const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
         const content = typeof args.content === 'string' ? args.content.trim() : '';
         const dateArg = typeof args.date === 'string' ? args.date.trim() : '';
@@ -203,6 +213,13 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
       },
       concurrency: 'exclusive',
       execute: (input: unknown) => {
+        if (!writeEnabled()) {
+          return {
+            content:
+              'Topic memory writing is only available during a diary turn. Do not rewrite topic files in normal chat.',
+            isError: true,
+          };
+        }
         const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
         const content = typeof args.content === 'string' ? args.content.trim() : '';
         const topic = currentTopic(options);

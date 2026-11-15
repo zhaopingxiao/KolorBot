@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 108 个测试
+pnpm test      # 109 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -395,7 +395,7 @@ KolorFrame 提供：
 - `write_diary({ content, date? })`：写**当前话题**，不需要 slug。在当前本地时间（或指定日期）追加内容，自动创建当天文件、`## 话题` 和 `### HH:mm`，并保持话题首次出现顺序。
 - `write_topic({ content })`：创建或替换**当前话题**的记忆文件 `workspace/topic/<slug>.md`；`write_diary` 发现话题记忆缺失时会提示模型调用它。
 
-`write_diary` / `write_topic` 负责日记和话题文件，模型不应再用 `write_file` 改 `daily/*.md` 或 `topic/*.md`。
+`write_diary` / `write_topic` 只在一轮日记任务里启用；普通聊天中调用会返回错误，模型也不应再用 `write_file` 改 `daily/*.md` 或 `topic/*.md`。
 
 也可以发送 `/update-daily-memory` 立即整理。
 
@@ -606,13 +606,13 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 108 个测试：
+共 109 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（4）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（10）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（27）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
+- `kolorbot-web`（28）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
 
 全部测试不需要网络和 API key。
 

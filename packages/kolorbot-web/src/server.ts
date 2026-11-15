@@ -91,7 +91,7 @@ const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
 const KOLOR_SYSTEM_PROMPT = [
   DEFAULT_SYSTEM_PROMPT,
   '',
-  'The conversation is organized into topics. Use list_topics to see the slugs, read_diary to inspect notes, write_diary({content, date?}) to append an entry to the current topic at the current time, and write_topic({content}) to maintain the current topic memory. Never edit daily/*.md or topic/*.md with write_file.',
+  'The conversation is organized into topics. list_topics and read_diary are available for reading. write_diary and write_topic are only enabled during an explicit diary turn; in ordinary chat, do not write diary entries or topic memory files.',
   'Finish what you start: do not end a turn with a promise to do something later, and do not stop after a plan or a partial implementation. Keep calling tools and verifying until the task is actually done, then report briefly. Only stop early when you need information or permission from the user.',
 ].join('\n');
 
@@ -221,6 +221,8 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
 
   /** Set while a diary/backfill turn is writing a topic other than the chat topic. */
   let toolsTopicOverride: string | undefined;
+  /** Diary/topic file writes are only allowed during diary turns. */
+  let diaryWriteAllowed = false;
 
   const pool = new AgentPool({
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
@@ -231,6 +233,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         diaryDir: memory.diaryDir,
         workspace: config.frameRoot,
         currentTopicSlug: () => toolsTopicOverride ?? store.current().topic.slug,
+        writeEnabled: () => diaryWriteAllowed,
       }),
     kolorFrame: {
       root: config.frameRoot,
@@ -747,8 +750,9 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     // `/update-daily-memory`, `/self-md-update` and `/self-md-tell` become
     // task messages; diary writes go through the dedicated tools.
     const selfInfo = selfTellInfo(text);
+    const diaryTurn = isDiaryCommand(text);
     let outgoing = text;
-    if (isDiaryCommand(text)) {
+    if (diaryTurn) {
       outgoing = buildTopicDiaryMessage(new Date(), []);
     } else if (isSelfUpdateCommand(text)) {
       outgoing = buildSelfUpdateMessage();
@@ -824,6 +828,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         segmentId: segment.id,
       });
     }
+    if (diaryTurn) diaryWriteAllowed = true;
     try {
       attachRunSse(response, session.id, 0);
       await driveTurn(run, {
@@ -835,6 +840,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       // A broken socket must still close the run, or the conversation stays busy.
       if (runs.isRunning(session.id)) runs.finish(run, 'error', error);
     } finally {
+      if (diaryTurn) diaryWriteAllowed = false;
       // Only a user turn restarts the quiet period.
       diaryIdle.noteTurnFinished(session.id);
     }
@@ -1178,6 +1184,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       return { started: false, status: 409, reason: 'the conversation is busy' };
     }
     toolsTopicOverride = slug;
+    diaryWriteAllowed = true;
     void driveTurn(run, { target, context: [], message, persist: false })
       .then(() => {
         if (readDiaryTopicSection(memory.diaryDir, date, topic.name) !== '') {
@@ -1188,6 +1195,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         options.logger?.('backfill diary failed', error);
       })
       .finally(() => {
+        diaryWriteAllowed = false;
         if (toolsTopicOverride === slug) toolsTopicOverride = undefined;
       });
     return { started: true };
@@ -1280,6 +1288,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const message = buildTopicDiaryMessage(new Date(), transcripts);
       const before = memory.diary().signature;
       toolsTopicOverride = slug;
+      diaryWriteAllowed = true;
       try {
         await runHeadlessTurn({
           sessionId: store.id,
@@ -1292,6 +1301,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
           rearmIdle: false,
         });
       } finally {
+        diaryWriteAllowed = false;
         if (toolsTopicOverride === slug) toolsTopicOverride = undefined;
       }
       store.store.markDiaryWritten(entries.map((entry) => entry.segment.id));
