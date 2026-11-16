@@ -396,7 +396,7 @@ const PAGES = {
   topics: { title: '话题', subtitle: '话题 / 日记日历' },
   skills: { title: '技能', subtitle: '三个技能区 / MCP' },
   models: { title: '模型', subtitle: 'OpenAI Chat Completions 提供商' },
-  memory: { title: '记忆', subtitle: '设定 / 话题 / 日记' },
+  memory: { title: '设定', subtitle: 'AI 人设 / AI.md' },
 };
 
 function pageFromHash() {
@@ -442,10 +442,11 @@ function renderHeader() {
   const page = PAGES[state.page] ?? PAGES.chat;
   $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
   const topicsButton = $('#open-topics');
-  topicsButton.classList.remove('hidden');
-  topicsButton.classList.toggle('active', state.page !== 'chat');
-  topicsButton.setAttribute('aria-label', state.page === 'chat' ? '打开话题' : '回到对话');
-  topicsButton.title = state.page === 'chat' ? '话题' : '回到对话';
+  const showTopics = state.page === 'chat' || state.page === 'topics';
+  topicsButton.classList.toggle('hidden', !showTopics);
+  topicsButton.classList.toggle('active', state.page === 'topics');
+  topicsButton.setAttribute('aria-label', state.page === 'topics' ? '回到对话' : '打开话题');
+  topicsButton.title = state.page === 'topics' ? '回到对话' : '话题';
   $('#session-meta').textContent =
     state.page === 'chat'
       ? session
@@ -1359,6 +1360,57 @@ async function attachLive(sessionId) {
   }
 }
 
+const COMMAND_COMPLETIONS = [
+  { value: '/self-md-update', description: '按当前对话更新设定' },
+  { value: '/self-md-tell', description: '按后面的内容更新设定' },
+  { value: '/update-daily-memory', description: '立即整理一次日记' },
+];
+
+function hideCommandMenu() {
+  $('#command-menu').classList.add('hidden');
+}
+
+function chooseCommand(value) {
+  const input = $('#input');
+  input.value = value === '/self-md-tell' ? `${value} ` : value;
+  input.focus();
+  input.style.height = 'auto';
+  input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+  input.setSelectionRange(input.value.length, input.value.length);
+  hideCommandMenu();
+}
+
+function updateCommandMenu() {
+  const menu = $('#command-menu');
+  const value = $('#input').value;
+  if (!value.startsWith('/') || value.includes('\n') || value.slice(1).includes(' ')) {
+    hideCommandMenu();
+    return;
+  }
+  const matches = COMMAND_COMPLETIONS.filter((command) => command.value.startsWith(value));
+  if (matches.length === 0) {
+    hideCommandMenu();
+    return;
+  }
+  menu.replaceChildren(
+    ...matches.map((command) => {
+      const item = document.createElement('button');
+      item.type = 'button';
+      item.className = 'command-item';
+      item.setAttribute('role', 'option');
+      const code = document.createElement('code');
+      code.textContent = command.value;
+      const description = document.createElement('span');
+      description.className = 'command-description';
+      description.textContent = command.description;
+      item.append(code, description);
+      item.addEventListener('mousedown', (event) => event.preventDefault());
+      item.addEventListener('click', () => chooseCommand(command.value));
+      return item;
+    }),
+  );
+  menu.classList.remove('hidden');
+}
 async function sendMessage() {
   const input = $('#input');
   const text = input.value.trim();
@@ -1370,12 +1422,14 @@ async function sendMessage() {
     state.queued = { sessionId: 'main', text };
     input.value = '';
     input.style.height = 'auto';
+    hideCommandMenu();
     toast('已排队：当前这一轮结束后自动发送');
     return;
   }
 
   input.value = '';
   input.style.height = 'auto';
+  hideCommandMenu();
   beginPendingTurn(text);
 
   try {
@@ -1983,33 +2037,27 @@ async function loadMemory() {
     return;
   }
   renderMemory();
+  void loadAgent();
 }
 
 function renderMemory() {
   const data = state.memory;
   if (!data) return;
-  const enabled = data.settings?.diary?.autoAppend === true;
-  $('#diary-auto').checked = enabled;
-  $('#diary-sub').textContent = enabled
-    ? `对话结束 ${data.diaryIdleMinutes} 分钟没有新消息时，自动让 AI 追加当天日记`
-    : `打开后，对话结束 ${data.diaryIdleMinutes} 分钟没有新消息时自动让 AI 追加当天日记`;
-
   const self = data.self;
   const size = formatBytes(self?.sizeBytes ?? 0);
   $('#self-path').textContent = self?.overLimit
     ? `${self.relativePath} · ${size} / 1 MiB（超出，需要删减）`
     : `${self?.relativePath ?? 'AI.md'} · ${size}`;
+  const name = String(self?.name ?? '').trim();
+  const headImage = String(self?.headImage ?? '').trim();
+  $('#self-identity').textContent =
+    name === ''
+      ? '还没有解析到名字和头像路径。'
+      : `名字：${name}　头像：${headImage === '' ? '未设置' : headImage}`;
   const selfPreview = $('#self-preview');
   selfPreview.textContent = self?.content?.trim()
     ? self.content
     : '还没有设定文件 (workspace/AI.md)。发送 /self-md-update 或 /self-md-tell … 让 AI 创建。';
-
-  const today = data.today;
-  $('#diary-path').textContent = today?.relativePath ?? '';
-  const preview = $('#diary-preview');
-  preview.textContent = today?.content?.trim()
-    ? today.content
-    : '今天还没有日记。到点自动整理，或在输入框发送 /update-daily-memory。';
 }
 
 function formatBytes(bytes) {
@@ -2017,20 +2065,6 @@ function formatBytes(bytes) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
-}
-
-async function setDiaryAutoAppend(enabled) {
-  try {
-    state.memory = await api('/api/memory', {
-      method: 'PUT',
-      body: JSON.stringify({ diary: { autoAppend: enabled } }),
-    });
-    renderMemory();
-    toast(enabled ? '已开启定时追加日记' : '已关闭定时追加日记');
-  } catch (error) {
-    $('#diary-auto').checked = !enabled;
-    toast(error.message, 'error');
-  }
 }
 
 /* ---------------- wiring ---------------- */
@@ -2076,6 +2110,7 @@ function wire() {
     if (event.key === 'Escape') {
       closeDrawers();
       closeAgentMenu();
+      hideCommandMenu();
     }
   });
   const desktop = window.matchMedia('(min-width: 901px)');
@@ -2090,6 +2125,7 @@ function wire() {
   input.addEventListener('input', () => {
     input.style.height = 'auto';
     input.style.height = `${Math.min(input.scrollHeight, 180)}px`;
+    updateCommandMenu();
   });
   input.addEventListener('keydown', (event) => {
     if (event.key === 'Enter' && !event.shiftKey) {
@@ -2130,10 +2166,6 @@ function wire() {
     tab.addEventListener('click', () => setTopicTab(tab.dataset.topicTab));
   }
   window.addEventListener('hashchange', () => showPage(pageFromHash(), false));
-  $('#diary-auto').addEventListener('change', (event) =>
-    void setDiaryAutoAppend(event.target.checked),
-  );
-  $('#diary-refresh').addEventListener('click', () => void loadMemory());
   $('#self-refresh').addEventListener('click', () => void loadMemory());
   $('#provider-add').addEventListener('click', () => void addProvider());
   $('#model-select').addEventListener('change', (event) => void applyModel(event.target.value));

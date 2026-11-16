@@ -1707,3 +1707,12 @@ button:focus-visible {
 .agent-menu { position: absolute; right: 6px; bottom: calc(100% + 4px); z-index: 20; min-width: 112px; padding: 5px; border: 1px solid var(--bg-3); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); }
 .agent-menu button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; text-align: left; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
 .agent-menu button:hover { background: var(--bg-2); }
+
+/* Slash command completion */
+.command-menu { width: 100%; margin: 0 auto 8px; padding: 5px; border: 1px solid var(--bg-3); border-radius: 14px; background: #ffffff; box-shadow: 0 12px 32px rgba(15, 17, 21, 0.12); }
+.command-item { display: flex; align-items: baseline; gap: 10px; width: 100%; padding: 9px 11px; border: 0; border-radius: 9px; background: transparent; text-align: left; cursor: pointer; }
+.command-item:hover, .command-item:focus-visible { background: var(--bg-2); outline: none; }
+.command-item code { flex: 0 0 auto; color: var(--text); font-family: var(--mono); font-size: 12.5px; }
+.command-description { color: var(--muted); font-size: 12px; }
+.memory-identity { margin: 10px 0 0; color: var(--muted); font-size: 12.5px; }
+.memory-format { margin: 10px 0; padding: 10px 12px; border-radius: 9px; background: var(--bg-1); color: var(--muted); font-family: var(--mono); font-size: 12px; line-height: 1.55; white-space: pre-wrap; }

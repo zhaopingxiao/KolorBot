@@ -212,7 +212,7 @@ mcp__kolorbot-agent-loop__read_file
 ### 3.12 记忆：设定（AI.md）+ 日记（2026-11-02 新增，2026-11-11 加设定）
 两个板块：**设定**（AI.md）和**日记**；记忆按话题注入。
 
-- **入口**：侧栏「记忆」页面：设定（AI.md 预览/路径/大小/刷新）和日记（自动整理开关/今日预览/刷新）。
+- **入口**：侧栏底部 agent 卡片「⋯」→「设定」页面：只保留 AI.md 预览/名字/头像路径/大小/刷新，日记项已移除。输入框输入 `/` 提供三条指令补全。
 - **自动整理**：一轮对话结束（`handleChat`）后开始计时，10 分钟内没有新用户消息就整理 `diary_at IS NULL` 的 segment；新消息会取消计时，日记轮次本身不重新计时。
 - **写入工具（2026-11-14）**：日记不再由模型直接写文件，改用三个专用工具：
   - `list_topics`：列出所有话题 slug/name，当前话题标 `(current)`；
@@ -495,7 +495,7 @@ run web 只启动 Web（任务面板显示不可用），run scheduler 只启动
 | `restart.cmd` + `scripts/restart.ps1` | 启停脚本：stop / start / status / restart，日志 `logs/kolorbot-web.log` |
 | `packages/kolorbot-web/public/index.html` | UI 结构（模型 / 记忆对话框、输入框上方模型下拉框） |
 | `packages/kolorbot-web/public/styles.css` | 白色主题 + 思考三点 + 移动端抽屉 + 提供商 / 记忆样式 |
-| `packages/kolorbot-web/public/app.js` | UI 状态、turn 镜像/重连、跟随滚动、Markdown 渲染、思考指示、工具卡片、抽屉、提供商页、记忆页 |
+| `packages/kolorbot-web/public/app.js` | UI 状态、turn 镜像/重连、跟随滚动、Markdown 渲染、思考指示、工具卡片、抽屉、提供商页、设定页、指令补全 |
 | `tsconfig.dev.json` | tsx 的 paths（`npm run web` 直接跑源码不 build） |
 | inner/skills/browseruse/ | 内置无头浏览器技能（`server.mjs` MCP + 实时画面 + WebMCP；`smoke.mjs` 自测） |
 | `docs/` | 当前 UI 截图 |

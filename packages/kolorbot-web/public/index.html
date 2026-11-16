@@ -37,13 +37,13 @@
           <button
             id="agent-menu-button"
             class="agent-menu-button"
-            aria-label="打开模型和记忆"
+            aria-label="打开模型和设定"
             aria-haspopup="menu"
             aria-expanded="false"
           >⋯</button>
           <div id="agent-menu" class="agent-menu hidden" role="menu">
             <button type="button" data-agent-page="models" role="menuitem">模型</button>
-            <button type="button" data-agent-page="memory" role="menuitem">记忆</button>
+            <button type="button" data-agent-page="memory" role="menuitem">设定</button>
           </div>
         </div>
       </aside>
@@ -70,6 +70,7 @@
               <div class="composer-meta">
                 <select id="model-select" class="model-select" aria-label="选择模型" title="当前模型"></select>
               </div>
+              <div id="command-menu" class="command-menu hidden" role="listbox" aria-label="指令补全"></div>
               <div class="composer-box">
                 <textarea id="input" rows="1" placeholder="给 KolorBot 发消息…"></textarea>
                 <button id="send" class="send-button" aria-label="发送">↑</button>
@@ -159,6 +160,10 @@
 
         <section id="page-memory" class="page hidden">
           <div class="page-inner">
+            <p class="page-lead">
+              设定是 AI 的人设文件。固定头部：第一行 <code># 名字</code>，下一段
+              <code>## head-image</code>，再下一行 <code>&gt; 头像路径</code>。
+            </p>
             <div class="memory-section">
               <div class="list-item">
                 <div class="grow">
@@ -171,33 +176,14 @@
                 <span id="self-path" class="memory-path-text"></span>
                 <button id="self-refresh" class="text-button">刷新</button>
               </div>
+              <p id="self-identity" class="memory-identity"></p>
+              <pre class="memory-format"># 名字
+## head-image
+&gt; 头像路径</pre>
               <pre id="self-preview" class="skill-detail" aria-live="polite"></pre>
               <p class="form-hint">
                 发送 <code>/self-md-update</code> 让 AI 按当前对话更新设定；发送
                 <code>/self-md-tell 你是一个温柔的 AI…</code> 让它按你给的信息更新。AI.md 超过 1 MiB 需要删减。
-              </p>
-            </div>
-
-            <div class="memory-section">
-              <div class="list-item">
-                <div class="grow">
-                  <div class="list-name">日记</div>
-                  <div class="list-sub" id="diary-sub">对话结束一段时间没有新消息时，自动让 AI 追加当天日记</div>
-                </div>
-                <label class="switch">
-                  <input id="diary-auto" type="checkbox" aria-label="定时追加日记" />
-                  <span class="switch-track"><span class="switch-dot"></span></span>
-                </label>
-              </div>
-
-              <div class="memory-path">
-                <span id="diary-path" class="memory-path-text"></span>
-                <button id="diary-refresh" class="text-button">刷新</button>
-              </div>
-              <pre id="diary-preview" class="skill-detail" aria-live="polite"></pre>
-              <p class="form-hint">
-                在输入框发送 <code>/update-daily-memory</code> 会立即让 AI 整理一次日记；日记文件在 workspace 的
-                <code>daily/</code> 目录下，按话题分节。
               </p>
             </div>
           </div>
