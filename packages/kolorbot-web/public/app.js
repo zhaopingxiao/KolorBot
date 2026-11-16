@@ -6,6 +6,7 @@ const state = {
   /** Single conversation: topics, segments and messages. */
   conversation: null,
   conversationSignature: '',
+  agent: null,
   currentTopic: null,
   /** Virtual session used by the live-run/SSE code (always id `main`). */
   session: null,
@@ -297,6 +298,48 @@ async function api(path, options = {}) {
   return data;
 }
 
+/* ---------------- agent card ---------------- */
+
+async function loadAgent() {
+  try {
+    state.agent = await api('/api/agent');
+  } catch {
+    state.agent = null;
+  }
+  renderAgent();
+}
+
+function renderAgent() {
+  const data = state.agent;
+  const name = String(data?.name ?? 'KolorBot').trim() || 'KolorBot';
+  $('#agent-name').textContent = name;
+  $('#agent-name').title = name;
+  const fallback = $('#agent-avatar-fallback');
+  const image = $('#agent-avatar-image');
+  fallback.textContent = name.slice(0, 1).toUpperCase();
+  if (typeof data?.avatarUrl === 'string' && data.avatarUrl !== '') {
+    image.onerror = () => {
+      image.classList.add('hidden');
+      fallback.classList.remove('hidden');
+    };
+    image.src = data.avatarUrl;
+    image.classList.remove('hidden');
+    fallback.classList.add('hidden');
+  } else {
+    image.classList.add('hidden');
+    image.removeAttribute('src');
+    fallback.classList.remove('hidden');
+  }
+}
+
+function setAgentMenu(open) {
+  $('#agent-menu').classList.toggle('hidden', !open);
+  $('#agent-menu-button').setAttribute('aria-expanded', String(open));
+}
+
+function closeAgentMenu() {
+  setAgentMenu(false);
+}
 /* ---------------- sessions ---------------- */
 
 /** Load the single conversation and rebuild the header. */
@@ -398,7 +441,11 @@ function renderHeader() {
   const topic = state.currentTopic;
   const page = PAGES[state.page] ?? PAGES.chat;
   $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
-  $('#open-topics').classList.toggle('hidden', state.page !== 'chat');
+  const topicsButton = $('#open-topics');
+  topicsButton.classList.remove('hidden');
+  topicsButton.classList.toggle('active', state.page !== 'chat');
+  topicsButton.setAttribute('aria-label', state.page === 'chat' ? '打开话题' : '回到对话');
+  topicsButton.title = state.page === 'chat' ? '话题' : '回到对话';
   $('#session-meta').textContent =
     state.page === 'chat'
       ? session
@@ -1270,6 +1317,7 @@ async function finishRun(sessionId) {
   toggleRunning(false, sessionId);
   clearPendingTurn();
   await loadConversation().catch(() => {});
+  void loadAgent();
   // The cancelled marker survives the rebuild; scroll position is kept when
   // the reader was not following the bottom.
   renderMessages(false, cancelled ? '已停止' : null);
@@ -2025,7 +2073,10 @@ function wire() {
   $('#toggle-sidebar').addEventListener('click', () => toggleDrawer('left'));
   $('#drawer-backdrop').addEventListener('click', closeDrawers);
   document.addEventListener('keydown', (event) => {
-    if (event.key === 'Escape') closeDrawers();
+    if (event.key === 'Escape') {
+      closeDrawers();
+      closeAgentMenu();
+    }
   });
   const desktop = window.matchMedia('(min-width: 901px)');
   desktop.addEventListener('change', (event) => {
@@ -2050,7 +2101,23 @@ function wire() {
   for (const item of document.querySelectorAll('.sidebar-nav [data-page]')) {
     item.addEventListener('click', () => showPage(item.dataset.page));
   }
-  $('#open-topics').addEventListener('click', () => showPage('topics'));
+  $('#agent-menu-button').addEventListener('click', (event) => {
+    event.stopPropagation();
+    setAgentMenu($('#agent-menu').classList.contains('hidden'));
+  });
+  for (const item of document.querySelectorAll('[data-agent-page]')) {
+    item.addEventListener('click', () => {
+      closeAgentMenu();
+      if (item.dataset.agentPage === 'models') openModels();
+      else openMemory();
+    });
+  }
+  document.addEventListener('click', (event) => {
+    if (!event.target.closest('.agent-card')) closeAgentMenu();
+  });
+  $('#open-topics').addEventListener('click', () => {
+    showPage(state.page === 'chat' ? 'topics' : 'chat');
+  });
   $('#topics-back').addEventListener('click', () => {
     location.hash = '#/topics';
   });
@@ -2094,6 +2161,7 @@ function wire() {
 async function init() {
   wire();
   await loadProviders();
+  await loadAgent();
   await loadConversation();
   showPage(pageFromHash(), false);
   if (state.runningIds.has('main')) await attachLive('main');

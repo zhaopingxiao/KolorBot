@@ -1,7 +1,7 @@
-﻿import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { join } from 'node:path';
+import { join, extname, isAbsolute, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_SYSTEM_PROMPT,
@@ -147,6 +147,33 @@ const CONTENT_TYPES: Record<string, string> = {
   'icons/models.svg': 'image/svg+xml',
   'icons/memory.svg': 'image/svg+xml',
 };
+
+const AVATAR_TYPES: Record<string, string> = {
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+};
+
+/** Resolve a local avatar path, treating relative paths as workspace-relative. */
+function resolveAvatarFile(root: string, raw: string): string | undefined {
+  let value = raw.trim();
+  if (value === '' || /^https?:\/\//i.test(value)) return undefined;
+  try {
+    if (value.startsWith('file://')) value = fileURLToPath(value);
+  } catch {
+    return undefined;
+  }
+  const candidate = isAbsolute(value) ? value : resolve(root, value);
+  if (!existsSync(candidate)) return undefined;
+  if (!isAbsolute(value)) {
+    const rel = relative(root, candidate);
+    if (rel === '' || rel.startsWith('..') || isAbsolute(rel)) return undefined;
+  }
+  return candidate;
+}
 
 /** Convert skill-declared servers to the shape `KolorAgent` expects. */
 function skillMcpConfigs(registry: SkillsRegistry): McpServerConfig[] {
@@ -506,6 +533,39 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         return;
       }
       throw new HttpError(405, 'method not allowed');
+    }
+
+    if (pathname === '/api/agent' && method === 'GET') {
+      const self = memory.self();
+      const raw = self.headImage.trim();
+      const remote = /^https?:\/\//i.test(raw) ? raw : '';
+      const file = raw === '' ? undefined : resolveAvatarFile(config.frameRoot, raw);
+      sendJson(response, 200, {
+        name: self.name.trim() || 'KolorBot',
+        headImage: self.headImage,
+        avatarUrl: remote !== '' ? remote : file === undefined ? '' : '/api/agent/avatar',
+      });
+      return;
+    }
+
+    if (pathname === '/api/agent/avatar' && method === 'GET') {
+      const self = memory.self();
+      const file = resolveAvatarFile(config.frameRoot, self.headImage);
+      const type = file === undefined ? undefined : AVATAR_TYPES[extname(file).toLowerCase()];
+      if (file === undefined || type === undefined) throw new HttpError(404, 'avatar not found');
+      let body: Buffer;
+      try {
+        body = readFileSync(file);
+      } catch {
+        throw new HttpError(404, 'avatar not found');
+      }
+      response.writeHead(200, {
+        'content-type': type,
+        'content-length': body.length,
+        'cache-control': 'no-store',
+      });
+      response.end(body);
+      return;
     }
 
     if (pathname === '/api/skills' && method === 'GET') {

@@ -17,6 +17,7 @@
   formatLastMessageBlock,
   findLatestDiarySection,
   parseDiarySections,
+  parsePersona,
   readTopicMemory,
   appendDiaryEntry,
   readDiaryEntries,
@@ -35,4 +36,5 @@ export type {
   MemorySettings,
   MemoryStoreOptions,
   SelfSnapshot,
+  PersonaProfile,
 } from './memory.js';

@@ -276,13 +276,35 @@ test('exposes AI.md and today diary through /api/memory', async (t) => {
     `# ${today}\n\n## 工作区 Remotion 环境\n\n### 09:00\n\n日记内容。\n`,
     'utf8',
   );
+  writeFileSync(
+    join(frameRoot, 'AI.md'),
+    '# 小K\n## head-image\n> avatar.png\n\n温柔、直接。\n',
+    'utf8',
+  );
+  writeFileSync(
+    join(frameRoot, 'avatar.png'),
+    Buffer.from(
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl2lS8AAAAASUVORK5CYII=',
+      'base64',
+    ),
+  );
 
   const data = (await (await fetch(`${app.url}/api/memory`)).json()) as {
-    self: { content: string };
+    self: { content: string; name: string; headImage: string };
     today: { content: string };
   };
-  assert.match(data.self.content, /测试 AI/);
+  assert.match(data.self.content, /小K/);
+  assert.equal(data.self.name, '小K');
+  assert.equal(data.self.headImage, 'avatar.png');
   assert.match(data.today.content, /日记内容/);
+
+  const agent = (await (await fetch(`${app.url}/api/agent`)).json()) as {
+    name: string;
+    avatarUrl: string;
+  };
+  assert.equal(agent.name, '小K');
+  assert.equal(agent.avatarUrl, '/api/agent/avatar');
+  assert.equal((await fetch(`${app.url}${agent.avatarUrl}`)).status, 200);
 });
 
 test('the idle diary writes a topic section and creates the topic file', async (t) => {

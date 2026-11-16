@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 109 个测试
+pnpm test      # 110 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -121,10 +121,10 @@ npm run web -- --host 0.0.0.0
 ![移动端](docs/mobile.png)
 
 - **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolor/conversation.db`。
-- **话题页**：左侧「话题」列出所有话题；点进话题先看到 Markdown 渲染的 `workspace/topic/<slug>.md` 话题记忆，下面是**对话里出现过**的所有月份日历，紫色日期可点开当天的话题聊天记录和日记片段；有对话但没日记的那天可以直接点「整理这天的日记」。
+- **话题页**：对话标题左边的话题图标进入；点进话题先看到 Markdown 渲染的 `workspace/topic/<slug>.md` 话题记忆，下面是**对话里出现过**的所有月份日历，紫色日期可点开当天的话题聊天记录和日记片段；有对话但没日记的那天可以直接点「整理这天的日记」。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与日记](#单对话话题与日记)。
-- 模型：侧栏「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。详见 [模型提供商](#模型提供商)。
-- 记忆：侧栏「记忆」管理「设定」（workspace/AI.md）和「日记」；设定可用 `/self-md-update` / `/self-md-tell …` 创建或更新，日记打开「定时追加日记」后对话结束 10 分钟没有新消息就自动整理；两者按话题注入 `<system-memory>`。
+- 模型：侧栏底部 agent 卡片的「⋯」→「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。
+- 记忆：侧栏底部 agent 卡片的「⋯」→「记忆」管理「设定」（workspace/AI.md）和「日记」；设定可用 `/self-md-update` / `/self-md-tell …` 创建或更新，日记打开「定时追加日记」后对话结束 10 分钟没有新消息就自动整理；两者按话题注入 `<system-memory>`。
 - 技能：侧栏「技能」查看三个技能区的 Claude 标准技能；每个话题的第一条消息会带 `<system-skills>`，AI 用 `skills(id)` 工具读详情。
 - 技能里的 MCP：有 MCP 的技能在列表里带一个 **MCP** 标识，点开技能详情就能看到它通过 `kolor.json` 声明的所有 MCP 服务器（名称 + transport）；**每个服务器旁边有「刷新」按钮，点击会关闭该 MCP 服务器并重新连接**。
 - 聊天：流式输出、工具调用卡片（**默认折叠**，点开看参数 / 结果 / 状态）、停止按钮、思考时的三个点。运行中继续输入并按 Enter 会先排队，等这一轮结束后自动发出。每次工具调用前后的文字各自成段；AI 回复**边出边渲染 Markdown**。
@@ -345,7 +345,7 @@ KolorFrame 提供：
 
 ![记忆](docs/memory.png)
 
-侧栏「记忆」里有两个板块：**设定**（AI.md）和**日记**。记忆不再按「当天全部日记」注入，而是按当前话题注入：
+agent 卡片的「⋯」→「记忆」里有两个板块：**设定**（AI.md）和**日记**。记忆不再按「当天全部日记」注入，而是按当前话题注入：
 
 ```text
 <system-memory>
@@ -371,7 +371,15 @@ KolorFrame 提供：
 
 ### 设定（AI.md）
 
-- 文件：`<workspace>/AI.md`，默认 `~/.kolor/workspace/AI.md`，面板里可以直接看内容和大小。
+- 文件：`<workspace>/AI.md`，默认 `~/.kolor/workspace/AI.md`。固定头部格式：
+
+```markdown
+# 名字
+## head-image
+> 头像路径
+```
+
+`#` 后是名字，`## head-image` 下一行的 `>` 后是头像路径（相对 workspace 或绝对路径）。
 - 只存：AI 的名字、性格、对自身的了解；可选：自己形象图片的本地路径、AI 认为自己形象是什么样。**超过 1 MiB 必须删减**。
 - 更新命令：
   - `/self-md-update`：让 AI 以当前对话为信息创建/更新 AI.md；
@@ -576,7 +584,9 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | DELETE | `/api/providers/:id` | 删除提供商 |
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
 | PUT | `/api/model` | 切换当前模型（`providerId` 传空串表示回到环境变量回退） |
-| GET/PUT | `/api/memory` | 记忆：AI.md 内容/大小 + 今日日记 + 日记开关；PUT 切换开关 |
+| GET/PUT | `/api/memory` | 记忆：AI.md 内容/大小/名字/头像路径 + 今日日记 + 日记开关 |
+| GET | `/api/agent` | Agent 名字、头像路径和 `avatarUrl` |
+| GET | `/api/agent/avatar` | 读取 AI.md 指向的本地头像文件 |
 | GET | `/api/skills` | 三个技能区的技能列表（`source` 区分区）+ 签名 + `roots` + 每个技能的 `mcpServers` |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
 | GET | `/api/mcp` | skill 声明的 MCP 列表（只读；信息并入技能详情） |
@@ -606,12 +616,12 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 109 个测试：
+共 110 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（4）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
-- `kolorbot-memory`（10）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
+- `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
 - `kolorbot-web`（28）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
 
 全部测试不需要网络和 API key。

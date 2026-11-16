@@ -1,4 +1,4 @@
-﻿<!doctype html>
+<!doctype html>
 <html lang="zh-CN">
   <head>
     <meta charset="utf-8" />
@@ -26,15 +26,26 @@
             <img class="nav-icon" src="/icons/skills.svg" alt="" width="18" height="18" />
             <span>技能</span>
           </button>
-          <button class="nav-item" data-page="models">
-            <img class="nav-icon" src="/icons/models.svg" alt="" width="18" height="18" />
-            <span>模型</span>
-          </button>
-          <button class="nav-item" data-page="memory">
-            <img class="nav-icon" src="/icons/memory.svg" alt="" width="18" height="18" />
-            <span>记忆</span>
-          </button>
         </nav>
+
+        <div class="agent-card">
+          <div class="agent-avatar" aria-hidden="true">
+            <span id="agent-avatar-fallback">K</span>
+            <img id="agent-avatar-image" class="hidden" alt="" />
+          </div>
+          <div class="agent-name" id="agent-name">KolorBot</div>
+          <button
+            id="agent-menu-button"
+            class="agent-menu-button"
+            aria-label="打开模型和记忆"
+            aria-haspopup="menu"
+            aria-expanded="false"
+          >⋯</button>
+          <div id="agent-menu" class="agent-menu hidden" role="menu">
+            <button type="button" data-agent-page="models" role="menuitem">模型</button>
+            <button type="button" data-agent-page="memory" role="menuitem">记忆</button>
+          </div>
+        </div>
       </aside>
 
       <main class="main">

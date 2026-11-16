@@ -1693,4 +1693,17 @@ button:focus-visible {
 /* Topics entry in the chat header */
 .header-topic-button { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; border: 0; border-radius: 9px; background: transparent; cursor: pointer; opacity: .7; transition: background .12s ease, opacity .12s ease; }
 .header-topic-button:hover { background: var(--bg-2); opacity: 1; }
+.header-topic-button.active { background: var(--bg-2); opacity: 1; }
+.header-topic-button.active img { filter: brightness(0.55); }
 .header-topic-button img { display: block; }
+
+/* Agent card at the bottom of the sidebar */
+.agent-card { position: relative; display: flex; align-items: center; gap: 10px; margin-top: auto; padding: 12px 6px 2px; border-top: 1px solid var(--bg-3); }
+.agent-avatar { width: 36px; height: 36px; flex: 0 0 auto; display: grid; place-items: center; overflow: hidden; border-radius: 50%; background: var(--accent-soft); color: var(--accent); font-size: 15px; font-weight: 600; }
+.agent-avatar img { width: 100%; height: 100%; object-fit: cover; }
+.agent-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 550; color: var(--text); }
+.agent-menu-button { width: 28px; height: 28px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; }
+.agent-menu-button:hover, .agent-menu-button[aria-expanded="true"] { background: var(--bg-2); color: var(--text); }
+.agent-menu { position: absolute; right: 6px; bottom: calc(100% + 4px); z-index: 20; min-width: 112px; padding: 5px; border: 1px solid var(--bg-3); border-radius: 10px; background: var(--surface); box-shadow: 0 12px 32px rgba(0, 0, 0, 0.14); }
+.agent-menu button { display: block; width: 100%; padding: 8px 10px; border: 0; border-radius: 7px; background: transparent; text-align: left; font: inherit; font-size: 13px; color: var(--text); cursor: pointer; }
+.agent-menu button:hover { background: var(--bg-2); }

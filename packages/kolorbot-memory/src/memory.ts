@@ -70,6 +70,10 @@ export interface SelfSnapshot {
   /** Hard cap for the injected file (1 MiB). */
   limitBytes: number;
   overLimit: boolean;
+  /** First-line `# name`. */
+  name: string;
+  /** Path under `## head-image` + `> path`; empty when absent. */
+  headImage: string;
 }
 
 export interface DiaryRecord {
@@ -78,6 +82,30 @@ export interface DiaryRecord {
   path: string;
   relativePath: string;
   created: boolean;
+}
+
+export interface PersonaProfile {
+  name: string;
+  headImage: string;
+}
+
+/** Parse the fixed AI.md header: `# name`, `## head-image`, `> path`. */
+export function parsePersona(content: string): PersonaProfile {
+  const lines = content.replace(/^\uFEFF/, '').split(/\r?\n/);
+  const first = lines.find((line) => line.trim() !== '') ?? '';
+  const nameMatch = /^#\s+(.+?)\s*$/.exec(first);
+  const name = nameMatch === null ? '' : (nameMatch[1] as string).trim();
+  let headImage = '';
+  const heading = lines.findIndex((line) => /^##\s+head-image\s*$/i.test(line.trim()));
+  if (heading >= 0) {
+    for (const line of lines.slice(heading + 1)) {
+      if (line.trim() === '') continue;
+      const match = /^>\s*(.+?)\s*$/.exec(line);
+      if (match !== null) headImage = (match[1] as string).trim().replace(/^['"`]|['"`]$/g, '');
+      break;
+    }
+  }
+  return { name, headImage };
 }
 
 const SETTINGS_VERSION = 1;
@@ -130,6 +158,7 @@ export class MemoryStore {
       }
     }
     const sizeBytes = Buffer.byteLength(content, 'utf8');
+    const profile = parsePersona(content);
     return {
       path: this.selfPath,
       relativePath: 'AI.md',
@@ -138,6 +167,8 @@ export class MemoryStore {
       sizeBytes,
       limitBytes: SELF_MAX_BYTES,
       overLimit: sizeBytes > SELF_MAX_BYTES,
+      name: profile.name,
+      headImage: profile.headImage,
     };
   }
 
@@ -707,7 +738,7 @@ export function selfTellInfo(text: string): string | undefined {
 export function buildSelfUpdateMessage(): string {
   return [
     'Update your self-description (AI.md) from this conversation.',
-    'Write it to workspace/AI.md with write_file. Keep only your name, personality and self-knowledge (optional self-image path); do not store user facts or chat logs. Keep it under 1 MiB.',
+    'Write workspace/AI.md with this exact header: first line "# <name>", then "## head-image", then "> <image path>". Put personality/self-knowledge below; do not store user facts or chat logs. Keep it under 1 MiB.',
   ].join(' ');
 }
 
@@ -718,7 +749,7 @@ export function buildSelfTellMessage(info: string): string {
     '',
     info.trim(),
     '',
-    'Write it to workspace/AI.md with write_file. Keep only your name, personality and self-knowledge (optional self-image path); do not store user facts or chat logs. Keep it under 1 MiB.',
+    'Write workspace/AI.md with this exact header: first line "# <name>", then "## head-image", then "> <image path>". Put personality/self-knowledge below; do not store user facts or chat logs. Keep it under 1 MiB.',
   ].join('\n');
 }
 

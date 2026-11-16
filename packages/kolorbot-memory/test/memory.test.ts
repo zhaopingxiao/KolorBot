@@ -9,6 +9,7 @@ import {
   readDiaryEntries,
   readDiaryTopicSection,
   appendDiaryEntry,
+  parsePersona,
   formatLastMessageBlock,
   formatTopicMemoryBlock,
   buildSelfTellMessage,
@@ -159,4 +160,12 @@ test('appends diary entries at the current time without duplicating topic sectio
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
   }
+});
+test('parses the fixed AI.md name and head-image header', () => {
+  const profile = parsePersona(
+    '# 小K\n\n## head-image\n\n> C:\\Users\\jiayi\\avatar.png\n\n## 性格\n\n温柔',
+  );
+  assert.equal(profile.name, '小K');
+  assert.equal(profile.headImage, 'C:\\Users\\jiayi\\avatar.png');
+  assert.deepEqual(parsePersona('没有标题'), { name: '', headImage: '' });
 });
