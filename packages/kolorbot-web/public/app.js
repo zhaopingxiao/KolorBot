@@ -369,8 +369,9 @@ function showPage(name, syncHash = true) {
   for (const page of document.querySelectorAll('.page')) {
     page.classList.toggle('hidden', page.id !== `page-${name}`);
   }
+  const activePage = name === 'topics' ? 'chat' : name;
   for (const item of document.querySelectorAll('.sidebar-nav [data-page]')) {
-    item.classList.toggle('active', item.dataset.page === name);
+    item.classList.toggle('active', item.dataset.page === activePage);
   }
   if (syncHash) {
     if (name === 'topics') {
@@ -397,6 +398,7 @@ function renderHeader() {
   const topic = state.currentTopic;
   const page = PAGES[state.page] ?? PAGES.chat;
   $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
+  $('#open-topics').classList.toggle('hidden', state.page !== 'chat');
   $('#session-meta').textContent =
     state.page === 'chat'
       ? session
@@ -2048,6 +2050,7 @@ function wire() {
   for (const item of document.querySelectorAll('.sidebar-nav [data-page]')) {
     item.addEventListener('click', () => showPage(item.dataset.page));
   }
+  $('#open-topics').addEventListener('click', () => showPage('topics'));
   $('#topics-back').addEventListener('click', () => {
     location.hash = '#/topics';
   });

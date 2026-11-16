@@ -1689,3 +1689,8 @@ button:focus-visible {
 .send-button:hover { background: #3f5cf0; }
 .send-button.stop { background: var(--bg-2); color: var(--text); font-size: 12px; }
 .send-button.stop:hover { background: var(--bg-3); }
+
+/* Topics entry in the chat header */
+.header-topic-button { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; padding: 0; border: 0; border-radius: 9px; background: transparent; cursor: pointer; opacity: .7; transition: background .12s ease, opacity .12s ease; }
+.header-topic-button:hover { background: var(--bg-2); opacity: 1; }
+.header-topic-button img { display: block; }
