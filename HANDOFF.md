@@ -372,6 +372,7 @@ pnpm test
 ## 11. 最近提交 / 版本
 
 ```text
+73b6ef2 feat: move user data to ~/.kolorbot
 85dce26 feat(web): settings page and slash command completion
 6907eb9 feat(web): add agent card and fixed AI.md identity header
 b8eaeec feat(web): move topics entry into the chat header
