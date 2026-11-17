@@ -8,7 +8,7 @@ import { resolveKolorHome } from 'kolorbot-conversation';
 export interface WebConfig {
   host: string;
   port: number;
-  /** KolorBot home (`~/.kolor`). */
+  /** KolorBot home (`~/.kolorbot`). */
   home: string;
   /** Default workspace for the built-in frame tools. */
   frameRoot: string;
@@ -47,7 +47,7 @@ const DEFAULT_PORT = 3399;
  * There is deliberately no built-in model endpoint: `apiUrl` and
  * `apiModelName` stay empty unless the caller passes them or sets
  * `KOLOR_API_URL` / `KOLOR_API_MODEL`. Models normally come from the providers
- * managed in the web UI (`~/.kolor/providers.json`).
+ * managed in the web UI (`~/.kolorbot/providers.json`).
  */
 export function resolveWebConfig(
   overrides: WebConfigOverrides = {},

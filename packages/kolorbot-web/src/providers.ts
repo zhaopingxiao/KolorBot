@@ -61,7 +61,7 @@ export interface DefaultModelConfig {
 }
 
 export interface ProviderStoreOptions {
-  /** Defaults to `~/.kolor/providers.json`. */
+  /** Defaults to `~/.kolorbot/providers.json`. */
   path?: string;
   /** Kolor home used when `path` is omitted. */
   home?: string;
@@ -97,7 +97,7 @@ const DEFAULT_MODELS_TIMEOUT_MS = 15_000;
 const EMPTY_FILE: ProviderFile = { version: FILE_VERSION, active: null, providers: [] };
 
 /**
- * Providers and their models, persisted as `~/.kolor/providers.json`.
+ * Providers and their models, persisted as `~/.kolorbot/providers.json`.
  *
  * This is the only file that stores API keys, because a provider added in the
  * web UI has to survive a restart. The file is written atomically with owner

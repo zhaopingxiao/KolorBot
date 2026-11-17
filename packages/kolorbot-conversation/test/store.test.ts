@@ -1,14 +1,19 @@
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import { ConversationStore } from '../src/index.js';
+import { ConversationStore, resolveKolorHome } from '../src/index.js';
 
 function tempStore(): { store: ConversationStore; dir: string } {
   const dir = mkdtempSync(join(tmpdir(), 'kolorbot-conversation-'));
   return { store: new ConversationStore({ path: join(dir, 'conversation.db') }), dir };
 }
+
+test('defaults the data home to ~/.kolorbot and keeps KOLOR_HOME override', () => {
+  assert.equal(resolveKolorHome({}), join(homedir(), '.kolorbot'));
+  assert.equal(resolveKolorHome({ KOLOR_HOME: 'D:\\custom' }), 'D:\\custom');
+});
 
 test('creates and reuses topics, and starts a new segment per visit', () => {
   const { store, dir } = tempStore();

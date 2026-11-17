@@ -1,6 +1,6 @@
-﻿# kolorbot-sessions
+﻿# kolorbot-conversation
 
-KolorBot 的会话存储：把 agent-loop 的上下文、会话主题和定时任务存进 SQLite，默认路径 `~/.kolor/sessions.db`。
+KolorBot 的单对话存储：topics / segments / messages，默认路径 `~/.kolorbot/conversation.db`。
 
 ## 表结构
 
@@ -35,7 +35,7 @@ CREATE TABLE session_tasks (
 ```ts
 import { SessionStore } from 'kolorbot-sessions';
 
-const store = new SessionStore();            // ~/.kolor/sessions.db
+const store = new SessionStore();            // ~/.kolorbot/sessions.db
 const session = store.create({
   name: '葡萄云项目',
   topic: '编写葡萄云项目，使用 Vue 3 + Node.js…',
@@ -119,7 +119,7 @@ type TaskSchedule =
 
 | 环境变量 | 作用 |
 | --- | --- |
-| `KOLOR_HOME` | KolorBot 主目录，默认 `~/.kolor` |
+| `KOLOR_HOME` | KolorBot 主目录，默认 `~/.kolorbot` |
 | `KOLOR_SESSIONS_DB` | 直接指定数据库文件路径（优先级最高） |
 
 也可以在构造时传 `{ path }` 或 `{ home }`。

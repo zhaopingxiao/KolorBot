@@ -45,7 +45,7 @@ kolorbot/
 │   ├── kolorbot-memory/         # AI.md + 话题文件 + 日记 + 注入块
 │   └── kolorbot-web/            # Web 服务 + public/ 静态页面 + 话题判定
 │       ├── src/topic-classifier.ts  # 每条消息的话题判定
-│       ├── src/providers.ts     # 提供商存储（~/.kolor/providers.json）+ 模型发现
+│       ├── src/providers.ts     # 提供商存储（~/.kolorbot/providers.json）+ 模型发现
 │       ├── src/runs.ts          # RunBroker：turn 生命周期 + 事件回放
 │       └── public/              # index.html / app.js / styles.css
 ├── restart.cmd                  # 启停脚本入口（scripts/restart.ps1）
@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 110 个测试
+pnpm test      # 111 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -120,7 +120,7 @@ npm run web -- --host 0.0.0.0
 
 ![移动端](docs/mobile.png)
 
-- **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolor/conversation.db`。
+- **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolorbot/conversation.db`。
 - **话题页**：对话标题左边的话题图标进入；点进话题先看到 Markdown 渲染的 `workspace/topic/<slug>.md` 话题记忆，下面是**对话里出现过**的所有月份日历，紫色日期可点开当天的话题聊天记录和日记片段；有对话但没日记的那天可以直接点「整理这天的日记」。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与日记](#单对话话题与日记)。
 - 模型：侧栏底部 agent 卡片的「⋯」→「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。
@@ -139,11 +139,11 @@ npm run web -- --host 0.0.0.0
 | `KOLOR_API_URL` | 空 | 显式环境变量回退的 endpoint；不设就没有任何默认模型 |
 | `KOLOR_API_MODEL` | 空 | 显式环境变量回退的模型名；不设就没有任何默认模型 |
 | `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT` | `127.0.0.1` / `3399` | 监听地址与端口 |
-| `KOLOR_HOME` | `~/.kolor` | 数据目录（`conversation.db`、`providers.json`、`memory.json`、`workspace/`） |
+| `KOLOR_HOME` | `~/.kolorbot` | 数据目录（`conversation.db`、`providers.json`、`memory.json`、`workspace/`） |
 | `KOLOR_CONVERSATION_DB` | `<home>/conversation.db` | 单对话 / 话题数据库 |
 | `KOLOR_FRAME_ROOT` | `<home>/workspace` | 内置文件/bash 工具的工作区根 |
 | `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 兼容技能区（Claude 标准） |
-| `KOLOR_USER_SKILLS_DIR` | `<frameRoot>/skills` | 专属技能区（默认 `~/.kolor/workspace/skills`） |
+| `KOLOR_USER_SKILLS_DIR` | `<frameRoot>/skills` | 专属技能区（默认 `~/.kolorbot/workspace/skills`） |
 | `KOLOR_BUILTIN_SKILLS_DIR` | `<repo>/inner/skills` | 内置技能区 |
 | `BROWSERUSE_VIEW_PORT` | `9223` | browseruse 技能实时画面的端口（经 `kolor.json` 的 `${VAR}` 注入技能进程） |
 | `BROWSERUSE_HEADLESS` | `true` | browseruse 技能用 `false` 时显示真实浏览器窗口 |
@@ -151,6 +151,8 @@ npm run web -- --host 0.0.0.0
 > `KOLOR_API_URL`、`KOLOR_API_MODEL`、`DEEPSEEK_API_KEY` **三个都设置**时，才会出现「环境变量 · 模型」这个回退项；只设置 key 不会自动补 deepseek 端点。
 
 > Web 服务没有鉴权，默认只监听 `127.0.0.1`，不要暴露到公网。
+
+> 2026-11-17 起默认数据目录改为 `~/.kolorbot`。当前机器的旧目录 `~/.kolor` 已迁移，备份在 `C:\Users\jiayi\.kolor.backup-20261117-190135`；应用不再读取旧目录。
 
 ### 如何运行 TypeScript
 
@@ -247,7 +249,7 @@ mcpServers: [
 
 工具名会变成 `mcp__<server>__<tool>`（例如 `calc` → `mcp__calc__add`）。单个服务器连不上不会让 agent 启动失败：`agent.mcpServers` 记录 `ok: false` 和原因，同时发出 `mcp/error` 事件。
 
-KolorFrame 不是 MCP，也不额外启动进程：`KolorAgent` 默认把 `read_file`、`write_file`、`list_files`、`bash`、`skills` 注册成本地工具，工作区由 `kolorFrame.root` 指定（Web 默认 `~/.kolor/workspace`）。传 `kolorFrame: false` 可以关闭。
+KolorFrame 不是 MCP，也不额外启动进程：`KolorAgent` 默认把 `read_file`、`write_file`、`list_files`、`bash`、`skills` 注册成本地工具，工作区由 `kolorFrame.root` 指定（Web 默认 `~/.kolorbot/workspace`）。传 `kolorFrame: false` 可以关闭。
 
 ### 在 skill 里声明 MCP
 
@@ -317,7 +319,7 @@ KolorFrame 提供：
 - 删除当前提供商、或在下拉框里选「环境变量」时，回退到显式配置的 `KOLOR_API_URL` + `KOLOR_API_MODEL` + key。**没有内置默认**：这三项没配全就没有可选项，聊天会提示添加提供商。
 - 模型选择是全局的：切换后所有会话的下一轮都用新模型，进行中的轮次不受影响。切换模型会在该会话重建 agent（MCP 会重连）。
 
-存储位置是 `~/.kolor/providers.json`，和 `conversation.db` 同级：
+存储位置是 `~/.kolorbot/providers.json`，和 `conversation.db` 同级：
 
 ```json
 {
@@ -372,7 +374,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆不再按�
 
 ### 设定（AI.md）
 
-- 文件：`<workspace>/AI.md`，默认 `~/.kolor/workspace/AI.md`。固定头部格式：
+- 文件：`<workspace>/AI.md`，默认 `~/.kolorbot/workspace/AI.md`。固定头部格式：
 
 ```markdown
 # 名字
@@ -410,7 +412,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆不再按�
 
 要点：
 
-- 开关状态存在 `~/.kolor/memory.json`（`{ "version": 1, "diary": { "autoAppend": true } }`）。
+- 开关状态存在 `~/.kolorbot/memory.json`（`{ "version": 1, "diary": { "autoAppend": true } }`）。
 - 计时只在 Web 进程存活时有效，重启后从下一轮对话重新开始；日记轮次不会触发自己。
 - 日记是普通 Markdown，可以自己编辑、用 Git 管理或同步。
 
@@ -418,7 +420,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆不再按�
 
 ### 存储
 
-`~/.kolor/conversation.db`（`KOLOR_CONVERSATION_DB` 可覆盖）里有三张表：
+`~/.kolorbot/conversation.db`（`KOLOR_CONVERSATION_DB` 可覆盖）里有三张表：
 
 ```sql
 topics          (slug, name, created_at, updated_at)
@@ -561,7 +563,7 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | 区 | 目录 | 说明 |
 | --- | --- | --- |
 | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR` 可覆盖） | Claude 标准的兼容区，原来的安装位置 |
-| 专属技能 | `<workspace>/skills`，默认 `~/.kolor/workspace/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
+| 专属技能 | `<workspace>/skills`，默认 `~/.kolorbot/workspace/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
 | 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` 放在这里 |
 
 - 三个区都按 `<区>/<id>/SKILL.md` 组织；同名技能按 **专属 → 兼容 → 内置** 的优先级取第一个，不会重复注入。
@@ -617,10 +619,10 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 110 个测试：
+共 111 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
-- `kolorbot-conversation`（4）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝。
+- `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
 - `kolorbot-web`（28）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。

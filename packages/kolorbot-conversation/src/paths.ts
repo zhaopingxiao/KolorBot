@@ -1,10 +1,10 @@
-import { homedir } from 'node:os';
+﻿import { homedir } from 'node:os';
 import { join } from 'node:path';
 
-/** The Kolor home directory (`$KOLOR_HOME` or `~/.kolor`). */
+/** The KolorBot home directory (`$KOLOR_HOME` or `~/.kolorbot`). */
 export function resolveKolorHome(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.KOLOR_HOME?.trim();
-  return configured !== undefined && configured !== '' ? configured : join(homedir(), '.kolor');
+  return configured !== undefined && configured !== '' ? configured : join(homedir(), '.kolorbot');
 }
 
 /** Full path of the single-conversation database (`$KOLOR_CONVERSATION_DB` or `<home>/conversation.db`). */

@@ -8,9 +8,9 @@
 >
 > 代码仓库：https://github.com/zhaopingxiao/KolorBot.git（origin/main）
 >
-> 代码基线：`85dce26 feat(web): settings page and slash command completion`（HANDOFF 本次更新之前）
+> 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（110 个测试），单对话 + 话题驱动，Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（111 个测试），单对话 + 话题驱动，Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
@@ -47,7 +47,7 @@ D:\code\kolorbot\
 └── LICENSE                      # MIT
 ```
 
-兼容标识保留：数据目录仍是 `~/.kolor`，环境变量仍是 `KOLOR_*`，技能 MCP 配置仍叫 `kolor.json`，类名仍是 `KolorAgent` / `KolorFrame`。包名已是 `kolorbot-*`，不要随意改回。
+- 数据目录默认 `~/.kolorbot`（`KOLOR_HOME` 可覆盖）；环境变量仍是 `KOLOR_*`，技能 MCP 配置仍叫 `kolor.json`，类名仍是 `KolorAgent` / `KolorFrame`。包名已是 `kolorbot-*`，不要随意改回。
 
 ## 3. 当前架构
 
@@ -63,7 +63,7 @@ D:\code\kolorbot\
 
 ### 3.2 单对话与话题（`kolorbot-conversation`）
 
-- SQLite `node:sqlite`，默认 `~/.kolor/conversation.db`（`KOLOR_CONVERSATION_DB` 可覆盖）。
+- SQLite `node:sqlite`，默认 `~/.kolorbot/conversation.db`（`KOLOR_CONVERSATION_DB` 可覆盖）。
 - 表：`topics` / `segments` / `messages`。
 - 整个应用只有一条对话；切换话题开新 segment，UI 在 segment 之间显示话题分割线。
 - `messages.data_json` 保存完整 `AgentMessage`（含 toolCalls / tool 结果），UI 与模型共用同一份数据。
@@ -84,7 +84,7 @@ D:\code\kolorbot\
 
 #### AI.md 固定格式
 
-`<workspace>/AI.md`，默认 `~/.kolor/workspace/AI.md`。固定头部：
+`<workspace>/AI.md`，默认 `~/.kolorbot/workspace/AI.md`。固定头部：
 
 ```markdown
 # 名字
@@ -126,7 +126,7 @@ D:\code\kolorbot\
 | 区 | 目录 | 说明 |
 | --- | --- | --- |
 | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR`） | Claude 标准兼容区 |
-| 专属技能 | `<frameRoot>/skills`（`KOLOR_USER_SKILLS_DIR`） | 默认 `~/.kolor/workspace/skills` |
+| 专属技能 | `<frameRoot>/skills`（`KOLOR_USER_SKILLS_DIR`） | 默认 `~/.kolorbot/workspace/skills` |
 | 内置技能 | `<repo>/inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR`） | `browseruse` 在这里 |
 
 - 按 `<区>/<id>/SKILL.md` 读取；同名技能按 **专属 → 兼容 → 内置** 取第一个。
@@ -137,7 +137,7 @@ D:\code\kolorbot\
 ### 3.6 提供商与模型
 
 - Web「模型」页添加 OpenAI Chat Completions 兼容提供商：名称、接口地址、API Key；调用 `/models` 自动识别模型。
-- 存储 `~/.kolor/providers.json`，key 只存在本地文件，API 只返回 `hasKey` + 末四位。
+- 存储 `~/.kolorbot/providers.json`，key 只存在本地文件，API 只返回 `hasKey` + 末四位。
 - 选择模型是全局的；切换后下一轮生效，运行中的 turn 不受影响。
 - 没有内置默认模型；只有显式设置 `KOLOR_API_URL` + `KOLOR_API_MODEL` + key 才出现环境变量回退项。
 
@@ -196,13 +196,13 @@ D:\code\kolorbot\
 - 当前 release：
   - 版本 0.4.0
   - 大小 135,811,072 bytes
-  - SHA256 `B4AC0FDCF72DEAC0A184FAD5F3F5043B201664266484611B135D803D2946FB2A`
+  - SHA256 `8ACAD96D62E1284131F2573D0B5EA6A1CBA2D6357B361B62BB4E1882F102E5CF`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
 
 ```text
-~/.kolor/
+~/.kolorbot/
 ├── conversation.db       # topics / segments / messages
 ├── memory.json           # 日记自动整理开关
 ├── providers.json        # 模型提供商 / active 模型 / key
@@ -215,6 +215,7 @@ D:\code\kolorbot\
 
 - `KOLOR_FRAME_ROOT` 可改 workspace。
 - 日记、AI.md、话题文件都是普通 Markdown，可直接编辑/备份。
+- 2026-11-17 起默认数据目录从 `~/.kolor` 改为 `~/.kolorbot`；现有数据已迁移，旧目录备份在 `C:\Users\jiayi\.kolor.backup-20261117-190135`。应用不再读取旧目录。
 - 用户曾手动清空数据：数据库缺数据、话题 404、日记为空都不是 bug。
 
 ## 5. HTTP API 概览
@@ -269,9 +270,9 @@ npm run web       # http://127.0.0.1:3399
 当前测试：
 
 ```text
-pnpm test  ✅ 110/110
+pnpm test  ✅ 111/111
   kolorbot-agent-loop 53
-  kolorbot-conversation 4
+  kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
   kolorbot-web        28
@@ -300,7 +301,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 110（memory 11；web 28）。
+20. **测试数不要写回旧值**：当前 111（conversation 5；memory 11；web 28）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -322,7 +323,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 
 ```text
 项目在 D:\code\kolorbot。请先读 D:\code\kolorbot\HANDOFF.md 和 README.md。
-包名是 kolorbot-*，不要改回 kolor-*；~/.kolor、KOLOR_*、kolor.json 保留旧名。
+包名是 kolorbot-*，不要改回 kolor-*；数据目录默认 ~/.kolorbot，KOLOR_*、kolor.json 保留旧名。
 
 基线：
 cd D:\code\kolorbot
@@ -340,7 +341,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 日记后端仍在：daily/YYYY-MM-DD.md，格式 # 日期 → ## 话题 → ### HH:mm；write_diary/write_topic 只在日记轮次启用。
-- 测试 110/110；代码基线 85dce26；release SHA256 B4AC0FDCF72DEAC0A184FAD5F3F5043B201664266484611B135D803D2946FB2A。
+- 测试 111/111；release SHA256 8ACAD96D62E1284131F2573D0B5EA6A1CBA2D6357B361B62BB4E1882F102E5CF。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

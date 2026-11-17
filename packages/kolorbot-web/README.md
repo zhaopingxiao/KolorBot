@@ -47,7 +47,7 @@ npm run web -- --host 0.0.0.0 --port 8080   # 换端口
 | `KOLOR_API_MODEL` | `deepseek-chat` | 模型名 |
 | `KOLOR_WEB_HOST` | `127.0.0.1` | 监听地址 |
 | `KOLOR_WEB_PORT` | `3399` | 端口（`0` 表示随机） |
-| `KOLOR_HOME` | `~/.kolor` | 数据目录 |
+| `KOLOR_HOME` | `~/.kolorbot` | 数据目录 |
 | `KOLOR_SESSIONS_DB` | `<home>/sessions.db` | SQLite 文件 |
 | `KOLOR_FRAME_ROOT` | `<home>/workspace` | 内置文件/bash 工具的工作区根 |
 | `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 技能目录（Claude 标准） |
@@ -84,7 +84,7 @@ KolorFrame 的工具始终存在（文件/bash/技能）；技能里的 MCP 服�
 ## 数据与安全
 
 ```
-~/.kolor/
+~/.kolorbot/
 ├── sessions.db      # 会话（SQLite）
 └── workspace/       # 内置文件/bash 工具的工作区
 
