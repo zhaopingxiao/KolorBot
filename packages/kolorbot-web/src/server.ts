@@ -260,6 +260,8 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   let toolsTopicOverride: string | undefined;
   /** Diary/topic file writes are only allowed during diary turns. */
   let diaryWriteAllowed = false;
+  /** Reserved synchronously by /api/message before its internal chat request starts. */
+  let callbackTurnBusy = false;
 
   const pool = new AgentPool({
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
@@ -290,6 +292,8 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
 
+  /** URL used by the callback-message bridge to call this same server. */
+  let localBaseUrl = '';
   const server = createServer((request, response) => {
     void handleRequest(request, response).catch((error: unknown) => {
       if (response.headersSent) {
@@ -665,6 +669,11 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       return;
     }
 
+    if (pathname === '/api/message' && method === 'POST') {
+      await handleCallbackMessage(request, response);
+      return;
+    }
+
     // Refresh one MCP server: close its connection and reconnect it.
     const mcpRestartMatch = /^\/api\/mcp\/([A-Za-z0-9_:%.-]+)\/restart$/.exec(pathname);
     if (mcpRestartMatch !== null && method === 'POST') {
@@ -914,6 +923,202 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       // Only a user turn restarts the quiet period.
       diaryIdle.noteTurnFinished(session.id);
     }
+  }
+
+  /** POST one JSON payload to a user-supplied callback URL. */
+  async function postCallback(callbackUrl: string, payload: Record<string, unknown>): Promise<void> {
+    try {
+      const response = await fetch(callbackUrl, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json; charset=utf-8' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(10_000),
+      });
+      await response.text().catch(() => '');
+      if (!response.ok) {
+        options.logger?.(`callback returned HTTP ${response.status}: ${callbackUrl}`);
+      }
+    } catch (error) {
+      options.logger?.(
+        `callback delivery failed: ${callbackUrl}`,
+        error,
+      );
+    }
+  }
+
+  /** Send one external message and mirror each assistant context to its callback. */
+  async function forwardCallbackTurn(message: string, callbackUrl: string): Promise<void> {
+    let segment = '';
+    let fullText = '';
+    let contexts = 0;
+    let status = 'done';
+    let failure = '';
+
+    const flushContext = async (): Promise<void> => {
+      if (segment.trim() === '') {
+        segment = '';
+        return;
+      }
+      const context = segment;
+      segment = '';
+      contexts += 1;
+      await postCallback(callbackUrl, {
+        type: 'context',
+        context,
+        text: context,
+        sequence: contexts,
+        at: new Date().toISOString(),
+      });
+    };
+
+    try {
+      const callbackResponse = await fetch(`${localBaseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text: message }),
+      });
+      if (!callbackResponse.ok) {
+        const errorText = (await callbackResponse.text().catch(() => '')).slice(0, 4000);
+        await postCallback(callbackUrl, {
+          type: callbackResponse.status === 409 ? 'busy' : 'error',
+          error: errorText === '' ? `chat request failed (${callbackResponse.status})` : errorText,
+          at: new Date().toISOString(),
+        });
+        return;
+      }
+      if (callbackResponse.body === null) throw new Error('chat response has no body');
+
+      const reader = callbackResponse.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      const processBlock = async (block: string): Promise<void> => {
+        const data = block
+          .split('\n')
+          .filter((line) => line.startsWith('data:'))
+          .map((line) => line.slice(5).trimStart())
+          .join('\n');
+        if (data === '' || data === '[DONE]') return;
+        let event: Record<string, unknown>;
+        try {
+          event = JSON.parse(data) as Record<string, unknown>;
+        } catch {
+          return;
+        }
+        const type = typeof event.type === 'string' ? event.type : '';
+        if (type === 'text/delta' && typeof event.text === 'string') {
+          segment += event.text;
+          fullText += event.text;
+          return;
+        }
+        if (
+          type === 'tool/call' ||
+          type === 'tool/result' ||
+          type === 'tool/skipped' ||
+          type === 'turn/end' ||
+          type === 'run/cancelled' ||
+          type === 'web/error'
+        ) {
+          await flushContext();
+          if (type === 'run/cancelled') status = 'cancelled';
+          if (type === 'web/error' && typeof event.message === 'string') {
+            failure = event.message;
+          }
+        }
+      };
+
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer = (buffer + decoder.decode(value, { stream: true })).replace(/\r\n/g, '\n');
+        let boundary = buffer.indexOf('\n\n');
+        while (boundary >= 0) {
+          const block = buffer.slice(0, boundary);
+          buffer = buffer.slice(boundary + 2);
+          await processBlock(block);
+          boundary = buffer.indexOf('\n\n');
+        }
+      }
+      await flushContext();
+
+      if (failure !== '') {
+        await postCallback(callbackUrl, {
+          type: 'error',
+          error: failure,
+          text: fullText,
+          contexts,
+          at: new Date().toISOString(),
+        });
+      } else {
+        await postCallback(callbackUrl, {
+          type: 'done',
+          status,
+          text: fullText,
+          contexts,
+          at: new Date().toISOString(),
+        });
+      }
+    } catch (error) {
+      try {
+        await flushContext();
+      } catch {
+        // The callback failure above is the useful error.
+      }
+      await postCallback(callbackUrl, {
+        type: 'error',
+        error: describeError(error),
+        text: fullText,
+        contexts,
+        at: new Date().toISOString(),
+      });
+    }
+  }
+
+  /** `POST /api/message`: fire a turn and mirror assistant contexts to a callback. */
+  async function handleCallbackMessage(
+    request: IncomingMessage,
+    response: ServerResponse,
+  ): Promise<void> {
+    const body = await readJsonBody(request);
+    if (!isRecord(body)) throw new HttpError(400, 'request body must be JSON');
+    const message =
+      typeof body.message === 'string'
+        ? body.message
+        : typeof body.text === 'string'
+          ? body.text
+          : '';
+    const rawCallback =
+      typeof body.callbackUrl === 'string'
+        ? body.callbackUrl
+        : typeof body.callback === 'string'
+          ? body.callback
+          : '';
+    if (message.trim() === '') throw new HttpError(400, 'message is required');
+    if (rawCallback.trim() === '') throw new HttpError(400, 'callbackUrl is required');
+    let callback: URL;
+    try {
+      callback = new URL(rawCallback.trim());
+    } catch {
+      throw new HttpError(400, 'callbackUrl must be a valid URL');
+    }
+    if (callback.protocol !== 'http:' && callback.protocol !== 'https:') {
+      throw new HttpError(400, 'callbackUrl must use http or https');
+    }
+    if (activeTarget() === undefined) {
+      throw new HttpError(400, 'no usable model: add a provider in the web UI (模型)');
+    }
+    if (runs.isRunning(store.id) || callbackTurnBusy) {
+      throw new HttpError(409, 'the AI is already processing a message');
+    }
+    callbackTurnBusy = true;
+
+    sendJson(response, 202, {
+      accepted: true,
+      callbackUrl: callback.toString(),
+      message: message.trim(),
+    });
+    void forwardCallbackTurn(message, callback.toString()).finally(() => {
+      callbackTurnBusy = false;
+    });
   }
 
   /** Apply the classifier's decision; `undefined` means "keep the current topic". */
@@ -1387,6 +1592,9 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   });
   const address = server.address() as AddressInfo | null;
   const port = address?.port ?? config.port;
+  const internalHost =
+    config.host === '0.0.0.0' || config.host === '::' ? '127.0.0.1' : config.host;
+  localBaseUrl = `http://${internalHost.includes(':') ? `[${internalHost}]` : internalHost}:${port}`;
 
   return {
     server,

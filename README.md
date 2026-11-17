@@ -1,4 +1,4 @@
-﻿# KolorBot
+# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 111 个测试
+pnpm test      # 113 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -596,9 +596,48 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | POST | `/api/mcp/:name/restart` | 关闭指定的 MCP 服务器并重新连接 |
 | POST | `/api/chat` | SSE 事件流，body 只有 `{ text }`；服务端先判定话题，再开始 turn；重复请求 409 |
 | POST | `/api/chat/cancel` | 停止当前轮次 |
+| POST | `/api/message` | 外部发送消息 + 回调地址；AI 忙时 409；每个 context 和结束状态 POST 回 callback |
 | GET | `/api/sessions/:id/run` | 兼容端点（`id` 固定 `main`）：当前/刚结束的 turn 状态 + 缓冲事件 |
 | GET | `/api/sessions/:id/stream?from=N` | 兼容端点（`id` 固定 `main`）：SSE 回放 + 实时事件 |
 | POST | `/api/sessions/:id/reset` | 清空当前对话的消息（话题与记忆文件保留） |
+
+## 外部消息 + 回调
+
+```http
+POST /api/message
+Content-Type: application/json
+
+{
+  "message": "帮我看一下工作区",
+  "callbackUrl": "http://127.0.0.1:9000/hook"
+}
+```
+
+- 成功启动返回 `202 { "accepted": true, "callbackUrl": "...", "message": "..." }`。
+- AI 正在处理（Web `/api/chat`、闲置日记、另一个 `/api/message`）时返回 `409`，不会排队、不会发送。
+- 没有可用模型返回 `400`。
+- 实际发送走内部 `/api/chat`，因此仍然会做话题判定、注入记忆、写对话历史。
+- 每次 AI 输出一段 assistant 文本（被工具调用或轮次结束切开）都会向 `callbackUrl` POST：
+
+```json
+{
+  "type": "context",
+  "context": "这段 AI 输出",
+  "text": "这段 AI 输出",
+  "sequence": 1,
+  "at": "2026-11-17T12:00:00.000Z"
+}
+```
+
+- 轮次结束再 POST：
+
+```json
+{ "type": "done", "status": "done", "text": "完整输出", "contexts": 1, "at": "..." }
+```
+
+- 失败回 `type: "error"`；取消时 `done.status` 为 `"cancelled"`；内部竞态忙回 `type: "busy"`。
+- 回调按顺序发送，10 秒超时；回调失败只写服务端日志，不会中断 AI。
+- `callbackUrl` 只接受 `http:` / `https:`。服务端没有 SSRF 防护，只应在可信环境使用。
 
 ## 架构：从 dsh-agent-loop 抄了什么
 
@@ -619,13 +658,13 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 pnpm test
 ```
 
-共 111 个测试：
+共 113 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（28）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换。
+- `kolorbot-web`（30）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调。
 
 全部测试不需要网络和 API key。
 

@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（111 个测试），单对话 + 话题驱动，Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（113 个测试），单对话 + 话题驱动，Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
@@ -150,6 +150,27 @@ D:\code\kolorbot\
 - 回放缓冲上限 4MB，超出后 `truncated: true`。
 - 重置/删除会丢弃运行中的 turn，不写回旧上下文。
 
+### 3.7.1 外部消息 + 回调（2026-11-17）
+
+`POST /api/message` 给外部系统用：
+
+```json
+{
+  "message": "需要 AI 处理的消息",
+  "callbackUrl": "http://127.0.0.1:9000/hook"
+}
+```
+
+- 成功启动返回 202，AI 忙（Web 轮次/日记/另一个外部消息）返回 409，不排队。
+- 内部调用本机 `/api/chat`，所以话题判定、记忆注入、历史落库都照常。
+- `callbackTurnBusy` 在发响应前同步置位，避免两个 `/api/message` 在内部 run 注册前同时通过。
+- 回调事件：
+  - `context`：每个 assistant 文本段，字段 `context`/`text`/`sequence`/`at`；
+  - `done`：`status`/`text`/`contexts`/`at`（取消时 `status: "cancelled"`）；
+  - `error`；内部竞态忙时 `busy`。
+- 回调按顺序 POST，10 秒超时；失败只记日志，不中断 AI。
+- 只接受 `http:`/`https:` callback；没有 SSRF 防护，只适合可信环境。
+
 ### 3.8 Web UI（当前）
 
 `packages/kolorbot-web/public/` 是纯静态 HTML/CSS/JS。
@@ -195,8 +216,8 @@ D:\code\kolorbot\
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 135,811,072 bytes
-  - SHA256 `8ACAD96D62E1284131F2573D0B5EA6A1CBA2D6357B361B62BB4E1882F102E5CF`
+  - 大小 135,817,216 bytes
+  - SHA256 `68EC24BD5045D2520687643CBA55102853605E43BC12E94507B68F73B1392DBB`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -246,6 +267,7 @@ D:\code\kolorbot\
 | POST | `/api/mcp/:name/restart` | 重启 MCP server |
 | POST | `/api/chat` | SSE 聊天；turn 在 broker 里跑 |
 | POST | `/api/chat/cancel` | 取消当前轮次 |
+| POST | `/api/message` | 外部消息 + callbackUrl；202/409；AI context 回调 |
 
 静态资源白名单在 `server.ts` 的 `STATIC_FILES`；新增 public 文件（例如图标）必须同时加路由和 MIME，否则打包后会 404。
 
@@ -270,12 +292,12 @@ npm run web       # http://127.0.0.1:3399
 当前测试：
 
 ```text
-pnpm test  ✅ 111/111
+pnpm test  ✅ 113/113
   kolorbot-agent-loop 53
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        28
+  kolorbot-web        30
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -301,7 +323,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 111（conversation 5；memory 11；web 28）。
+20. **测试数不要写回旧值**：当前 113（conversation 5；memory 11；web 30）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -341,7 +363,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 日记后端仍在：daily/YYYY-MM-DD.md，格式 # 日期 → ## 话题 → ### HH:mm；write_diary/write_topic 只在日记轮次启用。
-- 测试 111/111；release SHA256 8ACAD96D62E1284131F2573D0B5EA6A1CBA2D6357B361B62BB4E1882F102E5CF。
+- 测试 113/113；release SHA256 68EC24BD5045D2520687643CBA55102853605E43BC12E94507B68F73B1392DBB。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 
