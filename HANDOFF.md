@@ -395,6 +395,7 @@ pnpm test
 ## 11. 最近提交 / 版本
 
 ```text
+cde795e feat(skills): move the user skills directory to the data root
 f09dd83 feat(api): add external message callback endpoint
 73b6ef2 feat: move user data to ~/.kolorbot
 85dce26 feat(web): settings page and slash command completion
