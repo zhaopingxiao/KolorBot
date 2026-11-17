@@ -178,9 +178,9 @@ D:\code\kolorbot\
 
 - 侧栏：
   - 顶部 KolorBot logo；
-  - 主导航只剩 **对话 / 技能**；
+  - 主导航是 **对话 / 技能 / 模型**；
   - 底部 **agent 卡片**：左侧圆形头像（来自 AI.md `head-image`，缺失显示名字首字），右侧名字，最右 `⋯`；
-  - `⋯` 菜单只有 **模型** 和 **设定**。
+  - `⋯` 菜单只有 **设定**；模型在「技能」下面单独入口。
 - Agent 识别：
   - 名字来自 AI.md 第一行 `# 名字`；
   - 头像通过 `/api/agent` + `/api/agent/avatar` 提供；
@@ -194,7 +194,7 @@ D:\code\kolorbot\
   - 空对话显示大标题「今天有什么可以帮到你？」；
   - 输入框大圆角、白色卡片、阴影，发送按钮为蓝色圆形 `↑`；
   - 输入 `/` 弹出指令补全：`/self-md-update`、`/self-md-tell`、`/update-daily-memory`，点击自动填充；`/self-md-tell` 会补空格；
-  - 20 秒轮询只在会话签名变化时重建消息列表，重建时保留当前滚动位置，不再定时被拉到底部；
+  - 2 秒轮询只在会话签名变化时重建消息列表，重建时保留当前滚动位置；外部 `/api/message` 启动的轮次也会在 2 秒内被 Web 接上；
   - 只有离底部一行以内才自动跟随新内容。
 - 话题页：
   - 展示话题记忆 Markdown、按月份日历、当天聊天记录/日记；
@@ -218,7 +218,7 @@ D:\code\kolorbot\
 - 当前 release：
   - 版本 0.4.0
   - 大小 135,817,216 bytes
-  - SHA256 `70A639930B086C9820168074C8DB5922C378793F9639224686BE513228F6683D`
+  - SHA256 `4A6F67BD0E6931C8E7B4F106484047F4C3656EF65D73A3DF8EA606EBB3D669C1`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -357,14 +357,14 @@ pnpm test
 当前状态（2026-11-17）：
 - 单对话 + 话题驱动，只有一条 conversation.db；没有 scheduler/定时任务。
 - 模型只来自「模型」页的 OpenAI Chat Completions 提供商；没有内置默认模型。
-- 侧栏只剩 对话/技能；左下角 agent 卡片有圆形头像、名字和 ⋯ 菜单（模型/设定）。
+- 侧栏是 对话/技能/模型；左下角 agent 卡片有圆形头像、名字和 ⋯ 菜单（设定）。
 - 对话/话题页标题左边有话题图标；话题页点击回对话，其他页面不显示。
 - 对话轮询不会强制滚到底；标题下只显示相对时间。
 - 设定页只显示 AI.md（名字/头像路径/预览），不再有日记项；页面 key/hash 仍是 memory。
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 日记后端仍在：daily/YYYY-MM-DD.md，格式 # 日期 → ## 话题 → ### HH:mm；write_diary/write_topic 只在日记轮次启用。
-- 测试 113/113；release SHA256 70A639930B086C9820168074C8DB5922C378793F9639224686BE513228F6683D。
+- 测试 113/113；release SHA256 4A6F67BD0E6931C8E7B4F106484047F4C3656EF65D73A3DF8EA606EBB3D669C1。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

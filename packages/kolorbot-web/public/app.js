@@ -1129,6 +1129,7 @@ function ensureStream(sessionId, run) {
   }
 
   const container = $('#messages');
+  container.querySelector('.chat-empty')?.remove();
   const stick = atBottom();
   let turn;
   if (state.pending !== null) {
@@ -2181,13 +2182,15 @@ function wire() {
         return;
       }
       await loadConversation();
+      // Also picks up turns started by /api/message, which have no local
+      // optimistic bubble. Attach as soon as the broker reports them.
       if (state.runningIds.has('main')) {
         await attachLive('main');
       }
     } catch {
       // Polling is best-effort.
     }
-  }, 20_000);
+  }, 2_000);
 }
 
 async function init() {

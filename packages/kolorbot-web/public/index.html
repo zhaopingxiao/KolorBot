@@ -26,6 +26,10 @@
             <img class="nav-icon" src="/icons/skills.svg" alt="" width="18" height="18" />
             <span>技能</span>
           </button>
+          <button class="nav-item" data-page="models">
+            <img class="nav-icon" src="/icons/models.svg" alt="" width="18" height="18" />
+            <span>模型</span>
+          </button>
         </nav>
 
         <div class="agent-card">
@@ -37,12 +41,11 @@
           <button
             id="agent-menu-button"
             class="agent-menu-button"
-            aria-label="打开模型和设定"
+            aria-label="打开设定"
             aria-haspopup="menu"
             aria-expanded="false"
           >⋯</button>
           <div id="agent-menu" class="agent-menu hidden" role="menu">
-            <button type="button" data-agent-page="models" role="menuitem">模型</button>
             <button type="button" data-agent-page="memory" role="menuitem">设定</button>
           </div>
         </div>
