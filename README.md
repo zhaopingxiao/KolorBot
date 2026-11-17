@@ -622,6 +622,7 @@ Content-Type: application/json
 ```json
 {
   "type": "context",
+  "last": false,
   "context": "这段 AI 输出",
   "text": "这段 AI 输出",
   "sequence": 1,
@@ -632,8 +633,10 @@ Content-Type: application/json
 - 轮次结束再 POST：
 
 ```json
-{ "type": "done", "status": "done", "text": "完整输出", "contexts": 1, "at": "..." }
+{ "type": "done", "last": true, "status": "done", "text": "完整输出", "contexts": 1, "at": "..." }
 ```
+
+- 最后一个回调（`done` / `error` / `busy`）都带 `last: true`；`context` 带 `last: false`。
 
 - 失败回 `type: "error"`；取消时 `done.status` 为 `"cancelled"`；内部竞态忙回 `type: "busy"`。
 - 回调按顺序发送，10 秒超时；回调失败只写服务端日志，不会中断 AI。

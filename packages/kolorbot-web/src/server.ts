@@ -964,6 +964,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       contexts += 1;
       await postCallback(callbackUrl, {
         type: 'context',
+        last: false,
         context,
         text: context,
         sequence: contexts,
@@ -981,6 +982,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         const errorText = (await callbackResponse.text().catch(() => '')).slice(0, 4000);
         await postCallback(callbackUrl, {
           type: callbackResponse.status === 409 ? 'busy' : 'error',
+          last: true,
           error: errorText === '' ? `chat request failed (${callbackResponse.status})` : errorText,
           at: new Date().toISOString(),
         });
@@ -1043,6 +1045,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       if (failure !== '') {
         await postCallback(callbackUrl, {
           type: 'error',
+          last: true,
           error: failure,
           text: fullText,
           contexts,
@@ -1051,6 +1054,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       } else {
         await postCallback(callbackUrl, {
           type: 'done',
+          last: true,
           status,
           text: fullText,
           contexts,
@@ -1065,6 +1069,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       }
       await postCallback(callbackUrl, {
         type: 'error',
+        last: true,
         error: describeError(error),
         text: fullText,
         contexts,

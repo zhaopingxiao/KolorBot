@@ -63,8 +63,10 @@ test('POST /api/message accepts an external message and POSTs each context to th
   const contexts = callbackBodies.filter((body) => body.type === 'context');
   assert.ok(contexts.length >= 1, JSON.stringify(callbackBodies));
   assert.match(String(contexts[0]?.text ?? ''), /callback reply/);
+  assert.equal(contexts[0]?.last, false);
   const done = callbackBodies.find((body) => body.type === 'done');
   assert.equal(done?.status, 'done');
+  assert.equal(done?.last, true);
   assert.match(String(done?.text ?? ''), /callback reply/);
 });
 

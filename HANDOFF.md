@@ -1,4 +1,4 @@
-# KolorBot 项目交接
+﻿# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`
 >
@@ -165,9 +165,9 @@ D:\code\kolorbot\
 - 内部调用本机 `/api/chat`，所以话题判定、记忆注入、历史落库都照常。
 - `callbackTurnBusy` 在发响应前同步置位，避免两个 `/api/message` 在内部 run 注册前同时通过。
 - 回调事件：
-  - `context`：每个 assistant 文本段，字段 `context`/`text`/`sequence`/`at`；
-  - `done`：`status`/`text`/`contexts`/`at`（取消时 `status: "cancelled"`）；
-  - `error`；内部竞态忙时 `busy`。
+  - `context`：每个 assistant 文本段，字段 `context`/`text`/`sequence`/`at`/`last: false`；
+  - `done`：`last: true`/`status`/`text`/`contexts`/`at`（取消时 `status: "cancelled"`）；
+  - `error` / `busy`：终态回调，同样带 `last: true`。
 - 回调按顺序 POST，10 秒超时；失败只记日志，不中断 AI。
 - 只接受 `http:`/`https:` callback；没有 SSRF 防护，只适合可信环境。
 
@@ -217,7 +217,7 @@ D:\code\kolorbot\
 - 当前 release：
   - 版本 0.4.0
   - 大小 135,817,216 bytes
-  - SHA256 `68EC24BD5045D2520687643CBA55102853605E43BC12E94507B68F73B1392DBB`
+  - SHA256 `5187D7D99EE391FFE9CB3C4BFA36A2453C9D32589D23DCC44210348751A7911A`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -363,7 +363,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 日记后端仍在：daily/YYYY-MM-DD.md，格式 # 日期 → ## 话题 → ### HH:mm；write_diary/write_topic 只在日记轮次启用。
-- 测试 113/113；release SHA256 68EC24BD5045D2520687643CBA55102853605E43BC12E94507B68F73B1392DBB。
+- 测试 113/113；release SHA256 5187D7D99EE391FFE9CB3C4BFA36A2453C9D32589D23DCC44210348751A7911A。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 
