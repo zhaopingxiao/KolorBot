@@ -126,10 +126,11 @@ D:\code\kolorbot\
 | 区 | 目录 | 说明 |
 | --- | --- | --- |
 | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR`） | Claude 标准兼容区 |
-| 专属技能 | `<frameRoot>/skills`（`KOLOR_USER_SKILLS_DIR`） | 默认 `~/.kolorbot/workspace/skills` |
+| 专属技能 | `<home>/skills`（`KOLOR_USER_SKILLS_DIR`） | 默认 `~/.kolorbot/skills` |
 | 内置技能 | `<repo>/inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR`） | `browseruse` 在这里 |
 
 - 按 `<区>/<id>/SKILL.md` 读取；同名技能按 **专属 → 兼容 → 内置** 取第一个。
+- 2026-11-17：专属技能区从 `<home>/workspace/skills` 移到 `<home>/skills`；现有 `deepseek-search` 已迁移。
 - `kolor.json` 可声明 `mcpServers`（也接受 `mcp` 别名），支持 `${VAR}` 环境变量展开。
 - Web 的「技能」页按三个区分组展示，有 MCP 的技能带 MCP 标识，详情显示 server 名称/transport。
 - 原来的独立 MCP 页面已删除；MCP 只读，通过技能目录配置。
@@ -217,7 +218,7 @@ D:\code\kolorbot\
 - 当前 release：
   - 版本 0.4.0
   - 大小 135,817,216 bytes
-  - SHA256 `5187D7D99EE391FFE9CB3C4BFA36A2453C9D32589D23DCC44210348751A7911A`
+  - SHA256 `70A639930B086C9820168074C8DB5922C378793F9639224686BE513228F6683D`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -363,7 +364,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 日记后端仍在：daily/YYYY-MM-DD.md，格式 # 日期 → ## 话题 → ### HH:mm；write_diary/write_topic 只在日记轮次启用。
-- 测试 113/113；release SHA256 5187D7D99EE391FFE9CB3C4BFA36A2453C9D32589D23DCC44210348751A7911A。
+- 测试 113/113；release SHA256 70A639930B086C9820168074C8DB5922C378793F9639224686BE513228F6683D。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

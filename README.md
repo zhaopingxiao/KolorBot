@@ -143,7 +143,7 @@ npm run web -- --host 0.0.0.0
 | `KOLOR_CONVERSATION_DB` | `<home>/conversation.db` | 单对话 / 话题数据库 |
 | `KOLOR_FRAME_ROOT` | `<home>/workspace` | 内置文件/bash 工具的工作区根 |
 | `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 兼容技能区（Claude 标准） |
-| `KOLOR_USER_SKILLS_DIR` | `<frameRoot>/skills` | 专属技能区（默认 `~/.kolorbot/workspace/skills`） |
+| `KOLOR_USER_SKILLS_DIR` | `<home>/skills` | 专属技能区（默认 `~/.kolorbot/skills`） |
 | `KOLOR_BUILTIN_SKILLS_DIR` | `<repo>/inner/skills` | 内置技能区 |
 | `BROWSERUSE_VIEW_PORT` | `9223` | browseruse 技能实时画面的端口（经 `kolor.json` 的 `${VAR}` 注入技能进程） |
 | `BROWSERUSE_HEADLESS` | `true` | browseruse 技能用 `false` 时显示真实浏览器窗口 |
@@ -563,7 +563,7 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | 区 | 目录 | 说明 |
 | --- | --- | --- |
 | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR` 可覆盖） | Claude 标准的兼容区，原来的安装位置 |
-| 专属技能 | `<workspace>/skills`，默认 `~/.kolorbot/workspace/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
+| 专属技能 | `<home>/skills`，默认 `~/.kolorbot/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
 | 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` 放在这里 |
 
 - 三个区都按 `<区>/<id>/SKILL.md` 组织；同名技能按 **专属 → 兼容 → 内置** 的优先级取第一个，不会重复注入。

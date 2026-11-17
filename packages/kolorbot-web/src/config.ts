@@ -1,4 +1,4 @@
-﻿import { existsSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { resolveSkillsRoot } from 'kolorbot-skills';
@@ -14,7 +14,7 @@ export interface WebConfig {
   frameRoot: string;
   /** Compatibility skills area (`~/.agents/skills`). */
   skillsDir: string;
-  /** Custom skills area inside the workspace (`<frameRoot>/skills`). */
+  /** Custom skills area next to the workspace (`<home>/skills`). */
   userSkillsDir: string;
   /** Built-in skills shipped with the source (`<repo>/inner/skills`). */
   builtinSkillsDir: string;
@@ -63,7 +63,7 @@ export function resolveWebConfig(
     frameRoot,
     skillsDir: overrides.skillsDir ?? resolveSkillsRoot(env),
     userSkillsDir:
-      overrides.userSkillsDir ?? nonEmpty(env.KOLOR_USER_SKILLS_DIR) ?? join(frameRoot, 'skills'),
+      overrides.userSkillsDir ?? nonEmpty(env.KOLOR_USER_SKILLS_DIR) ?? join(home, 'skills'),
     builtinSkillsDir:
       overrides.builtinSkillsDir ?? nonEmpty(env.KOLOR_BUILTIN_SKILLS_DIR) ?? findBuiltinSkillsDir(),
     apiUrl: overrides.apiUrl ?? nonEmpty(env.KOLOR_API_URL) ?? '',
