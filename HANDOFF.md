@@ -114,9 +114,11 @@ D:\code\kolorbot\
   - `read_diary({ slug?, date? })`：不带 date 列出有该话题的日期，带 date 读取当天该话题段落；slug 省略时用当前话题；
   - `write_diary({ content, date? })`：写当前话题，自动补日期/话题标题/时间；不接收 slug；
   - `write_topic({ content })`：写当前话题记忆，不接收 slug。
-- 普通聊天调用 `write_diary` / `write_topic` 会返回错误，必须由显式日记轮次（手动 `/update-daily-memory`、闲置自动日记、话题页补写）开启写入。
-- 自动整理：一轮对话结束后开始计时，默认 10 分钟无新消息时整理 `diary_at IS NULL` 的 segment；新用户消息会取消计时，日记轮次本身不重新计时。
-- 话题页仍可对“有对话但没日记”的日期补写日记；补写走 headless 日记轮次。
+- 普通聊天调用 `write_diary` / `write_topic` 会返回错误，必须由日记任务开启写入。
+- **切换话题自动整理（2026-11-18）**：上一 segment 关闭后，将其对话记录交给独立的日记 Agent（`diary-<uuid>`，独立 `AgentPool`，`context = []`），不占用主对话、不复用主 Agent 上下文。
+- 日记日期取 segment 的开始日期；任务完成后上下文丢弃，只保留 `daily/` 和 `topic/` 文件写入，并标记 `diary_at`。
+- 定时上限兜底：开启自动整理时，10 分钟静默仍会用同一个独立日记 Agent 整理 `diary_at IS NULL` 的 segment；已由切换触发的 segment 不会重复。
+- 话题页补写也走同一个独立日记 Agent。
 - **UI 已移除日记设置/预览**，但后端日记功能、自动整理配置（`memory.json`）、`/update-daily-memory` 命令仍在。
 
 ### 3.5 技能与 MCP（`kolorbot-skills`）
@@ -217,8 +219,8 @@ D:\code\kolorbot\
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 135,817,216 bytes
-  - SHA256 `4A6F67BD0E6931C8E7B4F106484047F4C3656EF65D73A3DF8EA606EBB3D669C1`
+  - 大小 135,819,264 bytes
+  - SHA256 `58E31FE7851F64E258F4CAFDE1E9C9FA3C70DA3E27EE64EB6DE32FC1CA634D10`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -257,6 +259,7 @@ D:\code\kolorbot\
 | GET | `/api/topics/:slug` | 话题记忆 + 日历 |
 | GET | `/api/topics/:slug/days/:date` | 某天该话题的聊天/日记 |
 | POST | `/api/topics/:slug/days/:date/diary` | 补写某天日记 |
+| POST | `/api/diary/organize` | 所有未整理片段交给独立日记 Agent（202） |
 | GET | `/api/sessions/:id/run` | 运行中/刚结束 turn 状态 + 缓冲 |
 | GET | `/api/sessions/:id/stream?from=N` | SSE 回放 + 实时事件 |
 | POST | `/api/sessions/:id/reset` | 重置上下文 |
@@ -332,9 +335,9 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 - 切回旧话题不恢复旧消息，只靠话题文件和日记片段。
 - 没有多用户、鉴权、HTTPS、权限隔离。
 - 记忆没有事实库、用户画像、向量检索。
-- 自动日记是 10 分钟固定默认值；设定页移除日记 UI 后，没有前端开关。
+- 自动日记保留 10 分钟静默兜底；设定页移除日记 UI 后，没有前端开关。
 - 日记自动整理依赖模型按提示词调用 `write_diary`；服务端不兜底生成正文。
-- 日记轮次会占用对话，期间用户发消息会 409。
+- 切换话题/话题页补写的日记 Agent 不占用主对话；UI 发送 `/update-daily-memory` 走 `/api/diary/organize`，也使用独立日记 Agent。
 - AI.md/头像没有在线编辑器；设定页只预览，更新走 `/self-md-*` 或手动编辑。
 - 头像没有裁剪、上传、缓存失效策略；`/api/agent/avatar` 每次 `no-store` 读取。
 - 没有会话列表/搜索/新建；只有一条对话。
@@ -364,7 +367,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 日记后端仍在：daily/YYYY-MM-DD.md，格式 # 日期 → ## 话题 → ### HH:mm；write_diary/write_topic 只在日记轮次启用。
-- 测试 113/113；release SHA256 4A6F67BD0E6931C8E7B4F106484047F4C3656EF65D73A3DF8EA606EBB3D669C1。
+- 测试 113/113；release SHA256 58E31FE7851F64E258F4CAFDE1E9C9FA3C70DA3E27EE64EB6DE32FC1CA634D10。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

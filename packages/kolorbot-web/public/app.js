@@ -1417,6 +1417,19 @@ async function sendMessage() {
   const text = input.value.trim();
   if (text === '') return;
 
+  if (text === '/update-daily-memory') {
+    input.value = '';
+    input.style.height = 'auto';
+    hideCommandMenu();
+    try {
+      const result = await api('/api/diary/organize', { method: 'POST' });
+      toast(result?.started ? '日记整理已交给独立日记 Agent' : '没有需要整理的对话片段');
+    } catch (error) {
+      toast(error.message, 'error');
+    }
+    return;
+  }
+
   // A turn is already running: queue this text instead of leaving it in the
   // box (pressing Enter again would accumulate the old text into the next send).
   if (state.running) {

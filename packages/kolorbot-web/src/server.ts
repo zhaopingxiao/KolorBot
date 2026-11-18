@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { join, extname, isAbsolute, relative, resolve } from 'node:path';
@@ -284,6 +285,28 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
 
   const runs = new RunBroker();
   const publicDir = findPublicDir();
+
+  /** Topic/write state for the isolated diary worker (one job at a time). */
+  let diaryJobTopic: string | undefined;
+  let diaryJobWrite = false;
+  const diaryPool = new AgentPool({
+    mcpConfigs: () => skillMcpConfigs(skillsRegistry),
+    systemPrompt: KOLOR_SYSTEM_PROMPT,
+    toolsForSession: () =>
+      createDiaryTools({
+        store: store.store,
+        diaryDir: memory.diaryDir,
+        workspace: config.frameRoot,
+        currentTopicSlug: () => diaryJobTopic ?? store.current().topic.slug,
+        writeEnabled: () => diaryJobWrite,
+      }),
+    kolorFrame: {
+      root: config.frameRoot,
+      skillsRoot: config.skillsDir,
+      extraSkillRoots: [config.userSkillsDir, config.builtinSkillsDir],
+    },
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
+  });
 
   const diaryIdle = new IdleDiary({
     idleMs: diaryIdleMs,
@@ -656,6 +679,29 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       return;
     }
 
+    if (pathname === '/api/diary/organize' && method === 'POST') {
+      if (activeTarget() === undefined) {
+        throw new HttpError(400, 'no usable model: add a provider in the web UI (模型)');
+      }
+      const pending = store.store.pendingDiarySegments();
+      const groups = new Map<string, Array<{ id: string; topicSlug: string; startedAt: string }>>();
+      for (const entry of pending) {
+        const slug = entry.segment.topicSlug;
+        const group = groups.get(slug);
+        if (group === undefined) groups.set(slug, [entry.segment]);
+        else group.push(entry.segment);
+      }
+      for (const [slug, segments] of groups) {
+        void enqueueDiary(
+          slug,
+          segments,
+          diaryDateKey(new Date(segments[0]?.startedAt ?? Date.now())),
+        );
+      }
+      sendJson(response, 202, { started: pending.length > 0, segments: pending.length });
+      return;
+    }
+
     if (pathname === '/api/chat' && method === 'POST') {
       await handleChat(request, response);
       return;
@@ -906,6 +952,15 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         topic: { slug: topic.slug, name: topic.name },
         segmentId: segment.id,
       });
+    }
+    if (previousSegment !== undefined) {
+      // The old topic is closed. Hand its transcript to the isolated diary
+      // agent now, without waiting for the idle timer or reusing this agent.
+      void enqueueDiary(
+        previousSegment.topicSlug,
+        [previousSegment],
+        diaryDateKey(new Date(previousSegment.startedAt)),
+      );
     }
     if (diaryTurn) diaryWriteAllowed = true;
     try {
@@ -1435,49 +1490,10 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     if (target === undefined) {
       return { started: false, status: 400, reason: 'no usable model' };
     }
-    if (runs.isRunning(store.id)) {
-      return { started: false, status: 409, reason: 'the conversation is busy' };
-    }
-    await pool.ensureSignature();
-    if (runs.isRunning(store.id)) {
-      return { started: false, status: 409, reason: 'the conversation is busy' };
-    }
 
-    const transcripts = segments.map((segment) => ({
-      topicName: topic.name,
-      topicSlug: topic.slug,
-      startedAt: segment.startedAt,
-      messages: store.store.segmentMessages(segment.id).map((message) => ({
-        role: message.role,
-        content: typeof message.content === 'string' ? message.content : '',
-      })),
-    }));
-    const message = buildTopicDiaryMessage(new Date(), transcripts, { targetDate: date });
-    let run: Run;
-    try {
-      run = runs.begin({
-        sessionId: store.id,
-        kind: 'diary',
-        prompt: message,
-      });
-    } catch {
-      return { started: false, status: 409, reason: 'the conversation is busy' };
-    }
-    toolsTopicOverride = slug;
-    diaryWriteAllowed = true;
-    void driveTurn(run, { target, context: [], message, persist: false })
-      .then(() => {
-        if (readDiaryTopicSection(memory.diaryDir, date, topic.name) !== '') {
-          store.store.markDiaryWritten(segments.map((segment) => segment.id));
-        }
-      })
-      .catch((error: unknown) => {
-        options.logger?.('backfill diary failed', error);
-      })
-      .finally(() => {
-        diaryWriteAllowed = false;
-        if (toolsTopicOverride === slug) toolsTopicOverride = undefined;
-      });
+    // Backfills use the same isolated diary agent as switch-triggered jobs;
+    // they do not occupy the main conversation or reuse its context.
+    void enqueueDiary(slug, segments, date);
     return { started: true };
   }
 
@@ -1536,11 +1552,93 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
   }
 
+  /** IDs currently owned by the diary queue, so idle and switch triggers do not duplicate. */
+  const diaryScheduled = new Set<string>();
+  let diaryQueue: Promise<void> = Promise.resolve();
+
   /**
-   * Write today's diary for one session after it went quiet.
-   *
-   * Runs like a scheduled turn (no SSE client) and is deliberately not
-   * re-armed, so the diary turn cannot trigger itself again.
+   * Organize one topic segment with a brand-new agent and no conversation
+   * context. The main chat agent is never reused for diary work.
+   */
+  async function organizeDiary(
+    slug: string,
+    segments: Array<{ id: string; topicSlug: string; startedAt: string }>,
+    targetDate?: string,
+  ): Promise<void> {
+    const topic = store.store.topic(slug);
+    const target = activeTarget();
+    if (topic === undefined || target === undefined) {
+      options.logger?.('skipped the diary turn: no topic or no model');
+      return;
+    }
+    const transcripts = segments.map((segment) => ({
+      topicName: topic.name,
+      topicSlug: segment.topicSlug,
+      startedAt: segment.startedAt,
+      messages: store.store.segmentMessages(segment.id).map((message) => ({
+        role: message.role,
+        content: typeof message.content === 'string' ? message.content : '',
+      })),
+    }));
+    const message = buildTopicDiaryMessage(
+      new Date(),
+      transcripts,
+      targetDate === undefined ? {} : { targetDate },
+    );
+    const sectionDate = targetDate ?? diaryDateKey(new Date());
+    const before = memory.diary().signature;
+    const agentId = `diary-${randomUUID()}`;
+    diaryJobTopic = slug;
+    diaryJobWrite = true;
+    try {
+      await diaryPool.ensureSignature();
+      const agent = await diaryPool.get(agentId, [], target);
+      // Drain the turn. The diary agent's context is thrown away afterwards;
+      // only its file writes (diary/topic memory) survive.
+      for await (const _event of agent.stream(message)) {
+        // No UI/SSE consumer for this isolated turn.
+      }
+      if (readDiaryTopicSection(memory.diaryDir, sectionDate, topic.name) !== '') {
+        store.store.markDiaryWritten(segments.map((segment) => segment.id));
+      } else {
+        options.logger?.('the diary agent finished without appending anything');
+      }
+      if (memory.diary().signature === before) {
+        options.logger?.('the diary turn finished without changing the diary');
+      }
+    } catch (error) {
+      options.logger?.('diary worker failed', error);
+    } finally {
+      diaryJobWrite = false;
+      diaryJobTopic = undefined;
+      await diaryPool.disposeSession(agentId);
+    }
+  }
+
+  /** Queue segments for the isolated diary agent; safe to call repeatedly. */
+  function enqueueDiary(
+    slug: string,
+    segments: Array<{ id: string; topicSlug: string; startedAt: string }>,
+    targetDate?: string,
+  ): Promise<void> {
+    const pending = new Set(store.store.pendingDiarySegments().map((entry) => entry.segment.id));
+    const fresh = segments.filter(
+      (segment) => pending.has(segment.id) && !diaryScheduled.has(segment.id),
+    );
+    if (fresh.length === 0) return Promise.resolve();
+    for (const segment of fresh) diaryScheduled.add(segment.id);
+    const job = diaryQueue.then(() => organizeDiary(slug, fresh, targetDate));
+    diaryQueue = job.catch((error: unknown) => {
+      options.logger?.('diary queue failed', error);
+    });
+    return job.finally(() => {
+      for (const segment of fresh) diaryScheduled.delete(segment.id);
+    });
+  }
+
+  /**
+   * Idle fallback. Switch-triggered diary jobs are queued immediately; this
+   * still catches the last segment for callers that enable the idle setting.
    */
   async function runDiaryTurn(_sessionId: string): Promise<void> {
     const pending = store.store.pendingDiarySegments();
@@ -1555,40 +1653,10 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
 
     for (const [slug, entries] of groups) {
-      const topic = store.store.topic(slug);
-      const transcripts = entries.map((entry) => ({
-        topicName: topic?.name ?? entry.segment.topicSlug,
-        topicSlug: entry.segment.topicSlug,
-        startedAt: entry.segment.startedAt,
-        messages: entry.messages.map((message) => ({
-          role: message.role,
-          content: typeof message.content === 'string' ? message.content : '',
-        })),
-      }));
-      const message = buildTopicDiaryMessage(new Date(), transcripts);
-      const before = memory.diary().signature;
-      toolsTopicOverride = slug;
-      diaryWriteAllowed = true;
-      try {
-        await runHeadlessTurn({
-          sessionId: store.id,
-          kind: 'diary',
-          message,
-          prompt: message,
-          skipped: 'skipped the diary turn: no model is configured',
-          context: [],
-          persist: false,
-          rearmIdle: false,
-        });
-      } finally {
-        diaryWriteAllowed = false;
-        if (toolsTopicOverride === slug) toolsTopicOverride = undefined;
-      }
-      store.store.markDiaryWritten(entries.map((entry) => entry.segment.id));
-      const after = memory.diary().signature;
-      if (after === before) {
-        options.logger?.('the diary turn finished without appending anything');
-      }
+      await enqueueDiary(
+        slug,
+        entries.map((entry) => entry.segment),
+      );
     }
   }
   await new Promise<void>((resolve, reject) => {
@@ -1615,6 +1683,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     async close(): Promise<void> {
       diaryIdle.cancelAll();
       runs.cancelAll('shutdown');
+      await diaryPool.close();
       await pool.close();
       await new Promise<void>((resolve) => {
         server.closeAllConnections();

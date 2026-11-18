@@ -391,13 +391,15 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆不再按�
 
 ### 日记
 
-开关「定时追加日记」打开后：
+切换话题时自动整理上一个话题：
 
-1. 一轮对话结束后开始计时；10 分钟内没有新消息就整理一次日记（无 SSE 的后台轮次）。
-2. 整理时会把**上次日记之后的所有话题片段**按话题分组，每个有未整理片段的话题依次跑一轮，模型通过 `write_diary` 写当前话题日记，用 `write_topic` 维护 `topic/<slug>.md`。
-3. 日记格式是 `# 日期 → ## 话题（首次出现顺序）→ ### HH:mm`；`##` 话题名必须与话题的 `name` 完全一致（不做后缀或 slug 兼容），每个话题当天只保留一个 `##` 块。
-4. 每个话题第一次写进日记时，同时创建/更新 `workspace/topic/<slug>.md`；之后关键信息变化由 AI 用 `write_file` 主动更新。
-5. 没有新内容时模型应回复 `No new content.`；如果什么都没写，服务端会记一条日志。
+1. 上一段 segment 关闭后，服务端把这段对话记录按话题整理成 transcript，交给一个**全新的日记 Agent**（新的临时 agent id、`context = []`，不复用当前对话 Agent）。
+2. 该 Agent 只拿到这段 transcript、日记规则和写作工具；通过 `write_diary` 写上一话题的日记，用 `write_topic` 维护 `topic/<slug>.md`。
+3. 日记日期取该 segment 的开始日期，不会把昨天的话题写到今天。
+4. 日记格式是 `# 日期 → ## 话题（首次出现顺序）→ ### HH:mm`；`##` 话题名必须与话题的 `name` 完全一致（不做后缀或 slug 兼容），每个话题当天只保留一个 `##` 块。
+5. 每个话题第一次写进日记时，同时创建/更新 `workspace/topic/<slug>.md`。
+6. 日记任务不占用主对话、不阻塞新话题消息；主 Agent 的上下文和工具状态不受影响。
+7. 开启「定时追加日记」时，10 分钟静默仍作为兜底触发同一个独立日记 Agent；切换话题时已经整理的 segment 不会重复。
 
 ### 日记工具
 
@@ -406,15 +408,15 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆不再按�
 - `write_diary({ content, date? })`：写**当前话题**，不需要 slug。在当前本地时间（或指定日期）追加内容，自动创建当天文件、`## 话题` 和 `### HH:mm`，并保持话题首次出现顺序。
 - `write_topic({ content })`：创建或替换**当前话题**的记忆文件 `workspace/topic/<slug>.md`；`write_diary` 发现话题记忆缺失时会提示模型调用它。
 
-`write_diary` / `write_topic` 只在一轮日记任务里启用；普通聊天中调用会返回错误，模型也不应再用 `write_file` 改 `daily/*.md` 或 `topic/*.md`。
+`write_diary` / `write_topic` 只在日记任务里启用；普通聊天中调用会返回错误，模型也不应再用 `write_file` 改 `daily/*.md` 或 `topic/*.md`。
 
-也可以发送 `/update-daily-memory` 立即整理。
+也可以发送 `/update-daily-memory` 立即整理（UI 会调用 `/api/diary/organize`，同样使用独立日记 Agent，不占用主对话）。
 
 要点：
 
 - 开关状态存在 `~/.kolorbot/memory.json`（`{ "version": 1, "diary": { "autoAppend": true } }`）。
-- 计时只在 Web 进程存活时有效，重启后从下一轮对话重新开始；日记轮次不会触发自己。
-- 日记是普通 Markdown，可以自己编辑、用 Git 管理或同步。
+- 切换话题触发的日记任务与主对话并行，但日记 Agent 的上下文在任务结束后丢弃；只有文件写入保留。
+- 话题页补写也走同一个独立日记 Agent。
 
 ## 单对话、话题与日记
 
@@ -583,6 +585,7 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | GET | `/api/topics/:slug` | 该话题的对话日期、已有日记日期和按月份分组的日历数据 |
 | GET | `/api/topics/:slug/days/:date` | 该话题某天的聊天片段 + 当天话题日记 + `hasDiary` |
 | POST | `/api/topics/:slug/days/:date/diary` | 为这一天补写该话题日记（异步 202） |
+| POST | `/api/diary/organize` | 把所有未整理片段交给独立日记 Agent（异步 202） |
 | GET/POST | `/api/providers` | 提供商列表（key 已脱敏）/ 添加并识别模型 |
 | DELETE | `/api/providers/:id` | 删除提供商 |
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
