@@ -75,7 +75,7 @@ D:\code\kolorbot\
 - 新话题创建/复用 topic，开始新 segment，`pool.disposeSession('main')`。
 - 模型上下文只包含当前 segment；切回旧话题也开新 segment，不恢复该话题旧消息。
 - 新 segment 第一条注入：
-  - `<system-memory>`：AI.md + `workspace/topic/<话题名>/main.md` 关键记忆；
+  - `<system-memory>`：AI.md + `workspace/topic/<话题名>/main.md` 关键记忆 + 最新一条 `<YYYY-MM-DD-HH-mm>.md` 记录；
   - `<system-last-message>`：上一 segment 最后 10 条 user/assistant 文本。
 - 同一 segment 内只有 AI.md 变化才重新注入记忆。
 - 重置 `/api/sessions/main/reset` 清空消息/segment，保留话题与记忆文件。
@@ -103,7 +103,8 @@ D:\code\kolorbot\
 #### 话题记忆文件
 
 - 关键记忆：`workspace/topic/<话题名>/main.md`。
-  - 只放可复用事实、状态、决定、待办；用于 `<system-memory>` 和话题页的「话题记忆」卡片。
+  - 只放可复用事实、状态、决定、待办；用于话题页的「话题记忆」卡片。
+  - `<system-memory>` 还带当前话题最新一条时间戳记录（按文件名排序最后一条）。
   - `write_topic` 写这个文件；旧的 `workspace/topic/<slug>.md` 仅作读取兜底。
 - 每日记录：`workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md`。
   - 每个 segment 一条，文件名时间是该 segment 最后一条消息的完成时间，不是整理时间。
@@ -219,8 +220,8 @@ D:\code\kolorbot\
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 135,821,824 bytes
-  - SHA256 `D42E0D0C256CA7A08EE7527C4A61754D6E3AD47D554BD9E984F177C85EF4BA3A`
+  - 大小 135,822,336 bytes
+  - SHA256 `0FCCDE0000A3714D79FC0C262300E99C6B8F44150DE8B1ECA5B43540D49E3124`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -366,7 +367,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 新记忆文件：workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md，正文直接写入、无时间标题；write_topic_note 只在整理任务启用。
-- 测试 114/114；release SHA256 D42E0D0C256CA7A08EE7527C4A61754D6E3AD47D554BD9E984F177C85EF4BA3A。
+- 测试 114/114；release SHA256 0FCCDE0000A3714D79FC0C262300E99C6B8F44150DE8B1ECA5B43540D49E3124。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

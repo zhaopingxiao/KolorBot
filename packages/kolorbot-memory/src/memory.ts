@@ -472,14 +472,18 @@ export interface TopicMemoryInput {
   /** Date of the diary section used, `YYYY-MM-DD`. */
   diaryDate?: string;
   diaryContent?: string;
+  /** Filename of the latest timestamped topic record, e.g. `2026-11-18-21-32.md`. */
+  recordName?: string;
+  recordContent?: string;
 }
 
-/** `<system-memory>` for one topic visit: persona + topic file + latest diary section. */
+/** `<system-memory>` for one topic visit: persona + key memory + latest record. */
 export function formatTopicMemoryBlock(input: TopicMemoryInput): string {
   const persona = input.persona.trim();
   const topic = input.topicContent.trim();
+  const record = input.recordContent?.trim() ?? '';
   const diary = input.diaryContent?.trim() ?? '';
-  if (persona === '' && topic === '' && diary === '') return '';
+  if (persona === '' && topic === '' && record === '' && diary === '') return '';
   const sections: string[] = ['<system-memory>'];
   const push = (heading: string, body: string): void => {
     if (sections.length > 1) sections.push('');
@@ -487,6 +491,12 @@ export function formatTopicMemoryBlock(input: TopicMemoryInput): string {
   };
   if (persona !== '') push('## AI self (AI.md)', clipSelf(persona));
   if (topic !== '') push(`## Topic: ${input.topicName}`, topic);
+  if (record !== '') {
+    push(
+      `## Latest record (${input.recordName ?? 'unknown'})`,
+      record,
+    );
+  }
   if (diary !== '') {
     push(`## Latest diary (${input.diaryDate ?? 'unknown'})`, diary);
   }

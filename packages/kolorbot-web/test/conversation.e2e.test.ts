@@ -162,6 +162,17 @@ test('switches topics, injects topic memory and the previous 10 messages', async
     '# 工作区 Remotion 环境\n\n- 项目在 workspace/remotion-project\n',
     'utf8',
   );
+  mkdirSync(join(frameRoot, 'topic', '工作区 Remotion 环境'), { recursive: true });
+  writeFileSync(
+    join(frameRoot, 'topic', '工作区 Remotion 环境', '2026-11-18-21-02.md'),
+    '较早的记录。\n',
+    'utf8',
+  );
+  writeFileSync(
+    join(frameRoot, 'topic', '工作区 Remotion 环境', '2026-11-18-21-32.md'),
+    '最后一次记录：时间轴已经改完。\n',
+    'utf8',
+  );
 
   await postChat(app, '继续 remotion 项目');
   let view = await conversation(app);
@@ -175,6 +186,9 @@ test('switches topics, injects topic memory and the previous 10 messages', async
   assert.match(firstContent, /<system-memory>/);
   assert.match(firstContent, /测试 AI/);
   assert.match(firstContent, /workspace\/remotion-project/);
+  assert.match(firstContent, /## Latest record \(2026-11-18-21-32\.md\)/);
+  assert.match(firstContent, /最后一次记录：时间轴已经改完/);
+  assert.equal(firstContent.includes('较早的记录'), false);
   assert.equal(firstContent.includes('<system-last-message>'), false);
 
   await postChat(app, '随便聊聊');

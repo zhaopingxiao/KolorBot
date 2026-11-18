@@ -1,4 +1,4 @@
-﻿# KolorBot
+# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -18,7 +18,7 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 
 **话题规则**：每条用户消息都会先经过一次轻量话题判定（continue / switch / new）。切换话题时 UI 插入话题分割线，模型上下文从空开始，并在第一条消息里注入：
 
-- `<system-memory>`：AI.md + `workspace/topic/<话题名>/*.md` 话题记忆；
+- `<system-memory>`：AI.md + `workspace/topic/<话题名>/main.md` 关键记忆 + 最新一条时间戳记录；
 - `<system-last-message>`：上一个话题最后 10 条 user/assistant 文本。
 
 同一话题后续消息不重复注入，只有 AI.md 变更时才重新发送。定时任务功能已暂时移除。
@@ -459,6 +459,8 @@ messages        (id, segment_id, topic_slug, role, data_json, created_at)
 ...
 ## Topic: 工作区 Remotion 环境
 workspace/topic/工作区环境/main.md 的内容
+## Latest record (2026-11-18-21-32.md)
+最后一次时间戳记录的内容
 </system-memory>
 
 <system-last-message>
@@ -470,7 +472,7 @@ assistant: ...
 （用户原话）
 ```
 
-- 注入的是话题关键记忆 `main.md`，不是当天的流水记录；
+- 注入的是话题关键记忆 `main.md`，以及最新一条时间戳记录（只带最后一条，不是全部记录）；
 - 新 segment 第一条必发 `<system-memory>` 和 `<system-last-message>`；
 - 同一 segment 内只有 **AI.md 变化**才重发 `<system-memory>`；话题文件变化不会触发重发；
 - `<system-last-message>` 只在新话题的第一条发送，且只算 user/assistant 文本。

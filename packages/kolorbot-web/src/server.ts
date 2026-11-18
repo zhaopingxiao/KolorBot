@@ -1229,10 +1229,18 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     const persona = memory.self().content;
     const signature = personaSignature(persona);
     if (count === 0 || input.segment.memorySignature !== signature) {
+      const records = readTopicMemoryFiles(config.frameRoot, input.topic.name);
+      const latestRecord = records.at(-1);
       const memoryBlock = formatTopicMemoryBlock({
         persona,
         topicName: input.topic.name,
         topicContent: readTopicMemory(config.frameRoot, input.topic.name, input.topic.slug),
+        ...(latestRecord === undefined
+          ? {}
+          : {
+              recordName: latestRecord.path.split(/[\\/]/).at(-1),
+              recordContent: latestRecord.content,
+            }),
       });
       if (memoryBlock !== '') blocks.push(memoryBlock);
       store.store.setSegmentMemorySignature(input.segment.id, signature);

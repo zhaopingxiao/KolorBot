@@ -56,11 +56,12 @@ test('builds topic memory and last-message blocks', () => {
     persona: '温柔',
     topicName: 'Remotion',
     topicContent: '项目在 workspace/remotion-project',
-    diaryDate: '2026-11-14',
-    diaryContent: '## Remotion\n\n昨天在改时间轴',
+    recordName: '2026-11-18-21-32.md',
+    recordContent: '最后一次记录：时间轴已经改完。',
   });
   assert.match(memory, /^<system-memory>/);
-  assert.ok(memory.indexOf('## Topic: Remotion') < memory.indexOf('## Latest diary'));
+  assert.ok(memory.indexOf('## Topic: Remotion') < memory.indexOf('## Latest record'));
+  assert.match(memory, /## Latest record \(2026-11-18-21-32\.md\)/);
   const last = formatLastMessageBlock([
     { role: 'user', content: '上一句' },
     { role: 'assistant', content: '上一答' },
