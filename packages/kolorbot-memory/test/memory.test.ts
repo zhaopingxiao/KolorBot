@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -81,12 +81,11 @@ test('topic diary trigger carries the new layout and topic file instruction', ()
     },
   ]);
   assert.match(message, /## Remotion/);
-  assert.match(message, /### 19:00/);
-  assert.match(message, /workspace\/topic\/<slug>\.md/);
-  assert.match(message, /first-appearance order/);
-  assert.match(message, /write_diary/);
-  assert.match(message, /read_diary/);
-  assert.match(message, /list_topics/);
+  assert.match(message, /workspace\/topic\/<topic name>\/<timestamp>\.md/);
+  assert.match(message, /write_topic_note/);
+  assert.match(message, /last message completion time/);
+  assert.equal(message.includes('### 19:00'), false);
+  assert.equal(message.includes('first-appearance order'), false);
 });
 
 test('finds today, then the latest earlier, then the earliest diary section', () => {

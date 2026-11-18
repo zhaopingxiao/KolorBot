@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -157,11 +158,6 @@ test('switches topics, injects topic memory and the previous 10 messages', async
 
   const today = diaryDateKey(new Date());
   writeFileSync(
-    join(frameRoot, 'daily', `${today}.md`),
-    `# ${today}\n\n## 工作区 Remotion 环境\n\n### 09:00\n\n上次在改 remotion 项目。\n`,
-    'utf8',
-  );
-  writeFileSync(
     join(frameRoot, 'topic', 'remotion.md'),
     '# 工作区 Remotion 环境\n\n- 项目在 workspace/remotion-project\n',
     'utf8',
@@ -179,7 +175,6 @@ test('switches topics, injects topic memory and the previous 10 messages', async
   assert.match(firstContent, /<system-memory>/);
   assert.match(firstContent, /测试 AI/);
   assert.match(firstContent, /workspace\/remotion-project/);
-  assert.match(firstContent, /上次在改 remotion 项目/);
   assert.equal(firstContent.includes('<system-last-message>'), false);
 
   await postChat(app, '随便聊聊');
@@ -200,6 +195,34 @@ test('switches topics, injects topic memory and the previous 10 messages', async
   assert.match(switchedContent, /<system-last-message>/);
   assert.match(switchedContent, /继续 remotion 项目/);
   assert.match(switchedContent, /随便聊聊/);
+});
+
+test('splits the same topic into two segments at a local day boundary', async (t) => {
+  const model = await startModel();
+  t.after(() => model.close());
+  const { app, home } = await tempApp(t, model.url);
+
+  await postChat(app, 'remotion 第一天');
+  let view = await conversation(app);
+  assert.equal(view.segments.length, 1);
+  const segmentId = view.segments[0]?.id as string;
+  const db = new DatabaseSync(join(home, 'conversation.db'));
+  try {
+    db.prepare('UPDATE segments SET started_at = ? WHERE id = ?').run(
+      new Date(Date.now() - 86_400_000).toISOString(),
+      segmentId,
+    );
+  } finally {
+    db.close();
+  }
+
+  await postChat(app, '今天继续聊');
+  view = await conversation(app);
+  assert.equal(view.segments.length, 2);
+  assert.equal(view.topics.length, 1);
+  const splitSegments = view.segments as Array<{ id: string; topicSlug: string }>;
+  assert.equal(splitSegments[0]?.topicSlug, 'remotion');
+  assert.equal(splitSegments[1]?.topicSlug, 'remotion');
 });
 
 test('runs a normal chat turn and persists tool calls in the conversation', async (t) => {
@@ -345,7 +368,7 @@ test('the idle diary writes a topic section and creates the topic file', async (
     const send = (value: unknown): void => {
       response.write(`data: ${JSON.stringify(value)}\n\n`);
     };
-    if (lastUser.includes("Update today's diary")) {
+    if (lastUser.includes("Organize the topic memory")) {
       const hasTool = messages.some((message) => message.role === 'tool');
       if (!hasTool) {
         send({
@@ -359,20 +382,9 @@ test('the idle diary writes a topic section and creates the topic file', async (
                     id: 'call_daily',
                     type: 'function',
                     function: {
-                      name: 'write_diary',
+                      name: 'write_topic_note',
                       arguments: JSON.stringify({
                         content: '把 remotion 的时间轴改好了。',
-                      }),
-                    },
-                  },
-                  {
-                    index: 1,
-                    id: 'call_topic',
-                    type: 'function',
-                    function: {
-                      name: 'write_topic',
-                      arguments: JSON.stringify({
-                        content: '- 时间轴已改好\n',
                       }),
                     },
                   },
@@ -384,7 +396,7 @@ test('the idle diary writes a topic section and creates the topic file', async (
         });
         for (const frame of finish('tool_calls')) send(frame);
       } else {
-        send(textDelta('日记已写。'));
+        send(textDelta('记忆已写。'));
         for (const frame of finish('stop')) send(frame);
       }
     } else {
@@ -411,34 +423,41 @@ test('the idle diary writes a topic section and creates the topic file', async (
   });
 
   await postChat(app, 'remotion 的时间轴改好了');
-  const dailyPath = join(frameRoot, 'daily', `${today}.md`);
+  const topicDir = join(frameRoot, 'topic', '工作区 Remotion 环境');
+  let topicFile = '';
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
-      if (readFileSync(dailyPath, 'utf8').includes('把 remotion 的时间轴改好了')) break;
+      const names = readdirSync(topicDir).filter((name) => name.endsWith('.md'));
+      if (names.length > 0) {
+        topicFile = join(topicDir, names[0] as string);
+        break;
+      }
     } catch {
       // the diary turn may still be running
     }
     await new Promise((resolve) => setTimeout(resolve, 30));
   }
-  const daily = readFileSync(dailyPath, 'utf8');
-  assert.match(daily, new RegExp(`^# ${today}`, 'm'));
-  assert.match(daily, /^## 工作区 Remotion 环境/m);
-  assert.match(daily, /^### \d{2}:\d{2}$/m);
-  assert.match(readFileSync(join(frameRoot, 'topic', 'remotion.md'), 'utf8'), /时间轴已改好/);
+  assert.notEqual(topicFile, '');
+  const memory = readFileSync(topicFile, 'utf8');
+  assert.match(topicFile, new RegExp(`${today}-\\d{2}-\\d{2}\\.md$`));
+  assert.match(memory, /把 remotion 的时间轴改好了/);
+  assert.equal(memory.includes('###'), false);
 });
 test('lists topics and returns a topic day with segments and diary', async (t) => {
   const model = await startModel();
   t.after(() => model.close());
   const { app, frameRoot } = await tempApp(t, model.url);
   const today = diaryDateKey(new Date());
+  mkdirSync(join(frameRoot, 'topic', '工作区 Remotion 环境'), { recursive: true });
+  mkdirSync(join(frameRoot, 'topic', 'Deepseek Workspace'), { recursive: true });
   writeFileSync(
-    join(frameRoot, 'daily', `${today}.md`),
-    `# ${today}\n\n## 工作区 Remotion 环境\n\n### 09:00\n\nremotion 日记段落。\n\n## Deepseek Workspace\n\n### 10:00\n\nworkspace 日记段落。\n`,
+    join(frameRoot, 'topic', '工作区 Remotion 环境', `${today}-09-00.md`),
+    'remotion 日记段落。\n',
     'utf8',
   );
   writeFileSync(
-    join(frameRoot, 'topic', 'remotion.md'),
-    '# 工作区 Remotion 环境\n\n- 关键记忆条目\n',
+    join(frameRoot, 'topic', 'Deepseek Workspace', `${today}-10-00.md`),
+    'workspace 日记段落。\n',
     'utf8',
   );
 
@@ -459,7 +478,7 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
   };
   assert.deepEqual(calendar.dates, [today]);
   assert.equal(calendar.months[0]?.month, today.slice(0, 7));
-  assert.match(calendar.memory, /关键记忆条目/);
+  assert.match(calendar.memory, /remotion 日记段落/);
 
   const day = (await (
     await fetch(`${app.url}/api/topics/remotion/days/${today}`)
@@ -532,7 +551,7 @@ test('backfills a missing diary for a conversation day', async (t) => {
     const send = (value: unknown): void => {
       response.write(`data: ${JSON.stringify(value)}\n\n`);
     };
-    if (lastUser.includes('Backfill the diary')) {
+    if (lastUser.includes('Organize the topic memory')) {
       if (!messages.some((message) => message.role === 'tool')) {
         send({
           choices: [
@@ -545,9 +564,8 @@ test('backfills a missing diary for a conversation day', async (t) => {
                     id: 'call_backfill',
                     type: 'function',
                     function: {
-                      name: 'write_diary',
+                      name: 'write_topic_note',
                       arguments: JSON.stringify({
-                        date: today,
                         content: '补写的日记内容',
                       }),
                     },
@@ -595,8 +613,10 @@ test('backfills a missing diary for a conversation day', async (t) => {
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  assert.match(
-    readFileSync(join(frameRoot, 'daily', `${today}.md`), 'utf8'),
-    /补写的日记内容/,
+  const topicDir = join(frameRoot, 'topic', 'Remotion');
+  const names = readdirSync(topicDir).filter((name) => name.endsWith('.md'));
+  assert.equal(names.length > 0, true);
+  assert.ok(
+    names.some((name) => readFileSync(join(topicDir, name), 'utf8').includes('补写的日记内容')),
   );
 });

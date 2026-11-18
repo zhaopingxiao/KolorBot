@@ -1,4 +1,4 @@
-# KolorBot
+﻿# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -13,12 +13,12 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 - **`kolorbot-agent-loop`** — 主循环 + 内置 KolorFrame 工具：调用模型 → 执行工具 → 把结果写回会话 → 再调用模型，直到模型给出最终答复。文件/目录/bash/技能/read_image 工具都在这个包里，可独立作为库使用。
 - **`kolorbot-conversation`** — 单对话存储：SQLite 里的 topics / segments / messages；切换话题会新建 segment，模型上下文只取当前 segment。
 - **`kolorbot-skills`** — 技能发现：读取三个技能区的 Claude 标准 `SKILL.md`，生成 `<system-skills>` 列表。
-- **`kolorbot-memory`** — 记忆：AI.md 设定、话题文件、日记解析、`<system-memory>` / `<system-last-message>` 注入块。
-- **`kolorbot-web`** — Web UI + HTTP API：聊天、话题判定、模型提供商、技能/MCP、记忆和日记。
+- **`kolorbot-memory`** — 记忆：AI.md 设定、时间戳话题记忆文件、`<system-memory>` / `<system-last-message>` 注入块。
+- **`kolorbot-web`** — Web UI + HTTP API：聊天、话题判定、模型提供商、技能/MCP、话题记忆。
 
 **话题规则**：每条用户消息都会先经过一次轻量话题判定（continue / switch / new）。切换话题时 UI 插入话题分割线，模型上下文从空开始，并在第一条消息里注入：
 
-- `<system-memory>`：AI.md + `workspace/topic/<slug>.md` + 该话题最新的日记片段；
+- `<system-memory>`：AI.md + `workspace/topic/<话题名>/*.md` 话题记忆；
 - `<system-last-message>`：上一个话题最后 10 条 user/assistant 文本。
 
 同一话题后续消息不重复注入，只有 AI.md 变更时才重新发送。定时任务功能已暂时移除。
@@ -33,7 +33,7 @@ kolorbot/
 ├── HANDOFF.md                   # 交接文档（项目是什么 / 做过什么 / 怎么继续）
 ├── docs/web-ui.png              # 聊天截图
 ├── docs/models.png              # 模型提供商截图
-├── docs/memory.png              # 记忆（设定 + 日记）截图
+├── docs/memory.png              # 记忆（设定 + 话题记忆）截图
 ├── docs/skills.png              # 技能面板（含 MCP 标识与详情）
 ├── docs/tool-call.png           # 工具调用详情截图
 ├── docs/mobile.png              # 移动端抽屉截图
@@ -42,7 +42,7 @@ kolorbot/
 │   ├── kolorbot-agent-loop/     # 主循环 + src/frame/（KolorFrame 工具）
 │   ├── kolorbot-conversation/   # topics / segments / messages（单对话）
 │   ├── kolorbot-skills/         # 技能发现 / <system-skills>
-│   ├── kolorbot-memory/         # AI.md + 话题文件 + 日记 + 注入块
+│   ├── kolorbot-memory/         # AI.md + 时间戳话题记忆 + 注入块
 │   └── kolorbot-web/            # Web 服务 + public/ 静态页面 + 话题判定
 │       ├── src/topic-classifier.ts  # 每条消息的话题判定
 │       ├── src/providers.ts     # 提供商存储（~/.kolorbot/providers.json）+ 模型发现
@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 113 个测试
+pnpm test      # 114 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -121,8 +121,8 @@ npm run web -- --host 0.0.0.0
 ![移动端](docs/mobile.png)
 
 - **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolorbot/conversation.db`。
-- **话题页**：对话标题左边的话题图标进入；点进话题先看到 Markdown 渲染的 `workspace/topic/<slug>.md` 话题记忆，下面是**对话里出现过**的所有月份日历，紫色日期可点开当天的话题聊天记录和日记片段；有对话但没日记的那天可以直接点「整理这天的日记」。
-- **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与日记](#单对话话题与日记)。
+- **话题页**：对话标题左边的话题图标进入；点进话题先看到 Markdown 渲染的 `workspace/topic/<话题名>/` 话题记忆，下面是**对话里出现过**的所有月份日历，紫色日期可点开当天的话题聊天记录和记忆片段；有对话但没记忆的那天可以直接点「整理这天的记忆」。
+- **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与记忆](#单对话话题与记忆)。
 - 模型：侧栏「技能」下面的「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。
 - 设定：侧栏底部 agent 卡片的「⋯」→「设定」管理 AI.md，可用 `/self-md-update` / `/self-md-tell …` 创建或更新；页面不再显示日记项。
 - 输入框输入 `/` 会弹出指令补全（`/self-md-update`、`/self-md-tell`、`/update-daily-memory`），点击自动填充。
@@ -344,11 +344,11 @@ KolorFrame 提供：
 - 这是本机可信环境的单用户工具：`providers.json` 是明文的，不要把它放进公开仓库。
 - 技能 `kolor.json` 里的 `${DEEPSEEK_API_KEY}` 仍然从**进程环境变量**读取，不会自动使用提供商里的 key。
 
-## 记忆：设定、话题与日记
+## 记忆：设定与话题记忆
 
 ![记忆](docs/memory.png)
 
-agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆不再按「当天全部日记」注入，而是按当前话题注入：
+agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前话题注入：
 
 ```text
 <system-memory>
@@ -358,18 +358,18 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆不再按�
 
 ## Topic: 工作区 Remotion 环境
 
-（workspace/topic/remotion.md 的内容）
+（workspace/topic/工作区 Remotion 环境/*.md 的内容）
 
-## Latest diary (2026-11-14)
+## Topic memory files (2026-11-14-20-42.md)
 
-（今天日记里 ## 工作区 Remotion 环境 这一节；今天没有就往前找，实在没有用最早一次）
+（该话题目录下按文件名时间排序合并的正文）
 </system-memory>
 ```
 
 注入规则：
 
 - 新话题第一条必发；
-- 同一话题内只有 **AI.md 变化**才重发；话题文件或日记变化不会重发；
+- 同一话题内只有 **AI.md 变化**才重发；话题记忆文件变化不会重发；
 - 话题文件不存在时省略该段；AI.md 超过 1 MiB 会截断并标记。
 
 ### 设定（AI.md）
@@ -389,36 +389,35 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆不再按�
   - `/self-md-tell 你是一个温柔的 AI…`：按命令后面的信息更新（没写内容会被拒绝）。
   两者都只发一条包含 AI.md 保存规则的消息，直接要求模型用 `write_file` 写 `workspace/AI.md`。
 
-### 日记
+### 话题记忆整理
 
 切换话题时自动整理上一个话题：
 
-1. 上一段 segment 关闭后，服务端把这段对话记录按话题整理成 transcript，交给一个**全新的日记 Agent**（新的临时 agent id、`context = []`，不复用当前对话 Agent）。
-2. 该 Agent 只拿到这段 transcript、日记规则和写作工具；通过 `write_diary` 写上一话题的日记，用 `write_topic` 维护 `topic/<slug>.md`。
-3. 日记日期取该 segment 的开始日期，不会把昨天的话题写到今天。
-4. 日记格式是 `# 日期 → ## 话题（首次出现顺序）→ ### HH:mm`；`##` 话题名必须与话题的 `name` 完全一致（不做后缀或 slug 兼容），每个话题当天只保留一个 `##` 块。
-5. 每个话题第一次写进日记时，同时创建/更新 `workspace/topic/<slug>.md`。
-6. 日记任务不占用主对话、不阻塞新话题消息；主 Agent 的上下文和工具状态不受影响。
-7. 开启「定时追加日记」时，10 分钟静默仍作为兜底触发同一个独立日记 Agent；切换话题时已经整理的 segment 不会重复。
+1. 上一段 segment 关闭后，服务端把这段对话记录整理成 transcript，交给一个**全新的整理 Agent**（新的临时 agent id、`context = []`，不复用当前对话 Agent）。
+2. 该 Agent 只拿到这段 transcript、整理规则和写作工具；通过 `write_topic_note` 写当前话题的记忆。
+3. 如果同一话题跨了本地日期，第二天第一条消息会强制新开 segment，所以上一天会先被整理，不会因为话题没变而漏掉。
+4. 输出路径：`workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md`。
+5. 文件名时间是**该 segment 最后一条消息的完成时间**，不是整理时间；跨天时以最后一条消息所在日期为准。
+6. 文件内容是整理后的 Markdown 正文，不写 `# 日期`、`## 话题` 或 `### HH:mm`。
+7. 整理任务不占用主对话、不阻塞新话题消息；整理 Agent 的上下文在任务结束后丢弃。
+8. 旧的 `workspace/daily` 日记格式不再由整理任务写入；`write_diary` 只保留为旧工具兼容。
 
-### 日记工具
+### 整理工具
 
-- `list_topics`：列出所有话题 slug / name，当前话题标 `(current)`。
-- `read_diary({ slug, date? })`：不带 `date` 返回有哪些天写过这个话题；带 `date` 返回当天该话题的 `##` 段落。
-- `write_diary({ content, date? })`：写**当前话题**，不需要 slug。在当前本地时间（或指定日期）追加内容，自动创建当天文件、`## 话题` 和 `### HH:mm`，并保持话题首次出现顺序。
-- `write_topic({ content })`：创建或替换**当前话题**的记忆文件 `workspace/topic/<slug>.md`；`write_diary` 发现话题记忆缺失时会提示模型调用它。
+- `write_topic_note({ content })`：把当前话题的整理正文写入 `workspace/topic/<话题名>/<timestamp>.md`；正文直接写入，不加标题/时间。
+- `read_diary` / `write_diary` / `write_topic` 是旧格式的兼容工具；新的自动整理只使用 `write_topic_note`。
 
-`write_diary` / `write_topic` 只在日记任务里启用；普通聊天中调用会返回错误，模型也不应再用 `write_file` 改 `daily/*.md` 或 `topic/*.md`。
+`write_topic_note` 只在整理任务里启用；普通聊天中调用会返回错误，模型也不应再用 `write_file` 改 `topic/` 目录。
 
-也可以发送 `/update-daily-memory` 立即整理（UI 会调用 `/api/diary/organize`，同样使用独立日记 Agent，不占用主对话）。
+也可以发送 `/update-daily-memory` 立即整理（UI 会调用 `/api/diary/organize`，同样使用独立整理 Agent，不占用主对话）。
 
 要点：
 
 - 开关状态存在 `~/.kolorbot/memory.json`（`{ "version": 1, "diary": { "autoAppend": true } }`）。
-- 切换话题触发的日记任务与主对话并行，但日记 Agent 的上下文在任务结束后丢弃；只有文件写入保留。
-- 话题页补写也走同一个独立日记 Agent。
+- 切换话题触发的整理任务与主对话并行，但整理 Agent 的上下文在任务结束后丢弃；只有文件写入保留。
+- 话题页补写也走同一个独立整理 Agent。
 
-## 单对话、话题与日记
+## 单对话、话题与记忆
 
 ### 存储
 
@@ -458,7 +457,7 @@ messages        (id, segment_id, topic_slug, role, data_json, created_at)
 ...
 ## Topic: 工作区 Remotion 环境
 workspace/topic/remotion.md 的内容
-## Latest diary (2026-11-14)
+## Topic memory files (2026-11-14-20-42.md)
 今天（或最近一次）日记里该话题的片段
 </system-memory>
 
@@ -581,16 +580,16 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | --- | --- | --- |
 | GET | `/api/config` | 配置 + 当前模型 + MCP 列表 + `conversationDbPath` |
 | GET | `/api/conversation` | 单对话的 `topics` / `segments` / `messages` + 当前话题 |
-| GET | `/api/topics` | 所有话题 + 每个话题有日记的天数 |
-| GET | `/api/topics/:slug` | 该话题的对话日期、已有日记日期和按月份分组的日历数据 |
-| GET | `/api/topics/:slug/days/:date` | 该话题某天的聊天片段 + 当天话题日记 + `hasDiary` |
-| POST | `/api/topics/:slug/days/:date/diary` | 为这一天补写该话题日记（异步 202） |
-| POST | `/api/diary/organize` | 把所有未整理片段交给独立日记 Agent（异步 202） |
+| GET | `/api/topics` | 所有话题 + 每个话题有记忆的天数 |
+| GET | `/api/topics/:slug` | 该话题的对话日期、已有记忆日期和按月份分组的日历数据 |
+| GET | `/api/topics/:slug/days/:date` | 该话题某天的聊天片段 + 当天话题记忆 + `hasDiary` |
+| POST | `/api/topics/:slug/days/:date/diary` | 为这一天补写该话题记忆（异步 202） |
+| POST | `/api/diary/organize` | 把所有未整理片段交给独立记忆 Agent（异步 202） |
 | GET/POST | `/api/providers` | 提供商列表（key 已脱敏）/ 添加并识别模型 |
 | DELETE | `/api/providers/:id` | 删除提供商 |
 | POST | `/api/providers/:id/models` | 重新识别该提供商的模型 |
 | PUT | `/api/model` | 切换当前模型（`providerId` 传空串表示回到环境变量回退） |
-| GET/PUT | `/api/memory` | 记忆：AI.md 内容/大小/名字/头像路径 + 今日日记 + 日记开关 |
+| GET/PUT | `/api/memory` | 记忆：AI.md 内容/大小/名字/头像路径 + 旧日记兼容数据 + 日记开关 |
 | GET | `/api/agent` | Agent 名字、头像路径和 `avatarUrl` |
 | GET | `/api/agent/avatar` | 读取 AI.md 指向的本地头像文件 |
 | GET | `/api/skills` | 三个技能区的技能列表（`source` 区分区）+ 签名 + `roots` + 每个技能的 `mcpServers` |
@@ -617,7 +616,7 @@ Content-Type: application/json
 ```
 
 - 成功启动返回 `202 { "accepted": true, "callbackUrl": "...", "message": "..." }`。
-- AI 正在处理（Web `/api/chat`、闲置日记、另一个 `/api/message`）时返回 `409`，不会排队、不会发送。
+- AI 正在处理（Web `/api/chat`、闲置整理、另一个 `/api/message`）时返回 `409`，不会排队、不会发送。
 - 没有可用模型返回 `400`。
 - 实际发送走内部 `/api/chat`，因此仍然会做话题判定、注入记忆、写对话历史。
 - 每次 AI 输出一段 assistant 文本（被工具调用或轮次结束切开）都会向 `callbackUrl` POST：
@@ -664,13 +663,13 @@ Content-Type: application/json
 pnpm test
 ```
 
-共 113 个测试：
+共 114 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（30）：静态页/配置/单对话 API、话题判定与切换、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、日记闲置整理（write_diary + 话题文件）、日记工具（list/read/write）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调。
+- `kolorbot-web`（31）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调。
 
 全部测试不需要网络和 API key。
 

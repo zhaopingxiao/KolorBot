@@ -345,15 +345,103 @@ export function formatMemoryBlock(selfContent: string, diaryContent: string): st
   return sections.join('\n');
 }
 
-/** `workspace/topic/<slug>.md`. */
+/** `workspace/topic/<slug>.md` (legacy single-file topic memory). */
 export function topicMemoryPath(workspace: string, slug: string): string {
   return join(workspace, 'topic', `${slug}.md`);
 }
 
-/** Read a topic's key-information file; empty when it does not exist yet. */
-export function readTopicMemory(workspace: string, slug: string): string {
+export interface TopicMemoryFile {
+  path: string;
+  relativePath: string;
+  /** Local date `YYYY-MM-DD` parsed from the filename. */
+  date: string;
+  /** Local time `HH-mm` parsed from the filename. */
+  time: string;
+  content: string;
+}
+
+/** Directory name used for a topic's timestamped memory files. */
+export function topicMemoryDirectory(workspace: string, topicName: string): string {
+  const cleaned = topicName
+    .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
+    .replace(/[. ]+$/g, '')
+    .trim();
+  const name = cleaned === '' || cleaned === '.' || cleaned === '..' ? 'topic' : cleaned;
+  return join(workspace, 'topic', name);
+}
+
+/** `YYYY-MM-DD-HH-mm.md` in local time. */
+export function topicMemoryFileName(at: Date): string {
+  const date = diaryDateKey(at);
+  const hh = String(at.getHours()).padStart(2, '0');
+  const mm = String(at.getMinutes()).padStart(2, '0');
+  return `${date}-${hh}-${mm}.md`;
+}
+
+/** All timestamped memory files for a topic, oldest first. */
+export function readTopicMemoryFiles(workspace: string, topicName: string): TopicMemoryFile[] {
+  const dir = topicMemoryDirectory(workspace, topicName);
+  if (!existsSync(dir)) return [];
+  const files: TopicMemoryFile[] = [];
+  for (const name of readdirSync(dir)) {
+    const match = /^(\d{4}-\d{2}-\d{2})-(\d{2})-(\d{2})\.md$/.exec(name);
+    if (match === null) continue;
+    const path = join(dir, name);
+    files.push({
+      path,
+      relativePath: join('topic', topicName, name),
+      date: match[1] as string,
+      time: `${match[2]}:${match[3]}`,
+      content: readFileSync(path, 'utf8'),
+    });
+  }
+  return files.sort((left, right) => left.path.localeCompare(right.path));
+}
+
+/**
+ * Read the combined topic memory. New timestamped files under
+ * `topic/<topic-name>/` take precedence; legacy `topic/<slug>.md` is still
+ * accepted so older workspaces remain readable.
+ */
+export function readTopicMemory(workspace: string, topicName: string, slug?: string): string {
+  const files = readTopicMemoryFiles(workspace, topicName);
+  if (files.length > 0) {
+    return files
+      .map((file) => file.content.trim())
+      .filter((content) => content !== '')
+      .join('\n\n');
+  }
+  if (slug === undefined) return '';
   const path = topicMemoryPath(workspace, slug);
   return existsSync(path) ? readFileSync(path, 'utf8') : '';
+}
+
+/** Memory files for one local date, oldest first. */
+export function readTopicMemoryForDate(
+  workspace: string,
+  topicName: string,
+  date: string,
+): string {
+  return readTopicMemoryFiles(workspace, topicName)
+    .filter((file) => file.date === date)
+    .map((file) => file.content.trim())
+    .filter((content) => content !== '')
+    .join('\n\n');
+}
+
+/** Write one timestamped topic memory file; content has no added headings. */
+export function writeTopicMemoryFile(
+  workspace: string,
+  topicName: string,
+  at: Date,
+  content: string,
+): { path: string; relativePath: string } {
+  const dir = topicMemoryDirectory(workspace, topicName);
+  mkdirSync(dir, { recursive: true });
+  const name = topicMemoryFileName(at);
+  const path = join(dir, name);
+  writeFileSync(path, `${content.trim()}\n`, 'utf8');
+  return { path, relativePath: join('topic', topicName, name) };
 }
 
 /** Signature of the persona only (topic switches always resend the block). */
@@ -651,11 +739,11 @@ function stripSystemBlocks(content: string): string {
 }
 
 /**
- * Trigger message for the topic-structured diary.
+ * Trigger message for organizing one topic segment into topic memory.
  *
- * The diary layout is `# date` → `## topic` (first appearance order) →
- * `### HH:mm`; topic files live at `workspace/topic/<slug>.md` and are written
- * with `write_file` at the same time as the first diary section.
+ * The new layout is `workspace/topic/<topic name>/<YYYY-MM-DD-HH-mm>.md`.
+ * The filename timestamp is the segment's last message completion time; the
+ * AI only supplies the markdown body.
  */
 export function buildTopicDiaryMessage(
   now: Date,
@@ -664,23 +752,18 @@ export function buildTopicDiaryMessage(
 ): string {
   const date = options.targetDate ?? diaryDateKey(now);
   const lines: string[] = [
-    options.targetDate === undefined
-      ? `It's ${formatTimestamp(now)}. Update today's diary for the topics below.`
-      : `It's ${formatTimestamp(now)}. Backfill the diary for ${date} for the topics below.`,
+    `It's ${formatTimestamp(now)}. Organize the topic memory for the transcript below.`,
     '',
-    'Use the dedicated diary tools:',
-    '- list_topics: all topic slugs, with the current topic marked.',
-    '- read_diary({ slug, date? }): without date, list the dates that have this topic; with date, read that day\'s section.',
-    '- write_diary({ content, date? }): append new content to the CURRENT topic at the current local time (or on date when supplied). It creates the day file, the "## <topic>" section and the "### HH:mm" block when needed, and keeps the first-appearance order.',
-    '- write_topic({ content }): create or replace the CURRENT topic memory file with its key facts, state and next steps.',
+    'Use the dedicated tool:',
+    '- write_topic_note({ content }): write the CURRENT topic\'s organized memory to workspace/topic/<topic name>/<timestamp>.md. The server chooses the timestamp from the segment\'s last message completion time; do not write date, time or headings.',
     '',
   ];
   if (segments.length === 0) {
-    lines.push('No new segment transcript is attached; use the current conversation context.');
+    lines.push('No transcript is attached; do not invent content.');
   } else {
-    lines.push('Transcript since the last diary (grouped by topic):');
+    lines.push('Topic segment transcript:');
     for (const segment of segments) {
-      lines.push('', `## ${segment.topicName} (${segment.topicSlug})`, `### ${timeFromIso(segment.startedAt)}`);
+      lines.push('', `## ${segment.topicName} (${segment.topicSlug})`);
       for (const message of segment.messages) {
         if (message.role !== 'user' && message.role !== 'assistant') continue;
         const text = stripSystemBlocks(message.content).replace(/\s+/g, ' ').trim();
@@ -692,15 +775,12 @@ export function buildTopicDiaryMessage(
   lines.push(
     '',
     'Rules:',
-    '1. write_diary writes the CURRENT topic; do not pass a slug. The attached transcript is for that topic.',
-    `2. Call read_diary({ date: "${date}" }) first when the current topic may already have notes for that date, so you only add genuinely new information.`,
-    '3. Pass only the new markdown body to write_diary. Never write headings, dates or times yourself.',
-    '4. Never use write_file on daily/*.md. The diary tools own that file and its "## topic" / "### HH:mm" layout.',
-    '5. Use write_topic to create or update the CURRENT topic memory file (workspace/topic/<slug>.md) with facts, decisions, state, next steps and related paths; no chat transcript. If write_diary reports that topic memory is missing, call write_topic.',
-    '6. If there is genuinely no new content, reply "No new content." and do not call write_diary.',
-    options.targetDate === undefined
-      ? `7. Today is ${date}; write_diary uses the current local time automatically.`
-      : `7. Target date is ${date}; pass date: "${date}" to write_diary so the entry lands on that day.`,
+    '1. Call write_topic_note with only the organized markdown body. Never write a heading, date, time or "### HH:mm".',
+    '2. The output file is topic/<topic name>/<YYYY-MM-DD-HH-mm>.md; its timestamp is the last message completion time, not the organization time.',
+    '3. Summarize durable facts, decisions, current state, next steps and related paths. Do not paste the raw transcript.',
+    '4. Do not use write_file for topic memory. The tool owns the directory and filename.',
+    '5. If there is genuinely no new content, reply "No new content." and do not call write_topic_note.',
+    `Context date: ${date}.`,
   );
   return lines.join('\n');
 }

@@ -1,4 +1,4 @@
-﻿import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ToolDefinition } from 'kolorbot-agent-loop';
 import type { ConversationStore, Topic } from 'kolorbot-conversation';
@@ -8,6 +8,7 @@ import {
   readDiaryEntries,
   readDiaryTopicSection,
   topicMemoryPath,
+  writeTopicMemoryFile,
 } from 'kolorbot-memory';
 
 export interface DiaryToolsOptions {
@@ -19,6 +20,8 @@ export interface DiaryToolsOptions {
   currentTopicSlug: () => string;
   /** Diary/topic writes are only legal inside a diary turn. */
   writeEnabled?: () => boolean;
+  /** Timestamp used for the new topic memory filename (segment completion time). */
+  writeAt?: () => Date | undefined;
   now?: () => Date;
 }
 
@@ -190,6 +193,47 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
         } catch (error) {
           return {
             content: `Could not write diary: ${error instanceof Error ? error.message : String(error)}`,
+            isError: true,
+          };
+        }
+      },
+    },
+    {
+      name: 'write_topic_note',
+      description:
+        'Write the organized memory for the CURRENT topic into workspace/topic/<topic name>/<timestamp>.md. Content is written directly with no date/time headings. The filename timestamp is the completion time of the segment\'s last message, supplied by the server.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          content: {
+            type: 'string',
+            description: 'Organized topic memory in markdown; no heading is added.',
+          },
+        },
+        required: ['content'],
+        additionalProperties: false,
+      },
+      concurrency: 'exclusive',
+      execute: (input: unknown) => {
+        if (!writeEnabled()) {
+          return {
+            content:
+              'Topic memory writing is only available during a diary turn. Do not write topic notes in normal chat.',
+            isError: true,
+          };
+        }
+        const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+        const content = typeof args.content === 'string' ? args.content.trim() : '';
+        if (content === '') return { content: 'content must not be empty.', isError: true };
+        const topic = currentTopic(options);
+        if (topic === undefined) return { content: 'No current topic.', isError: true };
+        const at = options.writeAt?.() ?? now();
+        try {
+          const written = writeTopicMemoryFile(options.workspace, topic.name, at, content);
+          return { content: `Wrote topic memory ${written.relativePath}.` };
+        } catch (error) {
+          return {
+            content: `Could not write topic memory: ${error instanceof Error ? error.message : String(error)}`,
             isError: true,
           };
         }

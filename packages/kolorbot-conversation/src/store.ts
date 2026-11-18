@@ -1,4 +1,4 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { mkdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -234,6 +234,14 @@ export class ConversationStore {
       .prepare('SELECT * FROM messages ORDER BY created_at ASC, rowid ASC')
       .all() as unknown as MessageRow[];
     return rows.map(toMessage);
+  }
+
+  /** Completion timestamp of the last message stored in a segment. */
+  lastMessageAt(segmentId: string): string | undefined {
+    const row = this.#db
+      .prepare('SELECT created_at FROM messages WHERE segment_id = ? ORDER BY rowid DESC LIMIT 1')
+      .get(segmentId) as { created_at?: string } | undefined;
+    return row?.created_at;
   }
 
   segmentMessages(segmentId: string): AgentMessage[] {

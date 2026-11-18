@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+﻿import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -42,6 +42,8 @@ import {
   personaSignature,
   readDiaryEntries,
   readDiaryTopicSection,
+  readTopicMemoryForDate,
+  readTopicMemoryFiles,
   readTopicMemory,
   selfTellInfo,
 } from 'kolorbot-memory';
@@ -73,15 +75,9 @@ function topicSegmentDates(segments: ReadonlyArray<{ topicSlug: string; startedA
   ].sort();
 }
 
-/** Local days on which this topic already has a diary section. */
-function topicDiaryDates(dailyDir: string, topicName: string): string[] {
-  return [
-    ...new Set(
-      readDiaryEntries(dailyDir)
-        .filter((entry) => diaryTopicMatches(topicName, entry.topic))
-        .map((entry) => entry.date),
-    ),
-  ].sort();
+/** Local days on which this topic has a timestamped memory file. */
+function topicDiaryDates(workspace: string, topicName: string): string[] {
+  return [...new Set(readTopicMemoryFiles(workspace, topicName).map((file) => file.date))].sort();
 }
 /** Default quiet period before the automatic diary turn. */
 const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
@@ -92,7 +88,7 @@ const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
 const KOLOR_SYSTEM_PROMPT = [
   DEFAULT_SYSTEM_PROMPT,
   '',
-  'The conversation is organized into topics. list_topics and read_diary are available for reading. write_diary and write_topic are only enabled during an explicit diary turn; in ordinary chat, do not write diary entries or topic memory files.',
+  'The conversation is organized into topics. list_topics and read_diary are available for reading. write_diary, write_topic and write_topic_note are only enabled during an explicit memory turn; in ordinary chat, do not write diary entries or topic memory files.',
   'Finish what you start: do not end a turn with a promise to do something later, and do not stop after a plan or a partial implementation. Keep calling tools and verifying until the task is actually done, then report briefly. Only stop early when you need information or permission from the user.',
 ].join('\n');
 
@@ -289,6 +285,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   /** Topic/write state for the isolated diary worker (one job at a time). */
   let diaryJobTopic: string | undefined;
   let diaryJobWrite = false;
+  let diaryJobWriteAt: Date | undefined;
   const diaryPool = new AgentPool({
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
     systemPrompt: KOLOR_SYSTEM_PROMPT,
@@ -299,6 +296,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         workspace: config.frameRoot,
         currentTopicSlug: () => diaryJobTopic ?? store.current().topic.slug,
         writeEnabled: () => diaryJobWrite,
+        writeAt: () => diaryJobWriteAt,
       }),
     kolorFrame: {
       root: config.frameRoot,
@@ -386,25 +384,13 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
 
     if (pathname === '/api/topics' && method === 'GET') {
-      const entries = readDiaryEntries(memory.diaryDir);
       const topics = store.store.listTopics();
       const segments = store.store.listSegments();
       const conversationDates = new Map<string, Set<string>>();
+      const diaryCounts = new Map<string, Set<string>>();
       for (const topic of topics) {
         conversationDates.set(topic.slug, new Set(topicSegmentDates(segments, topic.slug)));
-      }
-      const diaryCounts = new Map<string, Set<string>>();
-      for (const entry of entries) {
-        const topic = topics.find((candidate) =>
-          diaryTopicMatches(candidate.name, entry.topic),
-        );
-        if (topic === undefined) continue;
-        let dates = diaryCounts.get(topic.slug);
-        if (dates === undefined) {
-          dates = new Set<string>();
-          diaryCounts.set(topic.slug, dates);
-        }
-        dates.add(entry.date);
+        diaryCounts.set(topic.slug, new Set(topicDiaryDates(config.frameRoot, topic.name)));
       }
       sendJson(response, 200, {
         topics: topics.map((topic) => ({
@@ -452,7 +438,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
           endedAt: segment.endedAt,
           messages: store.store.segmentMessages(segment.id),
         }));
-      const diary = readDiaryTopicSection(memory.diaryDir, date, topic.name);
+      const diary = readTopicMemoryForDate(config.frameRoot, topic.name, date);
       sendJson(response, 200, {
         topic,
         date,
@@ -469,7 +455,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const topic = store.store.topic(slug);
       if (topic === undefined) throw new HttpError(404, 'unknown topic');
       const dates = topicSegmentDates(store.store.listSegments(), slug);
-      const diaryDates = topicDiaryDates(memory.diaryDir, topic.name);
+      const diaryDates = topicDiaryDates(config.frameRoot, topic.name);
       const byMonth = new Map<string, string[]>();
       for (const date of dates) {
         const month = date.slice(0, 7);
@@ -481,7 +467,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         topic,
         dates,
         diaryDates,
-        memory: readTopicMemory(config.frameRoot, slug),
+        memory: readTopicMemory(config.frameRoot, topic.name, topic.slug),
         months: [...byMonth.entries()]
           .sort(([a], [b]) => b.localeCompare(a))
           .map(([month, days]) => ({ month, days })),
@@ -895,13 +881,17 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     let segment = current.segment;
     let previousSegment: typeof current.segment | undefined;
     let switched = false;
+    const segmentCount = store.store.segmentMessages(segment.id).length;
+    const dayChanged =
+      !commandTurn &&
+      segmentCount > 0 &&
+      diaryDateKey(new Date(segment.startedAt)) !== diaryDateKey(new Date());
 
     if (!commandTurn) {
       const decision = await classifyTopic({
         target,
         topics: store.store.listTopics(),
-        currentTopic:
-          store.store.segmentMessages(segment.id).length === 0 ? '(none)' : topic.name,
+        currentTopic: segmentCount === 0 ? '(none)' : topic.name,
         recent: store.store.lastTextMessages(segment.id, 6),
         text,
         ...(options.logger === undefined ? {} : { logger: options.logger }),
@@ -922,6 +912,12 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
           segment = store.store.startSegment(topic.slug, personaSignature(memory.self().content));
         }
         switched = true;
+        await pool.disposeSession(session.id);
+      } else if (dayChanged) {
+        // Same topic, but the first message of a new local day: close the old
+        // segment so the previous day can be organized independently.
+        previousSegment = segment;
+        segment = store.store.startSegment(topic.slug, personaSignature(memory.self().content));
         await pool.disposeSession(session.id);
       }
     }
@@ -1221,15 +1217,10 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     const persona = memory.self().content;
     const signature = personaSignature(persona);
     if (count === 0 || input.segment.memorySignature !== signature) {
-      const diary = findLatestDiarySection(
-        join(config.frameRoot, 'daily'),
-        input.topic.name,
-      );
       const memoryBlock = formatTopicMemoryBlock({
         persona,
         topicName: input.topic.name,
-        topicContent: readTopicMemory(config.frameRoot, input.topic.slug),
-        ...(diary === undefined ? {} : { diaryDate: diary.date, diaryContent: diary.content }),
+        topicContent: readTopicMemory(config.frameRoot, input.topic.name, input.topic.slug),
       });
       if (memoryBlock !== '') blocks.push(memoryBlock);
       store.store.setSegmentMemorySignature(input.segment.id, signature);
@@ -1586,8 +1577,9 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       targetDate === undefined ? {} : { targetDate },
     );
     const sectionDate = targetDate ?? diaryDateKey(new Date());
-    const before = memory.diary().signature;
     const agentId = `diary-${randomUUID()}`;
+    const lastMessageAt = store.store.lastMessageAt(segments[segments.length - 1]!.id);
+    diaryJobWriteAt = lastMessageAt === undefined ? new Date() : new Date(lastMessageAt);
     diaryJobTopic = slug;
     diaryJobWrite = true;
     try {
@@ -1598,18 +1590,16 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       for await (const _event of agent.stream(message)) {
         // No UI/SSE consumer for this isolated turn.
       }
-      if (readDiaryTopicSection(memory.diaryDir, sectionDate, topic.name) !== '') {
+      if (readTopicMemoryForDate(config.frameRoot, topic.name, sectionDate) !== '') {
         store.store.markDiaryWritten(segments.map((segment) => segment.id));
       } else {
         options.logger?.('the diary agent finished without appending anything');
-      }
-      if (memory.diary().signature === before) {
-        options.logger?.('the diary turn finished without changing the diary');
       }
     } catch (error) {
       options.logger?.('diary worker failed', error);
     } finally {
       diaryJobWrite = false;
+      diaryJobWriteAt = undefined;
       diaryJobTopic = undefined;
       await diaryPool.disposeSession(agentId);
     }

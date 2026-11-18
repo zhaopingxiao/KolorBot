@@ -393,7 +393,7 @@ function newChat() {
 
 const PAGES = {
   chat: { title: '对话', subtitle: '' },
-  topics: { title: '话题', subtitle: '话题 / 日记日历' },
+  topics: { title: '话题', subtitle: '话题 / 记忆日历' },
   skills: { title: '技能', subtitle: '三个技能区 / MCP' },
   models: { title: '模型', subtitle: 'OpenAI Chat Completions 提供商' },
   memory: { title: '设定', subtitle: 'AI 人设 / AI.md' },
@@ -518,7 +518,7 @@ async function loadTopicsList(token) {
         'span',
         'topic-row-count',
         topic.conversationDays > 0
-          ? `${topic.conversationDays} 天记录${topic.diaryDays < topic.conversationDays ? ` · ${topic.diaryDays} 天日记` : ''}`
+          ? `${topic.conversationDays} 天记录${topic.diaryDays < topic.conversationDays ? ` · ${topic.diaryDays} 天记忆` : ''}`
           : '还没有对话记录',
       ),
     );
@@ -553,7 +553,7 @@ async function loadTopicCalendar(slug, token) {
   if (memoryContent !== '') {
     memory.classList.remove('hidden');
     memoryBody.innerHTML = renderMarkdown(memoryContent);
-    $('#topic-memory-path').textContent = `workspace/topic/${slug}.md`;
+    $('#topic-memory-path').textContent = `workspace/topic/${data.topic.name}/`;
   }
   if (data.months.length === 0) {
     calendars.appendChild(el('p', 'topic-empty', '等这个话题第一次出现在对话后，这里会出现日历。'));
@@ -591,7 +591,7 @@ function renderTopicMonth(slug, month, diaryDates = new Set()) {
       button.type = 'button';
       if (date === today) button.classList.add('today');
       if (!diaryDates.has(date)) button.classList.add('no-diary');
-      button.title = `${date} · ${diaryDates.has(date) ? '有日记' : '有对话，还没有日记'}`;
+      button.title = `${date} · ${diaryDates.has(date) ? '有记忆' : '有对话，还没有记忆'}`;
       button.addEventListener('click', () => {
         location.hash = `#/topics/${encodeURIComponent(slug)}/${date}`;
       });
@@ -633,9 +633,9 @@ function renderTopicDiary(data) {
     return;
   }
   diary.appendChild(
-    el('p', 'topic-empty', '这一天有对话记录，但还没有这个话题的日记。'),
+    el('p', 'topic-empty', '这一天有对话记录，但还没有这个话题的记忆。'),
   );
-  const button = el('button', 'primary-button organize-diary', '整理这天的日记');
+  const button = el('button', 'primary-button organize-diary', '整理这天的记忆');
   button.type = 'button';
   button.addEventListener('click', () => {
     void organizeTopicDiary(data.topic.slug, data.date, button);
@@ -652,7 +652,7 @@ async function organizeTopicDiary(slug, date, button) {
       `/api/topics/${encodeURIComponent(slug)}/days/${encodeURIComponent(date)}/diary`,
       { method: 'POST' },
     );
-    toast('已开始整理，这天的日记写好后会自动刷新');
+    toast('已开始整理，这天的记忆写好后会自动刷新');
     for (let attempt = 0; attempt < 120; attempt += 1) {
       await new Promise((resolve) => setTimeout(resolve, 1000));
       if (location.hash !== targetHash) return;
@@ -661,14 +661,14 @@ async function organizeTopicDiary(slug, date, button) {
       );
       if (data.diary !== '') {
         renderTopicDiary(data);
-        toast('这天的日记已整理完成');
+        toast('这天的记忆已整理完成');
         return;
       }
     }
     toast('整理还在后台进行，稍后刷新看看');
   } catch (error) {
     button.disabled = false;
-    button.textContent = '整理这天的日记';
+    button.textContent = '整理这天的记忆';
     toast(error?.message ?? String(error), 'error');
   }
 }
@@ -1364,7 +1364,7 @@ async function attachLive(sessionId) {
 const COMMAND_COMPLETIONS = [
   { value: '/self-md-update', description: '按当前对话更新设定' },
   { value: '/self-md-tell', description: '按后面的内容更新设定' },
-  { value: '/update-daily-memory', description: '立即整理一次日记' },
+  { value: '/update-daily-memory', description: '立即整理一次记忆' },
 ];
 
 function hideCommandMenu() {
@@ -1423,7 +1423,7 @@ async function sendMessage() {
     hideCommandMenu();
     try {
       const result = await api('/api/diary/organize', { method: 'POST' });
-      toast(result?.started ? '日记整理已交给独立日记 Agent' : '没有需要整理的对话片段');
+      toast(result?.started ? '记忆整理已交给独立记忆 Agent' : '没有需要整理的对话片段');
     } catch (error) {
       toast(error.message, 'error');
     }

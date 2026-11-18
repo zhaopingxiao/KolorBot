@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -30,6 +30,7 @@ test('diary tools use the current topic and require topic memory', async () => {
       diaryDir: daily,
       workspace: dir,
       currentTopicSlug: () => 'remotion',
+      writeAt: () => at,
       now: () => at,
     });
 
@@ -54,6 +55,18 @@ test('diary tools use the current topic and require topic memory', async () => {
     const topicRaw = readFileSync(join(dir, 'topic', 'remotion.md'), 'utf8');
     assert.match(topicRaw, /^# Remotion/);
     assert.match(topicRaw, /remotion-project/);
+
+    const note = await run(tools, 'write_topic_note', {
+      content: '- 记忆直接内容\n- 无标题',
+    });
+    assert.match(note.content, /topic[\\/]Remotion[\\/]2026-11-14-19-21\.md/);
+    const noteRaw = readFileSync(
+      join(dir, 'topic', 'Remotion', '2026-11-14-19-21.md'),
+      'utf8',
+    );
+    assert.match(noteRaw, /记忆直接内容/);
+    assert.equal(noteRaw.includes('### 19:21'), false);
+    assert.equal(noteRaw.startsWith('#'), false);
 
     const dates = await run(tools, 'read_diary', {});
     assert.match(dates.content, /2026-11-14/);

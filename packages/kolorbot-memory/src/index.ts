@@ -1,4 +1,4 @@
-﻿export {
+export {
   MemoryStore,
   buildDiaryTaskMessage,
   buildTopicDiaryMessage,
@@ -19,6 +19,11 @@
   parseDiarySections,
   parsePersona,
   readTopicMemory,
+  readTopicMemoryFiles,
+  readTopicMemoryForDate,
+  topicMemoryDirectory,
+  topicMemoryFileName,
+  writeTopicMemoryFile,
   appendDiaryEntry,
   readDiaryEntries,
 
@@ -37,4 +42,5 @@ export type {
   MemoryStoreOptions,
   SelfSnapshot,
   PersonaProfile,
+  TopicMemoryFile,
 } from './memory.js';
