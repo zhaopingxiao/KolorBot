@@ -456,6 +456,11 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
     'utf8',
   );
   writeFileSync(
+    join(frameRoot, 'topic', '工作区 Remotion 环境', `${today}-09-30.md`),
+    'remotion 第二段记忆。\n',
+    'utf8',
+  );
+  writeFileSync(
     join(frameRoot, 'topic', 'Deepseek Workspace', `${today}-10-00.md`),
     'workspace 日记段落。\n',
     'utf8',
@@ -479,6 +484,8 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
   assert.deepEqual(calendar.dates, [today]);
   assert.equal(calendar.months[0]?.month, today.slice(0, 7));
   assert.match(calendar.memory, /remotion 日记段落/);
+  assert.match(calendar.memory, /---/);
+  assert.match(calendar.memory, /remotion 第二段记忆/);
 
   const day = (await (
     await fetch(`${app.url}/api/topics/remotion/days/${today}`)
@@ -488,6 +495,8 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
   };
   assert.equal(day.segments.length, 2);
   assert.match(day.diary, /remotion 日记段落/);
+  assert.match(day.diary, /remotion 第二段记忆/);
+  assert.match(day.diary, /---/);
   assert.equal(day.diary.includes('workspace 日记段落'), false);
   assert.ok(day.segments[0]?.messages.some((message) => message.role === 'assistant'));
 });

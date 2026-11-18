@@ -409,7 +409,7 @@ export function readTopicMemory(workspace: string, topicName: string, slug?: str
     return files
       .map((file) => file.content.trim())
       .filter((content) => content !== '')
-      .join('\n\n');
+      .join('\n\n---\n\n');
   }
   if (slug === undefined) return '';
   const path = topicMemoryPath(workspace, slug);
@@ -426,7 +426,7 @@ export function readTopicMemoryForDate(
     .filter((file) => file.date === date)
     .map((file) => file.content.trim())
     .filter((content) => content !== '')
-    .join('\n\n');
+    .join('\n\n---\n\n');
 }
 
 /** Write one timestamped topic memory file; content has no added headings. */

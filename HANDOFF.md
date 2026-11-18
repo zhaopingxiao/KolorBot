@@ -106,7 +106,7 @@ D:\code\kolorbot\
 - 文件：`<YYYY-MM-DD-HH-mm>.md`
 - 文件名时间是**该 segment 最后一条消息的完成时间**，不是整理时间。
 - 文件内容是整理后的正文，不写 `# 日期`、`## 话题`、`### HH:mm`。
-- 同一目录下所有文件按文件名排序读出，作为 `<system-memory>` 的话题记忆。
+- 同一目录下所有文件按文件名排序读出，多个片段之间用 `---` 分隔线连接后作为 `<system-memory>` 的话题记忆。
 - 旧的 `workspace/topic/<slug>.md` 仅作为读取兜底，不再由新整理任务写入。
 
 #### 整理任务
@@ -218,7 +218,7 @@ D:\code\kolorbot\
 - 当前 release：
   - 版本 0.4.0
   - 大小 135,820,800 bytes
-  - SHA256 `96C53F8B5A99B1F3E074DCFA082522D6E518F8FA95E70DCF51E956516A0C5BF9`
+  - SHA256 `C5B009372534994A11D35A12D15BC19CC660F22AB3780ADC8D7C6A4B2F5655AB`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -364,7 +364,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 新记忆文件：workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md，正文直接写入、无时间标题；write_topic_note 只在整理任务启用。
-- 测试 114/114；release SHA256 96C53F8B5A99B1F3E074DCFA082522D6E518F8FA95E70DCF51E956516A0C5BF9。
+- 测试 114/114；release SHA256 C5B009372534994A11D35A12D15BC19CC660F22AB3780ADC8D7C6A4B2F5655AB。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

@@ -1,4 +1,4 @@
-﻿# KolorBot
+# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -399,8 +399,9 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 4. 输出路径：`workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md`。
 5. 文件名时间是**该 segment 最后一条消息的完成时间**，不是整理时间；跨天时以最后一条消息所在日期为准。
 6. 文件内容是整理后的 Markdown 正文，不写 `# 日期`、`## 话题` 或 `### HH:mm`。
-7. 整理任务不占用主对话、不阻塞新话题消息；整理 Agent 的上下文在任务结束后丢弃。
-8. 旧的 `workspace/daily` 日记格式不再由整理任务写入；`write_diary` 只保留为旧工具兼容。
+7. 同一话题有多个片段文件时，读取/展示/注入会用 `---` 分隔线隔开。
+8. 整理任务不占用主对话、不阻塞新话题消息；整理 Agent 的上下文在任务结束后丢弃。
+9. 旧的 `workspace/daily` 日记格式不再由整理任务写入；`write_diary` 只保留为旧工具兼容。
 
 ### 整理工具
 
