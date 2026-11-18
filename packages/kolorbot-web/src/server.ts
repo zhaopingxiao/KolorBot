@@ -1,4 +1,4 @@
-﻿import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -44,6 +44,7 @@ import {
   readDiaryTopicSection,
   readTopicMemoryForDate,
   readTopicMemoryFiles,
+  readTopicMemoryRecordsForDate,
   readTopicMemory,
   selfTellInfo,
 } from 'kolorbot-memory';
@@ -438,7 +439,18 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
           endedAt: segment.endedAt,
           messages: store.store.segmentMessages(segment.id),
         }));
-      const diary = readTopicMemoryForDate(config.frameRoot, topic.name, date);
+      const records = readTopicMemoryRecordsForDate(config.frameRoot, topic.name, date);
+      const diary = records
+        .map((record, index) => {
+          const segment = segments[index];
+          let time = record.time;
+          if (segment !== undefined) {
+            const at = new Date(segment.startedAt);
+            time = `${String(at.getHours()).padStart(2, '0')}:${String(at.getMinutes()).padStart(2, '0')}`;
+          }
+          return `### 片段 ${index + 1} · ${time}\n\n${record.content.trim()}`;
+        })
+        .join('\n\n---\n\n');
       sendJson(response, 200, {
         topic,
         date,

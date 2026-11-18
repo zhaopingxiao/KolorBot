@@ -368,7 +368,7 @@ test('the idle diary writes a topic section and creates the topic file', async (
     const send = (value: unknown): void => {
       response.write(`data: ${JSON.stringify(value)}\n\n`);
     };
-    if (lastUser.includes("Organize the topic memory")) {
+    if (lastUser.includes('Write a timestamped record of what was done')) {
       const hasTool = messages.some((message) => message.role === 'tool');
       if (!hasTool) {
         send({
@@ -461,6 +461,11 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
     'utf8',
   );
   writeFileSync(
+    join(frameRoot, 'topic', '工作区 Remotion 环境', 'main.md'),
+    '# 工作区 Remotion 环境\n\n- 关键记忆条目\n',
+    'utf8',
+  );
+  writeFileSync(
     join(frameRoot, 'topic', 'Deepseek Workspace', `${today}-10-00.md`),
     'workspace 日记段落。\n',
     'utf8',
@@ -483,9 +488,8 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
   };
   assert.deepEqual(calendar.dates, [today]);
   assert.equal(calendar.months[0]?.month, today.slice(0, 7));
-  assert.match(calendar.memory, /remotion 日记段落/);
-  assert.match(calendar.memory, /---/);
-  assert.match(calendar.memory, /remotion 第二段记忆/);
+  assert.match(calendar.memory, /关键记忆条目/);
+  assert.equal(calendar.memory.includes('remotion 第二段记忆'), false);
 
   const day = (await (
     await fetch(`${app.url}/api/topics/remotion/days/${today}`)
@@ -494,6 +498,9 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
     diary: string;
   };
   assert.equal(day.segments.length, 2);
+  assert.match(day.diary, /### 片段 1/);
+  assert.match(day.diary, /### 片段 2/);
+  assert.match(day.diary, /---/);
   assert.match(day.diary, /remotion 日记段落/);
   assert.match(day.diary, /remotion 第二段记忆/);
   assert.match(day.diary, /---/);
@@ -560,7 +567,7 @@ test('backfills a missing diary for a conversation day', async (t) => {
     const send = (value: unknown): void => {
       response.write(`data: ${JSON.stringify(value)}\n\n`);
     };
-    if (lastUser.includes('Organize the topic memory')) {
+    if (lastUser.includes('Write a timestamped record of what was done')) {
       if (!messages.some((message) => message.role === 'tool')) {
         send({
           choices: [

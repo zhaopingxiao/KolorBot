@@ -399,21 +399,37 @@ export function readTopicMemoryFiles(workspace: string, topicName: string): Topi
 }
 
 /**
- * Read the combined topic memory. New timestamped files under
- * `topic/<topic-name>/` take precedence; legacy `topic/<slug>.md` is still
- * accepted so older workspaces remain readable.
+ * Read the topic's durable key memory (`topic/<topic-name>/main.md`).
+ * Legacy `topic/<slug>.md` is accepted for older workspaces.
  */
 export function readTopicMemory(workspace: string, topicName: string, slug?: string): string {
-  const files = readTopicMemoryFiles(workspace, topicName);
-  if (files.length > 0) {
-    return files
-      .map((file) => file.content.trim())
-      .filter((content) => content !== '')
-      .join('\n\n---\n\n');
-  }
+  const path = join(topicMemoryDirectory(workspace, topicName), 'main.md');
+  if (existsSync(path)) return readFileSync(path, 'utf8');
   if (slug === undefined) return '';
-  const path = topicMemoryPath(workspace, slug);
-  return existsSync(path) ? readFileSync(path, 'utf8') : '';
+  const legacy = topicMemoryPath(workspace, slug);
+  return existsSync(legacy) ? readFileSync(legacy, 'utf8') : '';
+}
+
+/** Write the durable key memory file for a topic. */
+export function writeTopicMainMemory(
+  workspace: string,
+  topicName: string,
+  content: string,
+): { path: string; relativePath: string } {
+  const dir = topicMemoryDirectory(workspace, topicName);
+  mkdirSync(dir, { recursive: true });
+  const path = join(dir, 'main.md');
+  writeFileSync(path, `${content.trim()}\n`, 'utf8');
+  return { path, relativePath: join('topic', topicName, 'main.md') };
+}
+
+/** Timestamped "what was done" records for one local date. */
+export function readTopicMemoryRecordsForDate(
+  workspace: string,
+  topicName: string,
+  date: string,
+): TopicMemoryFile[] {
+  return readTopicMemoryFiles(workspace, topicName).filter((file) => file.date === date);
 }
 
 /** Memory files for one local date, oldest first. */
@@ -739,11 +755,11 @@ function stripSystemBlocks(content: string): string {
 }
 
 /**
- * Trigger message for organizing one topic segment into topic memory.
+ * Trigger message for writing one segment's "what was done" record.
  *
- * The new layout is `workspace/topic/<topic name>/<YYYY-MM-DD-HH-mm>.md`.
+ * The layout is `workspace/topic/<topic name>/<YYYY-MM-DD-HH-mm>.md`.
  * The filename timestamp is the segment's last message completion time; the
- * AI only supplies the markdown body.
+ * AI only supplies the activity body. Durable key facts belong in main.md.
  */
 export function buildTopicDiaryMessage(
   now: Date,
@@ -752,10 +768,10 @@ export function buildTopicDiaryMessage(
 ): string {
   const date = options.targetDate ?? diaryDateKey(now);
   const lines: string[] = [
-    `It's ${formatTimestamp(now)}. Organize the topic memory for the transcript below.`,
+    `It's ${formatTimestamp(now)}. Write a timestamped record of what was done for the topic segment below.`,
     '',
     'Use the dedicated tool:',
-    '- write_topic_note({ content }): write the CURRENT topic\'s organized memory to workspace/topic/<topic name>/<timestamp>.md. The server chooses the timestamp from the segment\'s last message completion time; do not write date, time or headings.',
+    '- write_topic_note({ content }): write the CURRENT topic\'s activity record to workspace/topic/<topic name>/<timestamp>.md. The server chooses the timestamp from the segment\'s last message completion time; do not write date, time or headings.',
     '',
   ];
   if (segments.length === 0) {
@@ -775,9 +791,9 @@ export function buildTopicDiaryMessage(
   lines.push(
     '',
     'Rules:',
-    '1. Call write_topic_note with only the organized markdown body. Never write a heading, date, time or "### HH:mm".',
+    '1. Call write_topic_note with only the activity record markdown. Never write a heading, date, time or "### HH:mm".',
     '2. The output file is topic/<topic name>/<YYYY-MM-DD-HH-mm>.md; its timestamp is the last message completion time, not the organization time.',
-    '3. Summarize durable facts, decisions, current state, next steps and related paths. Do not paste the raw transcript.',
+    '3. Record what was done: tasks, actions, results and current progress. Do NOT copy durable key facts, decisions or long reference data into this record; key memory lives in main.md and is used separately.',
     '4. Do not use write_file for topic memory. The tool owns the directory and filename.',
     '5. If there is genuinely no new content, reply "No new content." and do not call write_topic_note.',
     `Context date: ${date}.`,

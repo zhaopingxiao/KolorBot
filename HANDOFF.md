@@ -75,7 +75,7 @@ D:\code\kolorbot\
 - 新话题创建/复用 topic，开始新 segment，`pool.disposeSession('main')`。
 - 模型上下文只包含当前 segment；切回旧话题也开新 segment，不恢复该话题旧消息。
 - 新 segment 第一条注入：
-  - `<system-memory>`：AI.md + `workspace/topic/<话题名>/*.md` 合并话题记忆；
+  - `<system-memory>`：AI.md + `workspace/topic/<话题名>/main.md` 关键记忆；
   - `<system-last-message>`：上一 segment 最后 10 条 user/assistant 文本。
 - 同一 segment 内只有 AI.md 变化才重新注入记忆。
 - 重置 `/api/sessions/main/reset` 清空消息/segment，保留话题与记忆文件。
@@ -102,22 +102,24 @@ D:\code\kolorbot\
 
 #### 话题记忆文件
 
-- 目录：`workspace/topic/<话题名>/`
-- 文件：`<YYYY-MM-DD-HH-mm>.md`
-- 文件名时间是**该 segment 最后一条消息的完成时间**，不是整理时间。
-- 文件内容是整理后的正文，不写 `# 日期`、`## 话题`、`### HH:mm`。
-- 同一目录下所有文件按文件名排序读出，多个片段之间用 `---` 分隔线连接后作为 `<system-memory>` 的话题记忆。
-- 旧的 `workspace/topic/<slug>.md` 仅作为读取兜底，不再由新整理任务写入。
+- 关键记忆：`workspace/topic/<话题名>/main.md`。
+  - 只放可复用事实、状态、决定、待办；用于 `<system-memory>` 和话题页的「话题记忆」卡片。
+  - `write_topic` 写这个文件；旧的 `workspace/topic/<slug>.md` 仅作读取兜底。
+- 每日记录：`workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md`。
+  - 每个 segment 一条，文件名时间是该 segment 最后一条消息的完成时间，不是整理时间。
+  - 只写“做了什么、结果、进展”，不写关键事实，不写 `# 日期` / `## 话题` / `### HH:mm`。
+  - 同一天多个片段在话题页按 `### 片段 N · HH:mm` + `---` 分隔显示。
+  - 旧的 `workspace/daily` 日记格式不再由整理任务写入。
 
 #### 整理任务
 
 - **切换话题自动整理（2026-11-18）**：上一 segment 关闭后，将其对话记录交给独立的整理 Agent（`diary-<uuid>`，独立 `AgentPool`，`context = []`），不占用主对话、不复用主 Agent 上下文。
 - **跨天强制分段**：同一话题跨本地日期时，第二天第一条普通消息会强制新开 segment；上一天 segment 被关闭并进入整理队列。
-- 整理工具是 `write_topic_note({ content })`，由服务端绑定当前话题和最后消息时间。
-- 任务完成后上下文丢弃，只保留 `topic/` 文件写入，并标记 `diary_at`。
+- 整理工具是 `write_topic_note({ content })`，只写每日记录；服务端绑定当前话题和最后消息时间。
+- 关键记忆 `main.md` 不由这个自动整理 Agent 重写，继续作为上下文使用。
+- 任务完成后上下文丢弃，只保留每日记录文件写入，并标记 `diary_at`。
 - 10 分钟静默仍作为兜底，使用同一个独立整理 Agent；切换/跨天已整理的 segment 不会重复。
 - 话题页补写、UI `/update-daily-memory` 也走独立整理 Agent（`/api/diary/organize`）。
-- 旧 `write_diary` / `write_topic` / daily 格式保留为兼容工具，新流程不写 daily。
 
 ### 3.5 技能与 MCP（`kolorbot-skills`）
 
@@ -197,7 +199,7 @@ D:\code\kolorbot\
   - 2 秒轮询只在会话签名变化时重建消息列表，重建时保留当前滚动位置；外部 `/api/message` 启动的轮次也会在 2 秒内被 Web 接上；
   - 只有离底部一行以内才自动跟随新内容。
 - 话题页：
-  - 展示话题记忆 Markdown、按月份日历、当天聊天记录/记忆；
+  - 展示话题关键记忆 Markdown、按月份日历、当天聊天记录/带片段标识的记忆；
   - 日历日期来自对话 segment，不一定有记忆；
   - 有对话但没记忆的日期可点「整理这天的记忆」补写；
   - 话题/日期切换时重置滚动位置。
@@ -217,8 +219,8 @@ D:\code\kolorbot\
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 135,820,800 bytes
-  - SHA256 `C5B009372534994A11D35A12D15BC19CC660F22AB3780ADC8D7C6A4B2F5655AB`
+  - 大小 135,821,824 bytes
+  - SHA256 `D42E0D0C256CA7A08EE7527C4A61754D6E3AD47D554BD9E984F177C85EF4BA3A`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -230,7 +232,7 @@ D:\code\kolorbot\
 ├── providers.json        # 模型提供商 / active 模型 / key
 ├── workspace/
 │   ├── AI.md             # 固定头部 + 性格/自我认知
-│   └── topic/<话题名>/<YYYY-MM-DD-HH-mm>.md
+│   └── topic/<话题名>/main.md + <YYYY-MM-DD-HH-mm>.md
 └── logs/                 # 源码运行时日志
 ```
 
@@ -364,7 +366,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 新记忆文件：workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md，正文直接写入、无时间标题；write_topic_note 只在整理任务启用。
-- 测试 114/114；release SHA256 C5B009372534994A11D35A12D15BC19CC660F22AB3780ADC8D7C6A4B2F5655AB。
+- 测试 114/114；release SHA256 D42E0D0C256CA7A08EE7527C4A61754D6E3AD47D554BD9E984F177C85EF4BA3A。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

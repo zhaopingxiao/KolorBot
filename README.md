@@ -1,4 +1,4 @@
-# KolorBot
+﻿# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -121,7 +121,7 @@ npm run web -- --host 0.0.0.0
 ![移动端](docs/mobile.png)
 
 - **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolorbot/conversation.db`。
-- **话题页**：对话标题左边的话题图标进入；点进话题先看到 Markdown 渲染的 `workspace/topic/<话题名>/` 话题记忆，下面是**对话里出现过**的所有月份日历，紫色日期可点开当天的话题聊天记录和记忆片段；有对话但没记忆的那天可以直接点「整理这天的记忆」。
+- **话题页**：对话标题左边的话题图标进入；点进话题先看到 Markdown 渲染的 `workspace/topic/<话题名>/main.md` 关键记忆，下面是**对话里出现过**的所有月份日历，紫色日期可点开当天的话题聊天记录和带片段标识的记忆记录；有对话但没记忆的那天可以直接点「整理这天的记忆」。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与记忆](#单对话话题与记忆)。
 - 模型：侧栏「技能」下面的「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。
 - 设定：侧栏底部 agent 卡片的「⋯」→「设定」管理 AI.md，可用 `/self-md-update` / `/self-md-tell …` 创建或更新；页面不再显示日记项。
@@ -394,21 +394,22 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 切换话题时自动整理上一个话题：
 
 1. 上一段 segment 关闭后，服务端把这段对话记录整理成 transcript，交给一个**全新的整理 Agent**（新的临时 agent id、`context = []`，不复用当前对话 Agent）。
-2. 该 Agent 只拿到这段 transcript、整理规则和写作工具；通过 `write_topic_note` 写当前话题的记忆。
+2. 该 Agent 只拿到这段 transcript、整理规则和写作工具；通过 `write_topic_note` 写当前话题的**每日记录**，不修改 `main.md` 关键记忆。
 3. 如果同一话题跨了本地日期，第二天第一条消息会强制新开 segment，所以上一天会先被整理，不会因为话题没变而漏掉。
-4. 输出路径：`workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md`。
+4. 记录路径：`workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md`；关键记忆仍在同一目录的 `main.md`。
 5. 文件名时间是**该 segment 最后一条消息的完成时间**，不是整理时间；跨天时以最后一条消息所在日期为准。
-6. 文件内容是整理后的 Markdown 正文，不写 `# 日期`、`## 话题` 或 `### HH:mm`。
-7. 同一话题有多个片段文件时，读取/展示/注入会用 `---` 分隔线隔开。
+6. 记录内容是“做了什么、结果、进展”的正文，不写关键事实，不写 `# 日期`、`## 话题` 或 `### HH:mm`。
+7. 同一话题有多个片段记录时，读取/展示会用 `---` 和 `### 片段 N · HH:mm` 分隔。
 8. 整理任务不占用主对话、不阻塞新话题消息；整理 Agent 的上下文在任务结束后丢弃。
 9. 旧的 `workspace/daily` 日记格式不再由整理任务写入；`write_diary` 只保留为旧工具兼容。
 
 ### 整理工具
 
-- `write_topic_note({ content })`：把当前话题的整理正文写入 `workspace/topic/<话题名>/<timestamp>.md`；正文直接写入，不加标题/时间。
-- `read_diary` / `write_diary` / `write_topic` 是旧格式的兼容工具；新的自动整理只使用 `write_topic_note`。
+- `write_topic_note({ content })`：把当前话题的**每日记录**写入 `workspace/topic/<话题名>/<timestamp>.md`；只写做了什么，正文直接写入，不加标题/时间。
+- `write_topic({ content })`：创建/替换当前话题的**关键记忆** `workspace/topic/<话题名>/main.md`。
+- `read_diary` / `write_diary` 是旧格式兼容工具；新的自动整理只使用 `write_topic_note`。
 
-`write_topic_note` 只在整理任务里启用；普通聊天中调用会返回错误，模型也不应再用 `write_file` 改 `topic/` 目录。
+`write_topic_note` / `write_topic` 只在整理任务里启用；普通聊天中调用会返回错误，模型也不应再用 `write_file` 改 `topic/` 目录。
 
 也可以发送 `/update-daily-memory` 立即整理（UI 会调用 `/api/diary/organize`，同样使用独立整理 Agent，不占用主对话）。
 
@@ -457,9 +458,7 @@ messages        (id, segment_id, topic_slug, role, data_json, created_at)
 ## AI self (AI.md)
 ...
 ## Topic: 工作区 Remotion 环境
-workspace/topic/remotion.md 的内容
-## Topic memory files (2026-11-14-20-42.md)
-今天（或最近一次）日记里该话题的片段
+workspace/topic/工作区环境/main.md 的内容
 </system-memory>
 
 <system-last-message>
@@ -471,46 +470,42 @@ assistant: ...
 （用户原话）
 ```
 
-- 日记片段查找顺序：今天 → 最近一天 → 该话题最早一次；
+- 注入的是话题关键记忆 `main.md`，不是当天的流水记录；
 - 新 segment 第一条必发 `<system-memory>` 和 `<system-last-message>`；
-- 同一 segment 内只有 **AI.md 变化**才重发 `<system-memory>`；话题文件或日记变化不会触发重发；
+- 同一 segment 内只有 **AI.md 变化**才重发 `<system-memory>`；话题文件变化不会触发重发；
 - `<system-last-message>` 只在新话题的第一条发送，且只算 user/assistant 文本。
 
-### 日记格式
+### 每日记录格式
 
-```markdown
-# 2026-11-14
-
-## 工作区 Remotion 环境
-
-### 19:21
-
-...
-
-### 21:00
-
-...
-
-## Deepseek Workspace
-
-### 20:37
-
-...
+```text
+workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md
 ```
 
-- 一级是日期，二级是话题，三级是时间；
-- 同一话题当天只有一个 `##` 块，后续条目追加到同一块；
-- 话题按**首次出现顺序**排列（方案 A），因此整篇不是严格全局时间顺序；
-- 每个话题第一次写入日记时，同时创建/更新 `workspace/topic/<slug>.md`；之后出现关键变化时 AI 用 `write_file` 主动更新，不再依赖专门的记忆工具。
+- 每个 segment 一条记录，文件名时间是该 segment 最后一条消息完成时间；
+- 文件内容只写“做了什么、结果、进展”，不写关键事实；关键事实在 `main.md`；
+- 文件本身不写日期/话题/时间标题；
+- Web 的“当天记忆”会按片段编号加分割线：
 
-### 话题文件
+```markdown
+### 片段 1 · 21:02
+
+...记录...
+
+---
+
+### 片段 2 · 21:05
+
+...记录...
+```
+
+### 话题关键记忆
+
+```text
+workspace/topic/<话题名>/main.md
+```
 
 ```markdown
 # 工作区 Remotion 环境
-
-- slug: remotion
-- created: 2026-11-14T19:21:00+08:00
-- updated: 2026-11-14T21:00:00+08:00
 
 ## 关键信息
 

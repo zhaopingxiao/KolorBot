@@ -21,9 +21,11 @@ export {
   readTopicMemory,
   readTopicMemoryFiles,
   readTopicMemoryForDate,
+  readTopicMemoryRecordsForDate,
   topicMemoryDirectory,
   topicMemoryFileName,
   writeTopicMemoryFile,
+  writeTopicMainMemory,
   appendDiaryEntry,
   readDiaryEntries,
 

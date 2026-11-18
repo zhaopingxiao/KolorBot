@@ -51,8 +51,8 @@ test('diary tools use the current topic and require topic memory', async () => {
     const topicWritten = await run(tools, 'write_topic', {
       content: '- 项目路径：workspace/remotion-project\n- 当前状态：测试中',
     });
-    assert.match(topicWritten.content, /Wrote topic memory/);
-    const topicRaw = readFileSync(join(dir, 'topic', 'remotion.md'), 'utf8');
+    assert.match(topicWritten.content, /Wrote key topic memory/);
+    const topicRaw = readFileSync(join(dir, 'topic', 'Remotion', 'main.md'), 'utf8');
     assert.match(topicRaw, /^# Remotion/);
     assert.match(topicRaw, /remotion-project/);
 

@@ -553,7 +553,7 @@ async function loadTopicCalendar(slug, token) {
   if (memoryContent !== '') {
     memory.classList.remove('hidden');
     memoryBody.innerHTML = renderMarkdown(memoryContent);
-    $('#topic-memory-path').textContent = `workspace/topic/${data.topic.name}/`;
+    $('#topic-memory-path').textContent = `workspace/topic/${data.topic.name}/main.md`;
   }
   if (data.months.length === 0) {
     calendars.appendChild(el('p', 'topic-empty', '等这个话题第一次出现在对话后，这里会出现日历。'));

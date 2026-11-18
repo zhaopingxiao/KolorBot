@@ -9,6 +9,7 @@ import {
   readDiaryTopicSection,
   topicMemoryPath,
   writeTopicMemoryFile,
+  writeTopicMainMemory,
 } from 'kolorbot-memory';
 
 export interface DiaryToolsOptions {
@@ -201,13 +202,13 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
     {
       name: 'write_topic_note',
       description:
-        'Write the organized memory for the CURRENT topic into workspace/topic/<topic name>/<timestamp>.md. Content is written directly with no date/time headings. The filename timestamp is the completion time of the segment\'s last message, supplied by the server.',
+        'Write a timestamped record of what was done for the CURRENT topic into workspace/topic/<topic name>/<timestamp>.md. Content is an activity record only: tasks, actions and results, not durable key facts (those belong in main.md). No date/time headings are written. The filename timestamp is the completion time of the segment\'s last message, supplied by the server.',
       inputSchema: {
         type: 'object',
         properties: {
           content: {
             type: 'string',
-            description: 'Organized topic memory in markdown; no heading is added.',
+            description: 'Activity record in markdown: what was done and what happened. No heading is added.',
           },
         },
         required: ['content'],
@@ -242,7 +243,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
     {
       name: 'write_topic',
       description:
-        'Create or replace the CURRENT topic\'s memory file (workspace/topic/<slug>.md) with its key information: durable facts, decisions, current state, next steps and related paths. No slug argument is needed. Use this when write_diary says the topic memory is missing, or when important topic facts change.',
+        'Create or replace the CURRENT topic\'s durable key memory (workspace/topic/<topic name>/main.md) with durable facts, decisions, current state, next steps and related paths. No slug argument is needed. This is separate from the timestamped daily records written by write_topic_note.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -269,13 +270,11 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
         const topic = currentTopic(options);
         if (topic === undefined) return { content: 'No current topic.', isError: true };
         if (content === '') return { content: 'content must not be empty.', isError: true };
-        const path = topicMemoryPath(options.workspace, topic.slug);
         const body = /^#\s+/m.test(content) ? content : `# ${topic.name}\n\n${content}`;
         try {
-          mkdirSync(dirname(path), { recursive: true });
-          writeFileSync(path, `${body.trimEnd()}\n`, 'utf8');
+          const written = writeTopicMainMemory(options.workspace, topic.name, body);
           return {
-            content: `Wrote topic memory for ${topic.name} (${topic.slug}) to workspace/topic/${topic.slug}.md.`,
+            content: `Wrote key topic memory ${written.relativePath}.`,
           };
         } catch (error) {
           return {
