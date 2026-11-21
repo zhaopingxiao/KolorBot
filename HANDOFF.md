@@ -2,7 +2,7 @@
 
 > 项目路径：`D:\code\kolorbot`
 >
-> 最后更新：2026-11-17
+> 最后更新：2026-11-21
 >
 > 当前版本：**0.4.0**
 >
@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（115 个测试），单对话 + 话题驱动，Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（115 个测试），单对话 + 话题驱动；Windows 单文件 release 与 Electron 桌面端已更新。
 
 ## 1. 这个项目是什么
 
@@ -44,7 +44,17 @@ D:\code\kolorbot\
 ├── HANDOFF.md
 ├── pnpm-workspace.yaml / pnpm-lock.yaml
 ├── tsconfig.base.json / tsconfig.dev.json
-└── LICENSE                      # MIT
+├── LICENSE                      # MIT
+```
+
+Electron 桌面端在仓库外：
+
+```text
+D:\code\kolorbot_windows_desktop\
+├── main.js                      # Electron：启动 release + 托盘
+├── pack.js                      # 本地打包 Electron
+├── release/KolorBotMain.exe     # 与原版 release 相同
+└── dist/KolorBot-win32-x64/     # 便携桌面版
 ```
 
 - 数据目录默认 `~/.kolorbot`（`KOLOR_HOME` 可覆盖）；环境变量仍是 `KOLOR_*`，技能 MCP 配置仍叫 `kolor.json`，类名仍是 `KolorAgent` / `KolorFrame`。包名已是 `kolorbot-*`，不要随意改回。
@@ -223,6 +233,17 @@ D:\code\kolorbot\
   - 大小 135,823,360 bytes
   - SHA256 `DDC7301E3AE1DAC8B8F08876717325CD0915378E901CDF7DD4D9D9D07ED95C81`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
+- 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
+
+### 3.10 Electron 桌面端
+
+- 路径：`D:\code\kolorbot_windows_desktop`（不在 Git 仓库内）。
+- `main.js` 启动同一份 `release\KolorBotMain.exe`，等 `/api/config` 就绪后加载到 Electron 窗口。
+- 端口顺序同核心：3399 → 3420 → 随机。
+- 窗口关闭收起到系统托盘；点击托盘重新显示；托盘菜单可退出。
+- `pack.js` 负责把本地 Electron + `release/` 打成 `dist/KolorBot-win32-x64`；不依赖联网下载。
+- 当前桌面版约 569.4 MiB，数据目录仍是 `~/.kolorbot`。
+- 运行环境若设置 `ELECTRON_RUN_AS_NODE=1`，用 `start.cmd` 启动（会清掉它）。
 
 ## 4. 数据文件
 
@@ -357,7 +378,7 @@ pnpm install
 pnpm build
 pnpm test
 
-当前状态（2026-11-17）：
+当前状态（2026-11-21）：
 - 单对话 + 话题驱动，只有一条 conversation.db；没有 scheduler/定时任务。
 - 模型只来自「模型」页的 OpenAI Chat Completions 提供商；没有内置默认模型。
 - 侧栏是 对话/技能/模型；左下角 agent 卡片有圆形头像、名字和 ⋯ 菜单（设定）。
@@ -366,7 +387,9 @@ pnpm test
 - 设定页只显示 AI.md（名字/头像路径/预览），不再有旧日记项；页面 key/hash 仍是 memory。
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
-- 新记忆文件：workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md，正文直接写入、无时间标题；write_topic_note 只在整理任务启用。
+- 新记忆文件：workspace/topic/<话题名>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
+- 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
+- Electron 桌面端：D:\code\kolorbot_windows_desktop，关闭到托盘。
 - 测试 115/115；release SHA256 DDC7301E3AE1DAC8B8F08876717325CD0915378E901CDF7DD4D9D9D07ED95C81。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
