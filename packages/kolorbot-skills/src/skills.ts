@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { parseSkillMarkdown } from './frontmatter.js';
@@ -15,6 +15,13 @@ export interface SkillSummary {
   path: string;
   /** Which skills area the skill came from. */
   source: SkillSource;
+}
+
+export interface SkillCodeEntry extends SkillSummary {
+  /** Absolute directory containing the skill's client code. */
+  codeDir: string;
+  /** Absolute path of the code entrypoint. */
+  entry: string;
 }
 
 export interface SkillDetails extends SkillSummary {
@@ -140,6 +147,15 @@ export class SkillsRegistry {
       servers.push(server);
     }
     return servers;
+  }
+
+  /** Skills that ship a browser plugin at `code/index.js`. */
+  codeSkills(): SkillCodeEntry[] {
+    return this.list().flatMap((skill) => {
+      const codeDir = join(dirname(skill.path), 'code');
+      const entry = join(codeDir, 'index.js');
+      return existsSync(entry) ? [{ ...skill, codeDir, entry }] : [];
+    });
   }
 
   /** Stable fingerprint of id + description + source, used to detect changes. */

@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { join, extname, isAbsolute, relative, resolve } from 'node:path';
+import { join, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   DEFAULT_SYSTEM_PROMPT,
@@ -337,11 +337,59 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   }
 
   function serveStatic(pathname: string, response: ServerResponse): void {
+    if (pathname.startsWith('/skill-code/')) {
+      serveSkillCode(pathname, response);
+      return;
+    }
     const file = STATIC_FILES.get(pathname);
     if (file === undefined) throw new HttpError(404, 'not found');
     const body = readFileSync(join(publicDir, file));
     response.writeHead(200, {
       'content-type': CONTENT_TYPES[file] ?? 'application/octet-stream',
+      'content-length': body.length,
+      'cache-control': 'no-store',
+    });
+    response.end(body);
+  }
+
+  /** Serve one file from a skill's `code/` directory. */
+  function serveSkillCode(pathname: string, response: ServerResponse): void {
+    const match = /^\/skill-code\/([^/]+)\/(.+)$/.exec(pathname);
+    if (match === null) throw new HttpError(404, 'not found');
+    let id: string;
+    let relativePath: string;
+    try {
+      id = decodeURIComponent(match[1] as string);
+      relativePath = decodeURIComponent(match[2] as string);
+    } catch {
+      throw new HttpError(400, 'invalid skill code path');
+    }
+    const skill = skillsRegistry.codeSkills().find((entry) => entry.id === id);
+    if (skill === undefined) throw new HttpError(404, 'unknown skill code');
+    const codeRoot = skill.codeDir;
+    const file = resolve(codeRoot, relativePath);
+    if (file !== codeRoot && !file.startsWith(`${codeRoot}${sep}`)) {
+      throw new HttpError(404, 'not found');
+    }
+    let body: Buffer;
+    try {
+      body = readFileSync(file);
+    } catch {
+      throw new HttpError(404, 'not found');
+    }
+    const types: Record<string, string> = {
+      '.js': 'text/javascript; charset=utf-8',
+      '.mjs': 'text/javascript; charset=utf-8',
+      '.css': 'text/css; charset=utf-8',
+      '.json': 'application/json; charset=utf-8',
+      '.svg': 'image/svg+xml',
+      '.png': 'image/png',
+      '.jpg': 'image/jpeg',
+      '.jpeg': 'image/jpeg',
+      '.webp': 'image/webp',
+    };
+    response.writeHead(200, {
+      'content-type': types[extname(file).toLowerCase()] ?? 'application/octet-stream',
       'content-length': body.length,
       'cache-control': 'no-store',
     });
@@ -590,6 +638,18 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         'cache-control': 'no-store',
       });
       response.end(body);
+      return;
+    }
+
+    if (pathname === '/api/skill-code' && method === 'GET') {
+      sendJson(response, 200, {
+        skills: skillsRegistry.codeSkills().map((skill) => ({
+          id: skill.id,
+          name: skill.name,
+          source: skill.source,
+          url: `/skill-code/${encodeURIComponent(skill.id)}/index.js`,
+        })),
+      });
       return;
     }
 

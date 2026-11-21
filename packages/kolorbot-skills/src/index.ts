@@ -1,4 +1,4 @@
-export { parseSkillMarkdown } from './frontmatter.js';
+﻿export { parseSkillMarkdown } from './frontmatter.js';
 export type { ParsedSkillMarkdown } from './frontmatter.js';
 export {
   SKILL_SOURCE_LABELS,
@@ -7,7 +7,7 @@ export {
   formatSkillsBlock,
   resolveSkillsRoot,
 } from './skills.js';
-export type { SkillDetails, SkillRoot, SkillSource, SkillSummary } from './skills.js';
+export type { SkillCodeEntry, SkillDetails, SkillRoot, SkillSource, SkillSummary } from './skills.js';
 export { readSkillMcpServers } from './mcp.js';
 export type {
   SkillMcpServer,

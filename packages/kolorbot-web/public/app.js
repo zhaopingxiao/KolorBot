@@ -945,6 +945,22 @@ function applyToolSkipped(card, reason) {
  */
 const streams = new Map();
 
+/* ---------------- skill code plugin bridge ---------------- */
+
+const pluginEventListeners = new Set();
+
+function emitPluginEvent(event, meta = {}) {
+  if (pluginEventListeners.size === 0) return;
+  const payload = { ...event, ...meta, at: new Date().toISOString() };
+  for (const listener of [...pluginEventListeners]) {
+    try {
+      listener(payload);
+    } catch (error) {
+      console.error('skill code listener failed', error);
+    }
+  }
+}
+
 /** Remove a session's live turn state and its DOM element. */
 function dropStream(sessionId) {
   const stream = streams.get(sessionId);
@@ -1238,6 +1254,7 @@ async function consumeRun(response, sessionId) {
   await consumeStream(
     response,
     (event) => {
+      emitPluginEvent(event, { sessionId, source: 'web' });
       try {
         handleRunEvent(sessionId, event);
       } catch (failure) {
@@ -2206,6 +2223,263 @@ function wire() {
   }, 2_000);
 }
 
+/* ---------------- skill code plugins ---------------- */
+
+const pluginPages = {
+  current: null,
+};
+
+const pluginBaseStyle = `
+.kb-plugin-page {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #f7f7f5;
+  color: #202124;
+  font-family: "Segoe UI", "Microsoft YaHei UI", sans-serif;
+}
+.kb-plugin-page-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 20px;
+  border-bottom: 1px solid #e6e5e1;
+  background: rgba(255,255,255,.92);
+}
+.kb-plugin-page-back {
+  border: 0;
+  border-radius: 8px;
+  padding: 7px 11px;
+  color: #3d3f42;
+  background: #f0efeb;
+  cursor: pointer;
+}
+.kb-plugin-page-title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 650;
+}
+.kb-plugin-page-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+`;
+
+function closePluginPage(restoreHash = true) {
+  const page = pluginPages.current;
+  if (page === null) return;
+  pluginPages.current = null;
+  window.removeEventListener('hashchange', page.onHash);
+  page.overlay.remove();
+  document.documentElement.classList.remove('kb-plugin-open');
+  if (restoreHash && location.hash === page.pageHash) {
+    window.history.replaceState(null, '', page.previousHash || '#/chat');
+  }
+  try {
+    page.onClose?.();
+  } catch (error) {
+    console.error('skill code close handler failed', error);
+  }
+}
+
+/**
+ * Open a full-screen page from a skill plugin.
+ *
+ * The page gets its own URL hash, so browser Back closes it and returns to the
+ * previous KolorBot page. Render into `root`; everything is plain DOM.
+ */
+function openPluginPage(options = {}) {
+  closePluginPage(false);
+  const overlay = document.createElement('div');
+  overlay.className = 'kb-plugin-page';
+  overlay.dataset.pluginPage = String(options.id ?? 'page');
+
+  const header = document.createElement('div');
+  header.className = 'kb-plugin-page-header';
+  const back = document.createElement('button');
+  back.type = 'button';
+  back.className = 'kb-plugin-page-back';
+  back.textContent = '← 返回';
+  const title = document.createElement('h2');
+  title.className = 'kb-plugin-page-title';
+  title.textContent = String(options.title ?? '插件页面');
+  header.append(back, title);
+
+  const body = document.createElement('div');
+  body.className = 'kb-plugin-page-body';
+  overlay.append(header, body);
+
+  const previousHash = location.hash || '#/chat';
+  const pageHash = options.hash ?? `#/plugin/${encodeURIComponent(String(options.id ?? 'page'))}`;
+  const page = {
+    overlay,
+    previousHash,
+    pageHash,
+    onHash: () => {
+      if (location.hash !== pageHash) closePluginPage(false);
+    },
+    onClose: options.onClose,
+  };
+  pluginPages.current = page;
+  back.addEventListener('click', () => closePluginPage(true));
+  window.addEventListener('hashchange', page.onHash);
+  document.documentElement.classList.add('kb-plugin-open');
+  document.body.appendChild(overlay);
+  if (location.hash !== pageHash) location.hash = pageHash;
+
+  options.render?.(body);
+  return {
+    root: body,
+    close: () => closePluginPage(true),
+    setTitle: (value) => {
+      title.textContent = String(value);
+    },
+  };
+}
+
+function addPluginStyle(css) {
+  const style = document.createElement('style');
+  style.dataset.skillCodeStyle = 'true';
+  style.textContent = String(css);
+  document.head.appendChild(style);
+  return () => style.remove();
+}
+
+function addPluginScript(code) {
+  const script = document.createElement('script');
+  script.dataset.skillCodeScript = 'true';
+  script.textContent = String(code);
+  document.body.appendChild(script);
+  return () => script.remove();
+}
+
+/**
+ * Send a message and receive its SSE events directly.
+ *
+ * This is deliberately independent from the main chat renderer: a plugin page
+ * can show text/tool progress in its own DOM while the server runs the same
+ * turn in the usual RunBroker.
+ */
+async function pluginSendMessage(text, options = {}) {
+  const value = String(text ?? '').trim();
+  if (value === '') throw new Error('message must not be empty');
+  const response = await fetch('/api/chat', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    signal: options.signal,
+    body: JSON.stringify({ text: value }),
+  });
+  if (!response.ok) {
+    const data = await response.json().catch(() => null);
+    throw new Error(data?.error ?? `请求失败（${response.status}）`);
+  }
+  const events = [];
+  let reply = '';
+  let failure = '';
+  await consumeStream(
+    response,
+    (event) => {
+      events.push(event);
+      if (event.type === 'text/delta' && typeof event.text === 'string') {
+        reply += event.text;
+      }
+      emitPluginEvent(event, { sessionId: 'main', source: 'plugin' });
+      try {
+        options.onEvent?.(event);
+      } catch (error) {
+        console.error('skill code event handler failed', error);
+      }
+    },
+    (message) => {
+      failure = message;
+    },
+  );
+  await loadConversation().catch(() => {});
+  return { text: reply, events, error: failure === '' ? null : failure };
+}
+
+async function loadSkillCode() {
+  let data;
+  try {
+    data = await api('/api/skill-code');
+  } catch {
+    return;
+  }
+  const skills = Array.isArray(data?.skills) ? data.skills : [];
+  for (const skill of skills) {
+    if (typeof skill?.url !== 'string') continue;
+    try {
+      const module = await import(`${skill.url}${skill.url.includes('?') ? '&' : '?'}v=${Date.now()}`);
+      const activate = module.default ?? module.activate;
+      if (typeof activate === 'function') {
+        await activate(window.KolorBot);
+      }
+    } catch (error) {
+      console.error(`skill code "${skill.id}" failed to load`, error);
+    }
+  }
+}
+
+const KolorBot = Object.freeze({
+  version: '1.0',
+  /** Full conversation object: topics, segments and stored messages. */
+  async getConversation() {
+    const data = await api('/api/conversation');
+    return data.conversation;
+  },
+  /** Flat stored messages, newest last. */
+  async getMessages() {
+    const data = await api('/api/conversation');
+    return data.conversation?.messages ?? [];
+  },
+  /** Current in-page state snapshot (not a live reference). */
+  getState() {
+    return {
+      page: state.page,
+      currentTopic: state.currentTopic,
+      conversation: state.conversation,
+      running: state.running,
+    };
+  },
+  subscribe(listener) {
+    if (typeof listener !== 'function') throw new TypeError('listener must be a function');
+    pluginEventListeners.add(listener);
+    return () => pluginEventListeners.delete(listener);
+  },
+  on(type, listener) {
+    return this.subscribe((event) => {
+      if (event?.type === type) listener(event);
+    });
+  },
+  sendMessage: pluginSendMessage,
+  navigate(hash) {
+    const value = String(hash ?? '');
+    if (!value.startsWith('#')) throw new Error('navigate requires a hash like "#/chat"');
+    location.hash = value;
+  },
+  openPage: openPluginPage,
+  closePage: () => closePluginPage(true),
+  addStyle: addPluginStyle,
+  addScript: addPluginScript,
+  /** Set a global field for legacy scripts/plugins. */
+  setGlobal(name, value) {
+    const key = String(name ?? '');
+    if (!/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(key)) throw new Error('invalid global name');
+    window[key] = value;
+    return () => {
+      try { delete window[key]; } catch { window[key] = undefined; }
+    };
+  },
+});
+
+window.KolorBot = KolorBot;
+addPluginStyle(pluginBaseStyle);
+
 async function init() {
   wire();
   await loadProviders();
@@ -2213,6 +2487,7 @@ async function init() {
   await loadConversation();
   showPage(pageFromHash(), false);
   if (state.runningIds.has('main')) await attachLive('main');
+  void loadSkillCode();
 }
 
 void init();

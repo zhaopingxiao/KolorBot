@@ -239,6 +239,43 @@ test('splits the same topic into two segments at a local day boundary', async (t
   assert.equal(splitSegments[1]?.topicSlug, 'remotion');
 });
 
+test('serves skill code plugins and their supporting files', async (t) => {
+  const model = await startModel();
+  t.after(() => model.close());
+  const { app, home } = await tempApp(t, model.url);
+  const skillDir = join(home, 'skills', 'history-demo');
+  mkdirSync(join(skillDir, 'code'), { recursive: true });
+  writeFileSync(
+    join(skillDir, 'SKILL.md'),
+    '---\nname: History Demo\ndescription: test plugin\n---\n\n# History\n',
+    'utf8',
+  );
+  writeFileSync(
+    join(skillDir, 'code', 'index.js'),
+    'export default function activate(kb) { kb.setGlobal("historyDemoReady", true); }\n',
+    'utf8',
+  );
+  writeFileSync(join(skillDir, 'code', 'helper.js'), 'export const helper = true;\n', 'utf8');
+
+  const list = (await (await fetch(`${app.url}/api/skill-code`)).json()) as {
+    skills: Array<{ id: string; url: string }>;
+  };
+  const demo = list.skills.find((skill) => skill.id === 'history-demo');
+  assert.equal(demo?.url, '/skill-code/history-demo/index.js');
+
+  const entry = await fetch(`${app.url}/skill-code/history-demo/index.js`);
+  assert.equal(entry.status, 200);
+  assert.match(entry.headers.get('content-type') ?? '', /javascript/);
+  assert.match(await entry.text(), /historyDemoReady/);
+
+  const helper = await fetch(`${app.url}/skill-code/history-demo/helper.js`);
+  assert.equal(helper.status, 200);
+  assert.match(await helper.text(), /helper = true/);
+
+  const traversal = await fetch(`${app.url}/skill-code/history-demo/..%2FSKILL.md`);
+  assert.equal(traversal.status, 404);
+});
+
 test('runs a normal chat turn and persists tool calls in the conversation', async (t) => {
   const server = createServer(async (request, response) => {
     const chunks: Buffer[] = [];

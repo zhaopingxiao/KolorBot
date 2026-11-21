@@ -38,6 +38,7 @@ kolorbot/
 ├── docs/tool-call.png           # 工具调用详情截图
 ├── docs/mobile.png              # 移动端抽屉截图
 ├── inner/skills/browseruse/     # 内置技能：带 MCP 的无头浏览器（实时画面 + WebMCP）
+├── inner/skills/conversation-history-demo/ # 内置 skill code 示例
 ├── packages/
 │   ├── kolorbot-agent-loop/     # 主循环 + src/frame/（KolorFrame 工具）
 │   ├── kolorbot-conversation/   # topics / segments / messages（单对话）
@@ -62,7 +63,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 115 个测试
+pnpm test      # 116 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -571,6 +572,35 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 - 三个区的 `kolor.json` 都会被收集；同名 MCP server 同样按这个优先级取第一个。
 - 改完技能文件不需要重启：下一轮对话重新读列表（列表指纹变化会触发重新注入和 MCP 重连）。
 
+### Skill code 网页插件
+
+技能可以在 `code/index.js` 放一个浏览器 ES module；页面加载时自动执行：
+
+```text
+<skill>/code/
+├── index.js       # 入口，export default function activate(kb) {}
+└── helper.js      # 可被 index.js 相对 import
+```
+
+浏览器插件 API 通过 `window.KolorBot` 提供：
+
+| 方法 | 作用 |
+| --- | --- |
+| `getConversation()` / `getMessages()` | 读当前完整对话、消息列表 |
+| `sendMessage(text, { onEvent, signal })` | 发送消息，实时回调 SSE 事件（文本/工具/结束） |
+| `subscribe(fn)` / `on(type, fn)` | 订阅当前页面收到的所有运行事件 |
+| `openPage({ id, title, render, hash })` | 打开全屏插件页，浏览器返回可关闭 |
+| `navigate(hash)` | 跳转 KolorBot 页面 |
+| `addStyle(css)` / `addScript(code)` / `setGlobal(name, value)` | 向页面注入样式、脚本或全局字段 |
+
+服务端接口：
+
+- `GET /api/skill-code`：列出带 `code/index.js` 的技能。
+- `GET /skill-code/<skill-id>/<file>`：只读该技能 `code/` 下的文件，禁止路径穿越。
+- 插件运行在页面同源环境；技能代码属于本地可信代码，不要安装不可信技能。
+
+示例插件已删除，不再内置；按上面的 `code/index.js` + `window.KolorBot` API 自行安装即可。
+
 内置技能 [`inner/skills/browseruse`](inner/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径。**每个操作（打开/点击/输入/按键/执行 JS）都会自动附带一次 snapshot 和新截图**，截图按需展示（用户要截图或需要说明页面时才贴出来）；实时画面地址只在打开新网页后给一次（或用户主动问），文本快照够用时不额外读图。预览页支持鼠标/键盘/滚轮，**按住鼠标可以拖动网页元素**（滑块、画布、拖拽排序），触摸屏上单指上下滑动会滚动网页。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、按住拖动、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
 
 
@@ -593,6 +623,8 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | GET | `/api/agent` | Agent 名字、头像路径和 `avatarUrl` |
 | GET | `/api/agent/avatar` | 读取 AI.md 指向的本地头像文件 |
 | GET | `/api/skills` | 三个技能区的技能列表（`source` 区分区）+ 签名 + `roots` + 每个技能的 `mcpServers` |
+| GET | `/api/skill-code` | 带 `code/index.js` 的浏览器插件技能列表 |
+| GET | `/skill-code/:id/*` | 读取技能 `code/` 下的插件文件 |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |
 | GET | `/api/mcp` | skill 声明的 MCP 列表（只读；信息并入技能详情） |
 | POST | `/api/mcp/:name/restart` | 关闭指定的 MCP 服务器并重新连接 |
@@ -663,13 +695,13 @@ Content-Type: application/json
 pnpm test
 ```
 
-共 115 个测试：
+共 116 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（32）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退。
+- `kolorbot-web`（33）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务。
 
 全部测试不需要网络和 API key。
 

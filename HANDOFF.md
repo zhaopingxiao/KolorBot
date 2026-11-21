@@ -1,4 +1,4 @@
-# KolorBot 项目交接
+﻿# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`
 >
@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（115 个测试），单对话 + 话题驱动；Windows 单文件 release 与 Electron 桌面端已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（116 个测试），单对话 + 话题驱动；Windows 单文件 release 与 Electron 桌面端已更新。
 
 ## 1. 这个项目是什么
 
@@ -230,8 +230,8 @@ D:\code\kolorbot_windows_desktop\
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 135,823,360 bytes
-  - SHA256 `DDC7301E3AE1DAC8B8F08876717325CD0915378E901CDF7DD4D9D9D07ED95C81`
+  - 大小 136,332,800 bytes
+  - SHA256 `240F584FCE489187468075702E1685959D683143061ABF5CF4510BBFDA8488EB`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -244,6 +244,16 @@ D:\code\kolorbot_windows_desktop\
 - `pack.js` 负责把本地 Electron + `release/` 打成 `dist/KolorBot-win32-x64`；不依赖联网下载。
 - 当前桌面版约 569.4 MiB，数据目录仍是 `~/.kolorbot`。
 - 运行环境若设置 `ELECTRON_RUN_AS_NODE=1`，用 `start.cmd` 启动（会清掉它）。
+
+### 3.11 Skill code 网页插件
+
+- 技能目录下 `code/index.js` 是浏览器 ES module 入口；可以相对 import `code/` 内其他文件。
+- Web 加载页面时请求 `GET /api/skill-code`，动态 import 每个入口并调用 `export default function activate(kb)`。
+- 服务端 `GET /skill-code/<skill-id>/<file>` 只读 skill 的 `code/` 目录，做了路径穿越检查。
+- 浏览器 API：`window.KolorBot`，含 `getConversation`、`getMessages`、`sendMessage`、`subscribe`、`on`、`openPage`、`navigate`、`addStyle`、`addScript`、`setGlobal`。
+- `sendMessage` 直接走 `/api/chat` SSE，插件页面可实时显示 text/tool/turn 事件。
+- 示例插件已删除，不再内置；安装方式仍是 skill 目录下放 `code/index.js`。
+- 技能代码属于本地可信代码；不要安装不可信 skill。
 
 ## 4. 数据文件
 
@@ -317,12 +327,12 @@ npm run web       # 默认尝试 3399 -> 3420 -> 随机
 当前测试：
 
 ```text
-pnpm test  ✅ 115/115
+pnpm test  ✅ 116/116
   kolorbot-agent-loop 53
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        32
+  kolorbot-web        33
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -348,7 +358,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 115（conversation 5；memory 11；web 32）。
+20. **测试数不要写回旧值**：当前 116（conversation 5；memory 11；web 33）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -390,7 +400,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<话题名>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端：D:\code\kolorbot_windows_desktop，关闭到托盘。
-- 测试 115/115；release SHA256 DDC7301E3AE1DAC8B8F08876717325CD0915378E901CDF7DD4D9D9D07ED95C81。
+- 测试 116/116；release SHA256 240F584FCE489187468075702E1685959D683143061ABF5CF4510BBFDA8488EB。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 
