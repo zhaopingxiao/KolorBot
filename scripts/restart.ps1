@@ -1,6 +1,6 @@
-# KolorBot 启停脚本：停掉正在跑的实例，然后后台拉起新的。
+﻿# KolorBot 启停脚本：停掉正在跑的实例，然后后台拉起新的。
 #
-#   .\restart.cmd                      # 重启（默认 host 100.87.104.6:3399）
+#   .\restart.cmd                      # 重启（默认 host 100.87.104.6:3399 -> 3420 -> 随机）
 #   .\restart.cmd stop                 # 只停
 #   .\restart.cmd status               # 看状态
 #   .\restart.cmd restart -Port 3400   # 换端口
@@ -26,6 +26,56 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$PortExplicit = $PSBoundParameters.ContainsKey('Port')
+
+function Test-PortBindable {
+  param([int]$Candidate)
+  $listener = $null
+  try {
+    $address = [System.Net.IPAddress]::Parse($BindHost)
+    $listener = [System.Net.Sockets.TcpListener]::new($address, $Candidate)
+    $listener.Start()
+    return $true
+  } catch {
+    return $false
+  } finally {
+    if ($null -ne $listener) {
+      try { $listener.Stop() } catch { }
+    }
+  }
+}
+
+function Get-RandomFreePort {
+  $listener = $null
+  try {
+    $address = [System.Net.IPAddress]::Any
+    try { $address = [System.Net.IPAddress]::Parse($BindHost) } catch { }
+    $listener = [System.Net.Sockets.TcpListener]::new($address, 0)
+    $listener.Start()
+    return [int]$listener.LocalEndpoint.Port
+  } finally {
+    if ($null -ne $listener) {
+      try { $listener.Stop() } catch { }
+    }
+  }
+}
+
+function Select-StartPort {
+  if ($PortExplicit) { return $Port }
+  foreach ($candidate in @(3399, 3420)) {
+    if (Test-PortBindable $candidate) { return $candidate }
+  }
+  return (Get-RandomFreePort)
+}
+
+function Get-ActivePort {
+  if ($PortExplicit) { return $Port }
+  foreach ($candidate in @(3399, 3420)) {
+    $listeners = @(Get-NetTCPConnection -LocalPort $candidate -State Listen -ErrorAction SilentlyContinue)
+    if ($listeners.Count -gt 0) { return $candidate }
+  }
+  return $Port
+}
 
 $root = Split-Path -Parent $PSScriptRoot
 if (-not (Test-Path (Join-Path $root 'package.json'))) {
@@ -232,16 +282,26 @@ function Show-Status {
 
 switch ($Action) {
   'status' {
+    $Port = Get-ActivePort
+    $url = "http://${BindHost}:${Port}"
     Show-Status
   }
   'stop' {
+    $Port = Get-ActivePort
+    $url = "http://${BindHost}:${Port}"
     Stop-Kolor
   }
   'start' {
+    $Port = Select-StartPort
+    $url = "http://${BindHost}:${Port}"
     Start-Kolor
   }
   'restart' {
+    $Port = Get-ActivePort
+    $url = "http://${BindHost}:${Port}"
     Stop-Kolor
+    $Port = Select-StartPort
+    $url = "http://${BindHost}:${Port}"
     Start-Kolor
   }
 }

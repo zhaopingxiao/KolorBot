@@ -1,4 +1,4 @@
-# KolorBot
+﻿# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -78,7 +78,7 @@ node packages/kolorbot-web/dist/src/bin.js run web --port 3399
 
 不显式传 `--port` 或 `KOLOR_WEB_PORT` 时，启动顺序是 **3399 → 3420 → 随机空闲端口**；显式指定端口时不回退，绑定失败就直接报错。
 
-想后台跑并方便重启，用仓库根目录的脚本（默认 `100.87.104.6:3399`，日志 `logs/kolorbot-web.log`）：
+想后台跑并方便重启，用仓库根目录的脚本（默认 `100.87.104.6:3399`，不可用时自动换 `3420` 或随机端口，日志 `logs/kolorbot-web.log`）：
 
 ```powershell
 .\restart.cmd                    # 停掉旧实例并后台拉起 Web
