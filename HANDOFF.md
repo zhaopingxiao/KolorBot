@@ -1,4 +1,4 @@
-﻿# KolorBot 项目交接
+# KolorBot 项目交接
 
 > 项目路径：`D:\code\kolorbot`
 >
@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（114 个测试），单对话 + 话题驱动，Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（115 个测试），单对话 + 话题驱动，Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
@@ -220,8 +220,8 @@ D:\code\kolorbot\
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 135,822,336 bytes
-  - SHA256 `0FCCDE0000A3714D79FC0C262300E99C6B8F44150DE8B1ECA5B43540D49E3124`
+  - 大小 135,823,360 bytes
+  - SHA256 `DDC7301E3AE1DAC8B8F08876717325CD0915378E901CDF7DD4D9D9D07ED95C81`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 
 ## 4. 数据文件
@@ -284,7 +284,7 @@ cd D:\code\kolorbot
 pnpm install
 pnpm build
 pnpm test
-npm run web       # http://127.0.0.1:3399
+npm run web       # 默认尝试 3399 -> 3420 -> 随机
 ```
 
 重启主服务：
@@ -296,12 +296,12 @@ npm run web       # http://127.0.0.1:3399
 当前测试：
 
 ```text
-pnpm test  ✅ 114/114
+pnpm test  ✅ 115/115
   kolorbot-agent-loop 53
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        31
+  kolorbot-web        32
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -327,7 +327,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 114（conversation 5；memory 11；web 31）。
+20. **测试数不要写回旧值**：当前 115（conversation 5；memory 11；web 32）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -367,7 +367,7 @@ pnpm test
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
 - 新记忆文件：workspace/topic/<话题名>/<YYYY-MM-DD-HH-mm>.md，正文直接写入、无时间标题；write_topic_note 只在整理任务启用。
-- 测试 114/114；release SHA256 0FCCDE0000A3714D79FC0C262300E99C6B8F44150DE8B1ECA5B43540D49E3124。
+- 测试 115/115；release SHA256 DDC7301E3AE1DAC8B8F08876717325CD0915378E901CDF7DD4D9D9D07ED95C81。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 
@@ -382,6 +382,7 @@ pnpm test
 | `packages/kolorbot-skills/src/mcp.ts` | `kolor.json` MCP 解析 |
 | `packages/kolorbot-memory/src/memory.ts` | AI.md 解析、时间戳话题记忆、注入块、设定命令 |
 | `packages/kolorbot-web/src/server.ts` | HTTP/SSE/API、AgentPool、RunBroker、静态资源、avatar |
+| `packages/kolorbot-web/src/port.ts` | 端口可用性探测与回退 |
 | `packages/kolorbot-web/src/diary-tools.ts` | list/read/write 旧日记 + write_topic_note 记忆工具 + 写入门禁 |
 | `packages/kolorbot-web/src/providers.ts` | 提供商存储、模型发现、active 模型 |
 | `packages/kolorbot-web/src/runs.ts` | `RunBroker` turn 生命周期/回放/取消 |

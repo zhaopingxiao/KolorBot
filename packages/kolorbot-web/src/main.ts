@@ -1,5 +1,7 @@
 import { CliError } from './cli.js';
 import { commandUsage, parseCommandLine, type CommandOptions } from './commands.js';
+import { resolveWebConfig } from './config.js';
+import { chooseServerPort, FALLBACK_PORT } from './port.js';
 import { createKolorWebServer, type KolorWebServer } from './server.js';
 
 /** Run the CLI once. Exported so the SEA entry can call it without top-level await. */
@@ -21,9 +23,25 @@ export async function runCli(argv: readonly string[] = process.argv.slice(2)): P
   }
 
   try {
+    let port = options.port;
+    const envPort = process.env.KOLOR_WEB_PORT?.trim() ?? '';
+    if (port === undefined && envPort === '') {
+      const config = resolveWebConfig({
+        ...(options.host === undefined ? {} : { host: options.host }),
+      });
+      const candidates =
+        config.port === FALLBACK_PORT ? [config.port] : [config.port, FALLBACK_PORT];
+      port = await chooseServerPort(config.host, candidates);
+      if (port === 0) {
+        console.log(`ports ${candidates.join(', ')} unavailable; using a random free port`);
+      } else if (port !== config.port) {
+        console.log(`port ${config.port} unavailable; using ${port}`);
+      }
+    }
+
     const app = await createKolorWebServer({
       ...(options.host === undefined ? {} : { host: options.host }),
-      ...(options.port === undefined ? {} : { port: options.port }),
+      ...(port === undefined ? {} : { port }),
     });
     logWeb(app);
     installShutdown(async () => {
