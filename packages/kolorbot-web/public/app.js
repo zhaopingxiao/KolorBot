@@ -2460,6 +2460,27 @@ const KolorBot = Object.freeze({
   async selectModel(providerId = '', model = '') {
     return selectGlobalModel(providerId, model);
   },
+  /** Persona name, raw head-image setting and a browser-usable avatar URL. */
+  async getPersona() {
+    const data = await api('/api/agent');
+    return {
+      name: String(data?.name ?? 'KolorBot'),
+      headImage: String(data?.headImage ?? ''),
+      avatarUrl: String(data?.avatarUrl ?? ''),
+    };
+  },
+  /** Avatar image bytes, or null when the persona has no image. */
+  async getAvatar() {
+    const data = await api('/api/agent');
+    const url = String(data?.avatarUrl ?? '');
+    if (url === '') return null;
+    try {
+      const response = await fetch(url, { cache: 'no-store' });
+      return response.ok ? await response.blob() : null;
+    } catch {
+      return null;
+    }
+  },
   /** Current in-page state snapshot (not a live reference). */
   getState() {
     return {

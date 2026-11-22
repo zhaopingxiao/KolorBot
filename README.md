@@ -659,6 +659,8 @@ export default function activate(kb) {
 | `getMessages()` | `Promise<StoredMessage[]>` | 扁平消息列表，最新在后 |
 | `getModels()` | `Promise<ModelsPayload>` | 提供商、可用模型、当前 active 模型和默认环境模型 |
 | `selectModel(providerId, model?)` | `Promise<ActiveModel>` | 切换全局模型；等同于侧栏模型下拉 |
+| `getPersona()` | `Promise<{ name, headImage, avatarUrl }>` | 人设名字、原始头像配置和可访问的头像 URL |
+| `getAvatar()` | `Promise<Blob \| null>` | 头像图片二进制；没有头像时为 `null` |
 | `getState()` | `object` | 当前页面快照：`page` / `currentTopic` / `conversation` / `running` |
 | `sendMessage(text, options?)` | `Promise<{ text, events, error }>` | 发送一轮消息并接收实时 SSE |
 | `subscribe(listener)` | `() => void` | 订阅当前页面看到的所有运行事件；返回取消函数 |
@@ -731,6 +733,37 @@ await kb.selectModel('', '');
 - 不是“只对下一条消息生效”的隔离参数；并发发送时不要中途切换
 - `sendMessage` 传 `providerId` / `model` 时，会先调用 `selectModel`，再发起这一轮
 - `getModels()` 的 provider `apiKey` 已脱敏，不会返回明文
+
+**获取人设名字和头像**
+
+```js
+const persona = await kb.getPersona();
+// {
+//   name: 'KolorBot',
+//   headImage: 'avatars/me.png',
+//   avatarUrl: '/api/agent/avatar' // 远程头像则是 http(s) URL
+// }
+
+if (persona.avatarUrl !== '') {
+  const img = document.createElement('img');
+  img.src = persona.avatarUrl;
+  img.alt = persona.name;
+  document.body.append(img);
+}
+
+// 需要 Blob 时：
+const blob = await kb.getAvatar();
+if (blob !== null) {
+  const url = URL.createObjectURL(blob);
+  // 用完记得 URL.revokeObjectURL(url)
+}
+```
+
+- `getPersona()` 对应 `/api/agent`
+- `name` 已回退为 `KolorBot`
+- `avatarUrl` 为空表示没有头像；远程头像直接是远程 URL，本地头像为 `/api/agent/avatar`
+- `getAvatar()` 会读取图片并返回 Blob；没有头像或读取失败返回 `null`
+- 头像文件由 AI.md 的 `## head-image` 指向
 
 **`subscribe(listener)` / `on(type, listener)`**
 
