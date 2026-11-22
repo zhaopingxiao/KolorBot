@@ -1,4 +1,4 @@
-﻿# KolorBot
+# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -38,7 +38,6 @@ kolorbot/
 ├── docs/tool-call.png           # 工具调用详情截图
 ├── docs/mobile.png              # 移动端抽屉截图
 ├── inner/skills/browseruse/     # 内置技能：带 MCP 的无头浏览器（实时画面 + WebMCP）
-├── inner/skills/conversation-history-demo/ # 内置 skill code 示例
 ├── packages/
 │   ├── kolorbot-agent-loop/     # 主循环 + src/frame/（KolorFrame 工具）
 │   ├── kolorbot-conversation/   # topics / segments / messages（单对话）
@@ -574,32 +573,219 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 
 ### Skill code 网页插件
 
-技能可以在 `code/index.js` 放一个浏览器 ES module；页面加载时自动执行：
+技能可以在自己的目录里放一个浏览器 ES module。页面加载完成后，KolorBot 会请求 `/api/skill-code`，动态 import 每个入口并执行：
 
 ```text
 <skill>/code/
-├── index.js       # 入口，export default function activate(kb) {}
-└── helper.js      # 可被 index.js 相对 import
+├── index.js       # 必需；入口
+├── helper.js      # 可选；index.js 可以相对 import
+└── style.css      # 可选；一般用 addStyle 注入
 ```
 
-浏览器插件 API 通过 `window.KolorBot` 提供：
+入口写法：
 
-| 方法 | 作用 |
+```js
+// <skill>/code/index.js
+export default function activate(kb) {
+  console.log('skill code loaded', kb.version);
+}
+
+// 也支持：
+// export function activate(kb) {}
+```
+
+`kb` 就是 `window.KolorBot`。不要求打包工具，不能直接使用 npm 包；需要共享代码时用相对 import：
+
+```js
+import { renderHistory } from './history.js';
+```
+
+#### 最小页面示例
+
+```js
+export default function activate(kb) {
+  kb.addStyle(`
+    #my-demo-button { position: fixed; right: 20px; bottom: 20px; z-index: 60; }
+    .my-demo-output { white-space: pre-wrap; padding: 20px; }
+  `);
+
+  const button = document.createElement('button');
+  button.id = 'my-demo-button';
+  button.textContent = '打开示例页';
+  button.addEventListener('click', () => {
+    kb.openPage({
+      id: 'my-demo',
+      title: '我的 Skill 页面',
+      render(root) {
+        const output = document.createElement('div');
+        output.className = 'my-demo-output';
+
+        const input = document.createElement('textarea');
+        const send = document.createElement('button');
+        send.textContent = '发送';
+
+        send.addEventListener('click', async () => {
+          output.textContent = '';
+          try {
+            await kb.sendMessage(input.value, {
+              onEvent(event) {
+                if (event.type === 'text/delta') {
+                  output.textContent += event.text;
+                }
+                if (event.type === 'tool/call') {
+                  output.textContent += `\n[tool] ${event.name}\n`;
+                }
+              },
+            });
+          } catch (error) {
+            output.textContent = `失败：${error.message}`;
+          }
+        });
+
+        root.append(input, send, output);
+      },
+    });
+  });
+  document.body.append(button);
+}
+```
+
+#### `window.KolorBot` 完整 API
+
+| API | 返回值 | 说明 |
+| --- | --- | --- |
+| `version` | `string` | 当前插件 API 版本，目前为 `1.0` |
+| `getConversation()` | `Promise<Conversation>` | 读取 `topics` / `segments` / `messages`；即 `/api/conversation` 的 `conversation` |
+| `getMessages()` | `Promise<StoredMessage[]>` | 扁平消息列表，最新在后 |
+| `getState()` | `object` | 当前页面快照：`page` / `currentTopic` / `conversation` / `running` |
+| `sendMessage(text, options?)` | `Promise<{ text, events, error }>` | 发送一轮消息并接收实时 SSE |
+| `subscribe(listener)` | `() => void` | 订阅当前页面看到的所有运行事件；返回取消函数 |
+| `on(type, listener)` | `() => void` | 只订阅指定事件类型；返回取消函数 |
+| `openPage(options)` | `{ root, close, setTitle }` | 打开全屏插件页；浏览器 Back 可关闭 |
+| `closePage()` | `void` | 关闭当前插件页 |
+| `navigate(hash)` | `void` | 跳转页面，例如 `kb.navigate('#/chat')` |
+| `addStyle(css)` | `() => void` | 插入 `<style>`；返回移除函数 |
+| `addScript(code)` | `() => void` | 插入内联 `<script>`；返回移除函数 |
+| `setGlobal(name, value)` | `() => void` | 设置 `window[name]`；返回移除函数 |
+
+**`sendMessage(text, options)`**
+
+```js
+const result = await kb.sendMessage('帮我看看工作区', {
+  signal: abortController.signal,
+  onEvent(event) {
+    // 收到每个 SSE 事件
+  },
+});
+```
+
+- 直接请求 `/api/chat`，和网页聊天使用同一个 `RunBroker`
+- `onEvent` 收到的是原始 SSE 事件，不经 DOM 渲染
+- 返回 `text`：本轮拼接后的 assistant 文本
+- 返回 `events`：本轮收到的所有事件
+- 返回 `error`：SSE 中出现 `web/error` / `agent/error` 时的错误文本，否则 `null`
+- HTTP 409、模型未配置等错误会 throw
+- 流结束后会刷新页面持有的 conversation 状态
+
+**`subscribe(listener)` / `on(type, listener)`**
+
+```js
+const off = kb.on('text/delta', (event) => {
+  console.log(event.text);
+});
+// ...
+off();
+```
+
+订阅回调收到的事件比 `sendMessage.onEvent` 多三个字段：
+
+```js
+{
+  ...event,
+  sessionId: 'main',
+  source: 'web' | 'plugin',
+  at: '2026-11-22T...'
+}
+```
+
+- `source: 'web'`：来自网页聊天窗口的轮次
+- `source: 'plugin'`：来自 `kb.sendMessage`
+- 页面刷新后订阅会丢失，需要重新调用
+
+**`openPage(options)`**
+
+```js
+const page = kb.openPage({
+  id: 'history',
+  title: '历史记录',
+  hash: '#/plugin/history',  // 可选；默认 #/plugin/<id>
+  render(root) {
+    root.textContent = '页面内容';
+  },
+  onClose() {
+    // 可选；关闭/浏览器返回时调用
+  },
+});
+
+page.setTitle('新标题');
+page.close();
+```
+
+- 页面是覆盖在 KolorBot 上的全屏层
+- 会写入 URL hash，浏览器 Back 会关闭页面
+- `root` 是你自己的 DOM 容器，不会自动清空
+- 返回的 `close()` 会恢复到打开前的 hash
+- 同一时间只保留一个插件页
+
+**注入能力**
+
+```js
+const removeStyle = kb.addStyle('.my-class { color: red; }');
+const removeScript = kb.addScript('window.myField = 123;');
+const removeField = kb.setGlobal('myField', 123);
+```
+
+- `addStyle` / `addScript` / `setGlobal` 都返回移除函数
+- `setGlobal` 的名字必须是合法 JS 标识符
+- 这些 API 只是方便注入；插件本身已经运行在页面同源环境，也可以直接操作 DOM
+- 不要把不可信 skill 放进技能目录；插件没有额外沙箱
+
+#### SSE 事件
+
+`sendMessage.onEvent` 和 `subscribe` 可能收到：
+
+| 类型 | 说明 |
 | --- | --- |
-| `getConversation()` / `getMessages()` | 读当前完整对话、消息列表 |
-| `sendMessage(text, { onEvent, signal })` | 发送消息，实时回调 SSE 事件（文本/工具/结束） |
-| `subscribe(fn)` / `on(type, fn)` | 订阅当前页面收到的所有运行事件 |
-| `openPage({ id, title, render, hash })` | 打开全屏插件页，浏览器返回可关闭 |
-| `navigate(hash)` | 跳转 KolorBot 页面 |
-| `addStyle(css)` / `addScript(code)` / `setGlobal(name, value)` | 向页面注入样式、脚本或全局字段 |
+| `ready` | 本轮已接入，带 model/tools |
+| `run/state` | 当前 run 状态 |
+| `turn/start` / `turn/end` | 轮次开始/结束 |
+| `step/start` / `step/end` | 模型 step 边界 |
+| `text/delta` | assistant 文本增量，字段 `text` |
+| `reasoning/delta` | 推理文本增量（模型支持时） |
+| `tool/call` | 工具调用，常见字段 `name` / `arguments` / `callId` |
+| `tool/result` | 工具结果，常见字段 `callId` / `content` / `isError` |
+| `tool/skipped` | 取消时未执行的工具 |
+| `agent/error` / `web/error` | 运行错误 |
+| `run/cancelled` | 本轮被取消 |
+| `topic/switch` | 话题切换 |
+| `session/saved` | 消息落库 |
+
+事件字段可能随事件类型变化；`text/delta` 的 `text` 是最常用的实时字段。
+
+#### 目录与加载规则
+
+- 只有 `code/index.js` 会被当成入口；没有这个文件就不会加载
+- `code/` 下其他文件可以通过 `/skill-code/<id>/<file>` 读取
+- 支持 `.js` / `.mjs` / `.css` / `.json` / `.svg` / `.png` / `.jpg` / `.webp`
+- 页面加载时只加载一次；改完插件代码刷新页面即可
+- 同一技能 id 按 **专属 → 兼容 → 内置** 的优先级只取一个
+- 服务端对 `code/` 做了路径穿越检查，但不能阻止插件主动调用 API
 
 服务端接口：
 
-- `GET /api/skill-code`：列出带 `code/index.js` 的技能。
-- `GET /skill-code/<skill-id>/<file>`：只读该技能 `code/` 下的文件，禁止路径穿越。
-- 插件运行在页面同源环境；技能代码属于本地可信代码，不要安装不可信技能。
-
-示例插件已删除，不再内置；按上面的 `code/index.js` + `window.KolorBot` API 自行安装即可。
+- `GET /api/skill-code`：列出带 `code/index.js` 的技能
+- `GET /skill-code/<skill-id>/<file>`：只读该技能 `code/` 下的文件
+- 插件运行在页面同源环境；技能代码属于本地可信代码，不要安装不可信技能
 
 内置技能 [`inner/skills/browseruse`](inner/skills/browseruse) 是**浏览器操控**技能：通过 MCP 打开系统 Edge 的无头实例，AI 用 `browser_open` / `browser_snapshot` / `browser_click` / `browser_type` / `browser_press` / `browser_evaluate` 操作网页，浏览器画面在本地 `http://127.0.0.1:9223`（`BROWSERUSE_VIEW_PORT` 可改，`BROWSERUSE_HEADLESS=false` 可看真实窗口）以 MJPEG 实时显示。**`browser_snapshot` 把文本快照和截图合并**：除标题/URL/正文/元素序号外，还会把截图存进技能目录并返回 `![page screenshot](http://127.0.0.1:9223/shot/....jpeg)` 和文件路径。**每个操作（打开/点击/输入/按键/执行 JS）都会自动附带一次 snapshot 和新截图**，截图按需展示（用户要截图或需要说明页面时才贴出来）；实时画面地址只在打开新网页后给一次（或用户主动问），文本快照够用时不额外读图。预览页支持鼠标/键盘/滚轮，**按住鼠标可以拖动网页元素**（滑块、画布、拖拽排序），触摸屏上单指上下滑动会滚动网页。还带 `browser_webmcp_list` / `browser_webmcp_call` 调用网页自己注册的 WebMCP 工具（需要 Chrome ≥ 149 开 WebMCP 特性，当前 Edge 157 尚未开放）。**预览页本身可以手动操作**：鼠标点击/双击/右键、按住拖动、滚轮、键盘直接转发到真实浏览器，顶部输入框回车可发送中文文字。依赖只有 `playwright-core`（技能目录内 `npm install`），复用系统 Edge、不用下载浏览器内核。
 
