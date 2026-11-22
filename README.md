@@ -657,6 +657,8 @@ export default function activate(kb) {
 | `version` | `string` | 当前插件 API 版本，目前为 `1.0` |
 | `getConversation()` | `Promise<Conversation>` | 读取 `topics` / `segments` / `messages`；即 `/api/conversation` 的 `conversation` |
 | `getMessages()` | `Promise<StoredMessage[]>` | 扁平消息列表，最新在后 |
+| `getModels()` | `Promise<ModelsPayload>` | 提供商、可用模型、当前 active 模型和默认环境模型 |
+| `selectModel(providerId, model?)` | `Promise<ActiveModel>` | 切换全局模型；等同于侧栏模型下拉 |
 | `getState()` | `object` | 当前页面快照：`page` / `currentTopic` / `conversation` / `running` |
 | `sendMessage(text, options?)` | `Promise<{ text, events, error }>` | 发送一轮消息并接收实时 SSE |
 | `subscribe(listener)` | `() => void` | 订阅当前页面看到的所有运行事件；返回取消函数 |
@@ -686,6 +688,49 @@ const result = await kb.sendMessage('帮我看看工作区', {
 - 返回 `error`：SSE 中出现 `web/error` / `agent/error` 时的错误文本，否则 `null`
 - HTTP 409、模型未配置等错误会 throw
 - 流结束后会刷新页面持有的 conversation 状态
+- 也可以先选模型再发送：
+
+```js
+await kb.sendMessage('帮我看看工作区', {
+  providerId: 'provider-id',
+  model: 'deepseek-chat',
+  onEvent(event) {
+    // ...
+  },
+});
+```
+
+**选择模型**
+
+`getModels()` 返回 `/api/providers` 的结构：
+
+```js
+const data = await kb.getModels();
+// data = {
+//   providers: [
+//     { id, name, models: ['deepseek-chat', ...], ... }
+//   ],
+//   active: { source: 'provider' | 'env' | 'none', providerId, model, label },
+//   defaults: { apiModelName, hasDefault, ... }
+// }
+```
+
+选择一个提供商模型：
+
+```js
+await kb.selectModel('provider-id', 'deepseek-chat');
+```
+
+回到环境变量默认模型：
+
+```js
+await kb.selectModel('', '');
+```
+
+- `selectModel` 改的是**全局 active 模型**，和网页侧栏的模型下拉是同一个状态
+- 不是“只对下一条消息生效”的隔离参数；并发发送时不要中途切换
+- `sendMessage` 传 `providerId` / `model` 时，会先调用 `selectModel`，再发起这一轮
+- `getModels()` 的 provider `apiKey` 已脱敏，不会返回明文
 
 **`subscribe(listener)` / `on(type, listener)`**
 

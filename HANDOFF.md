@@ -230,8 +230,8 @@ D:\code\kolorbot_windows_desktop\
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 136,332,800 bytes
-  - SHA256 `240F584FCE489187468075702E1685959D683143061ABF5CF4510BBFDA8488EB`
+  - 大小 136,333,312 bytes
+  - SHA256 `B8032C36B3B14F032F751ED724CC7798162AC1042CA53AEDF6D3596F5C3C893E`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -400,7 +400,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<话题名>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端：D:\code\kolorbot_windows_desktop，关闭到托盘。
-- 测试 116/116；release SHA256 240F584FCE489187468075702E1685959D683143061ABF5CF4510BBFDA8488EB。
+- 测试 116/116；release SHA256 B8032C36B3B14F032F751ED724CC7798162AC1042CA53AEDF6D3596F5C3C893E。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

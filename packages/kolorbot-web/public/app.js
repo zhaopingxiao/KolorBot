@@ -2365,9 +2365,24 @@ function addPluginScript(code) {
  * can show text/tool progress in its own DOM while the server runs the same
  * turn in the usual RunBroker.
  */
+async function selectGlobalModel(providerId = '', model = '') {
+  const data = await api('/api/model', {
+    method: 'PUT',
+    body: JSON.stringify({
+      providerId: String(providerId ?? ''),
+      model: String(model ?? ''),
+    }),
+  });
+  await loadProviders();
+  return data.active;
+}
+
 async function pluginSendMessage(text, options = {}) {
   const value = String(text ?? '').trim();
   if (value === '') throw new Error('message must not be empty');
+  if (options.providerId !== undefined || options.model !== undefined) {
+    await selectGlobalModel(options.providerId ?? '', options.model ?? '');
+  }
   const response = await fetch('/api/chat', {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
@@ -2436,6 +2451,14 @@ const KolorBot = Object.freeze({
   async getMessages() {
     const data = await api('/api/conversation');
     return data.conversation?.messages ?? [];
+  },
+  /** Available providers/models plus the currently active model. */
+  async getModels() {
+    return api('/api/providers');
+  },
+  /** Select the global model used by subsequent messages. */
+  async selectModel(providerId = '', model = '') {
+    return selectGlobalModel(providerId, model);
   },
   /** Current in-page state snapshot (not a live reference). */
   getState() {
