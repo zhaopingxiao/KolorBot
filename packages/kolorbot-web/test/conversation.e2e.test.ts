@@ -162,14 +162,14 @@ test('switches topics, injects topic memory and the previous 10 messages', async
     '# 工作区 Remotion 环境\n\n- 项目在 workspace/remotion-project\n',
     'utf8',
   );
-  mkdirSync(join(frameRoot, 'topic', '工作区 Remotion 环境'), { recursive: true });
+  mkdirSync(join(frameRoot, 'topic', 'remotion'), { recursive: true });
   writeFileSync(
-    join(frameRoot, 'topic', '工作区 Remotion 环境', '2026-11-18-21-02.md'),
+    join(frameRoot, 'topic', 'remotion', '2026-11-18-21-02.md'),
     '较早的记录。\n',
     'utf8',
   );
   writeFileSync(
-    join(frameRoot, 'topic', '工作区 Remotion 环境', '2026-11-18-21-32.md'),
+    join(frameRoot, 'topic', 'remotion', '2026-11-18-21-32.md'),
     '最后一次记录：时间轴已经改完。\n',
     'utf8',
   );
@@ -474,7 +474,7 @@ test('the idle diary writes a topic section and creates the topic file', async (
   });
 
   await postChat(app, 'remotion 的时间轴改好了');
-  const topicDir = join(frameRoot, 'topic', '工作区 Remotion 环境');
+  const topicDir = join(frameRoot, 'topic', 'remotion');
   let topicFile = '';
   for (let attempt = 0; attempt < 100; attempt += 1) {
     try {
@@ -499,25 +499,25 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
   t.after(() => model.close());
   const { app, frameRoot } = await tempApp(t, model.url);
   const today = diaryDateKey(new Date());
-  mkdirSync(join(frameRoot, 'topic', '工作区 Remotion 环境'), { recursive: true });
-  mkdirSync(join(frameRoot, 'topic', 'Deepseek Workspace'), { recursive: true });
+  mkdirSync(join(frameRoot, 'topic', 'remotion'), { recursive: true });
+  mkdirSync(join(frameRoot, 'topic', 'deepseek-workspace'), { recursive: true });
   writeFileSync(
-    join(frameRoot, 'topic', '工作区 Remotion 环境', `${today}-09-00.md`),
+    join(frameRoot, 'topic', 'remotion', `${today}-09-00.md`),
     'remotion 日记段落。\n',
     'utf8',
   );
   writeFileSync(
-    join(frameRoot, 'topic', '工作区 Remotion 环境', `${today}-09-30.md`),
+    join(frameRoot, 'topic', 'remotion', `${today}-09-30.md`),
     'remotion 第二段记忆。\n',
     'utf8',
   );
   writeFileSync(
-    join(frameRoot, 'topic', '工作区 Remotion 环境', 'main.md'),
+    join(frameRoot, 'topic', 'remotion', 'main.md'),
     '# 工作区 Remotion 环境\n\n- 关键记忆条目\n',
     'utf8',
   );
   writeFileSync(
-    join(frameRoot, 'topic', 'Deepseek Workspace', `${today}-10-00.md`),
+    join(frameRoot, 'topic', 'deepseek-workspace', `${today}-10-00.md`),
     'workspace 日记段落。\n',
     'utf8',
   );
@@ -556,6 +556,27 @@ test('lists topics and returns a topic day with segments and diary', async (t) =
   assert.match(day.diary, /remotion 第二段记忆/);
   assert.match(day.diary, /---/);
   assert.equal(day.diary.includes('workspace 日记段落'), false);
+
+  const globalCalendar = (await (await fetch(`${app.url}/api/calendar`)).json()) as {
+    dates: string[];
+    months: Array<{ month: string; days: string[] }>;
+  };
+  assert.ok(globalCalendar.dates.includes(today));
+  assert.equal(globalCalendar.months[0]?.month, today.slice(0, 7));
+
+  const globalDay = (await (await fetch(`${app.url}/api/days/${today}`)).json()) as {
+    segments: Array<{ topicSlug: string; topicName: string }>;
+    memories: Array<{ topicSlug: string; time: string }>;
+  };
+  assert.equal(globalDay.segments.length, 3);
+  assert.deepEqual(
+    [...new Set(globalDay.segments.map((segment) => segment.topicSlug))].sort(),
+    ['deepseek-workspace', 'remotion'],
+  );
+  assert.deepEqual(
+    globalDay.memories.map((memory) => memory.time),
+    ['09:00', '09:30', '10:00'],
+  );
   assert.ok(day.segments[0]?.messages.some((message) => message.role === 'assistant'));
 });
 test('topic calendar uses conversation dates, not only diary dates', async (t) => {
@@ -680,7 +701,7 @@ test('backfills a missing diary for a conversation day', async (t) => {
     }
     await new Promise((resolve) => setTimeout(resolve, 50));
   }
-  const topicDir = join(frameRoot, 'topic', 'Remotion');
+  const topicDir = join(frameRoot, 'topic', 'remotion');
   const names = readdirSync(topicDir).filter((name) => name.endsWith('.md'));
   assert.equal(names.length > 0, true);
   assert.ok(

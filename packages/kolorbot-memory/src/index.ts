@@ -20,6 +20,7 @@ export {
   parsePersona,
   readTopicMemory,
   readTopicMemoryFiles,
+  readAllTopicMemoryFilesForDate,
   readTopicMemoryForDate,
   readTopicMemoryRecordsForDate,
   topicMemoryDirectory,
@@ -45,4 +46,5 @@ export type {
   SelfSnapshot,
   PersonaProfile,
   TopicMemoryFile,
+  TopicMemoryRecord,
 } from './memory.js';

@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -52,16 +52,16 @@ test('diary tools use the current topic and require topic memory', async () => {
       content: '- 项目路径：workspace/remotion-project\n- 当前状态：测试中',
     });
     assert.match(topicWritten.content, /Wrote key topic memory/);
-    const topicRaw = readFileSync(join(dir, 'topic', 'Remotion', 'main.md'), 'utf8');
+    const topicRaw = readFileSync(join(dir, 'topic', 'remotion', 'main.md'), 'utf8');
     assert.match(topicRaw, /^# Remotion/);
     assert.match(topicRaw, /remotion-project/);
 
     const note = await run(tools, 'write_topic_note', {
       content: '- 记忆直接内容\n- 无标题',
     });
-    assert.match(note.content, /topic[\\/]Remotion[\\/]2026-11-14-19-21\.md/);
+    assert.match(note.content, /topic[\\/]remotion[\\/]2026-11-14-19-21\.md/);
     const noteRaw = readFileSync(
-      join(dir, 'topic', 'Remotion', '2026-11-14-19-21.md'),
+      join(dir, 'topic', 'remotion', '2026-11-14-19-21.md'),
       'utf8',
     );
     assert.match(noteRaw, /记忆直接内容/);
@@ -73,6 +73,44 @@ test('diary tools use the current topic and require topic memory', async () => {
     const section = await run(tools, 'read_diary', { date: '2026-11-14' });
     assert.match(section.content, /## Remotion/);
     assert.match(section.content, /第一条记录/);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });
+  }
+});
+
+test('read_today_memory merges all topic records in time order', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'kolorbot-diary-tools-today-'));
+  const store = new ConversationStore({ path: join(dir, 'conversation.db') });
+  try {
+    const topic = store.ensureTopic('Remotion', 'remotion');
+    store.startSegment(topic.slug);
+    mkdirSync(join(dir, 'topic', 'greeting'), { recursive: true });
+    mkdirSync(join(dir, 'topic', 'remotion'), { recursive: true });
+    writeFileSync(
+      join(dir, 'topic', 'greeting', '2026-11-14-08-00.md'),
+      '早上完成了问候。\n',
+      'utf8',
+    );
+    writeFileSync(
+      join(dir, 'topic', 'remotion', '2026-11-14-19-21.md'),
+      '晚上继续 remotion。\n',
+      'utf8',
+    );
+    const tools = createDiaryTools({
+      store,
+      diaryDir: join(dir, 'daily'),
+      workspace: dir,
+      currentTopicSlug: () => 'remotion',
+    });
+    const result = await run(tools, 'read_today_memory', { date: '2026-11-14' });
+    assert.equal(result.isError, undefined);
+    assert.ok(
+      result.content.indexOf('--------greeting-08-00--------') <
+        result.content.indexOf('--------remotion-19-21--------'),
+    );
+    assert.match(result.content, /早上完成了问候/);
+    assert.match(result.content, /晚上继续 remotion/);
   } finally {
     store.close();
     rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 });

@@ -393,7 +393,7 @@ function newChat() {
 
 const PAGES = {
   chat: { title: '对话', subtitle: '' },
-  topics: { title: '话题', subtitle: '话题 / 记忆日历' },
+  topics: { title: '话题', subtitle: '话题 / 全部日历' },
   skills: { title: '技能', subtitle: '三个技能区 / MCP' },
   models: { title: '模型', subtitle: 'OpenAI Chat Completions 提供商' },
   memory: { title: '设定', subtitle: 'AI 人设 / AI.md' },
@@ -472,7 +472,6 @@ function resetTopicsScroll() {
 
 function setTopicsView(view) {
   resetTopicsScroll();
-  $('#topics-list-view').classList.toggle('hidden', view !== 'list');
   $('#topic-calendar-view').classList.toggle('hidden', view !== 'calendar');
   $('#topic-day-view').classList.toggle('hidden', view !== 'day');
 }
@@ -485,88 +484,41 @@ async function routeTopics() {
     .filter((part) => part !== '')
     .map((part) => decodeURIComponent(part));
   try {
-    if (parts.length === 0) await loadTopicsList(token);
-    else if (parts.length === 1) await loadTopicCalendar(parts[0], token);
-    else await loadTopicDay(parts[0], parts[1], token);
+    if (parts.length === 0) {
+      await loadGlobalCalendar(token);
+    } else if (/^\d{4}-\d{2}-\d{2}$/.test(parts[0])) {
+      await loadGlobalDay(parts[0], token);
+    } else {
+      location.hash = '#/topics';
+    }
   } catch (error) {
     if (token !== topicRouteToken) return;
     toast(error?.message ?? String(error), 'error');
   }
 }
 
-async function loadTopicsList(token) {
-  setTopicsView('list');
-  const list = $('#topics-list');
-  list.textContent = '加载中…';
-  const data = await api('/api/topics');
-  if (token !== topicRouteToken) return;
-  const topics = data.topics ?? [];
-  list.innerHTML = '';
-  if (topics.length === 0) {
-    list.appendChild(el('p', 'topic-empty', '还没有话题。先在「对话」里聊几句。'));
-    return;
-  }
-  for (const topic of topics) {
-    const row = el('button', 'topic-row');
-    row.type = 'button';
-    const main = el('div', 'topic-row-main');
-    main.appendChild(el('div', 'topic-row-name', topic.name));
-    main.appendChild(el('div', 'topic-row-slug', topic.slug));
-    row.appendChild(main);
-    row.appendChild(
-      el(
-        'span',
-        'topic-row-count',
-        topic.conversationDays > 0
-          ? `${topic.conversationDays} 天记录${topic.diaryDays < topic.conversationDays ? ` · ${topic.diaryDays} 天记忆` : ''}`
-          : '还没有对话记录',
-      ),
-    );
-    row.addEventListener('click', () => {
-      location.hash = `#/topics/${encodeURIComponent(topic.slug)}`;
-    });
-    list.appendChild(row);
-  }
-  resetTopicsScroll();
-}
-
-async function loadTopicCalendar(slug, token) {
+async function loadGlobalCalendar(token) {
   setTopicsView('calendar');
-  const title = $('#topic-calendar-title');
-  const meta = $('#topic-calendar-meta');
   const calendars = $('#topic-calendars');
-  const memory = $('#topic-memory');
-  const memoryBody = $('#topic-memory-body');
-  title.textContent = '加载中…';
-  meta.textContent = '';
+  const meta = $('#topic-calendar-meta');
+  $('#topic-calendar-title').textContent = '所有对话';
+  meta.textContent = '加载中…';
   calendars.innerHTML = '';
-  memory.classList.add('hidden');
-  memoryBody.innerHTML = '';
-  const data = await api(`/api/topics/${encodeURIComponent(slug)}`);
+  const data = await api('/api/calendar');
   if (token !== topicRouteToken) return;
-  title.textContent = data.topic.name;
   meta.textContent =
-    data.dates.length > 0
-      ? `对话里出现过 ${data.dates.length} 天`
-      : '这个话题还没有对话记录';
-  const memoryContent = (data.memory ?? '').trim();
-  if (memoryContent !== '') {
-    memory.classList.remove('hidden');
-    memoryBody.innerHTML = renderMarkdown(memoryContent);
-    $('#topic-memory-path').textContent = `workspace/topic/${data.topic.name}/main.md`;
-  }
+    data.dates.length === 0 ? '还没有对话记录。' : `共 ${data.dates.length} 天对话记录`;
   if (data.months.length === 0) {
-    calendars.appendChild(el('p', 'topic-empty', '等这个话题第一次出现在对话后，这里会出现日历。'));
+    calendars.appendChild(el('p', 'topic-empty', '等第一次对话后，这里会出现日历。'));
     return;
   }
-  const diaryDates = new Set(data.diaryDates ?? []);
   for (const month of data.months) {
-    calendars.appendChild(renderTopicMonth(slug, month, diaryDates));
+    calendars.appendChild(renderGlobalMonth(month));
   }
   resetTopicsScroll();
 }
 
-function renderTopicMonth(slug, month, diaryDates = new Set()) {
+function renderGlobalMonth(month) {
   const [yearText, monthText] = month.month.split('-');
   const year = Number(yearText);
   const monthIndex = Number(monthText) - 1;
@@ -590,10 +542,9 @@ function renderTopicMonth(slug, month, diaryDates = new Set()) {
       const button = el('button', 'calendar-day has-entry', String(day));
       button.type = 'button';
       if (date === today) button.classList.add('today');
-      if (!diaryDates.has(date)) button.classList.add('no-diary');
-      button.title = `${date} · ${diaryDates.has(date) ? '有记忆' : '有对话，还没有记忆'}`;
+      button.title = `${date} · 查看当天全部对话`;
       button.addEventListener('click', () => {
-        location.hash = `#/topics/${encodeURIComponent(slug)}/${date}`;
+        location.hash = `#/topics/${date}`;
       });
       grid.appendChild(button);
     } else {
@@ -606,90 +557,42 @@ function renderTopicMonth(slug, month, diaryDates = new Set()) {
   return card;
 }
 
-async function loadTopicDay(slug, date, token) {
+async function loadGlobalDay(date, token) {
   setTopicsView('day');
-  state.topicSlug = slug;
   state.topicDate = date;
   $('#topic-day-title').textContent = '加载中…';
   $('#topic-day-chat').innerHTML = '';
   $('#topic-day-diary').innerHTML = '';
   setTopicTab('chat');
-  const data = await api(
-    `/api/topics/${encodeURIComponent(slug)}/days/${encodeURIComponent(date)}`,
-  );
+  const data = await api(`/api/days/${encodeURIComponent(date)}`);
   if (token !== topicRouteToken) return;
-  $('#topic-day-title').textContent = `${data.topic.name} · ${date}`;
-  renderTopicDayChat(data.segments ?? []);
-  renderTopicDiary(data);
+  $('#topic-day-title').textContent = date;
+  renderDayChat(data.segments ?? []);
+  renderDayMemory(data.memories ?? []);
   setTopicTab('chat');
   resetTopicsScroll();
 }
 
-function renderTopicDiary(data) {
-  const diary = $('#topic-day-diary');
-  diary.innerHTML = '';
-  if (data.diary !== '') {
-    diary.innerHTML = renderMarkdown(data.diary);
-    return;
-  }
-  diary.appendChild(
-    el('p', 'topic-empty', '这一天有对话记录，但还没有这个话题的记忆。'),
-  );
-  const button = el('button', 'primary-button organize-diary', '整理这天的记忆');
-  button.type = 'button';
-  button.addEventListener('click', () => {
-    void organizeTopicDiary(data.topic.slug, data.date, button);
-  });
-  diary.appendChild(button);
+function dayDivider(topicName, time) {
+  const divider = el('div', 'topic-segment-divider');
+  divider.appendChild(el('span', 'topic-divider-line'));
+  divider.appendChild(el('span', 'topic-divider-badge topic-segment-topic', topicName));
+  divider.appendChild(el('span', 'topic-divider-badge topic-segment-time', time));
+  divider.appendChild(el('span', 'topic-divider-line'));
+  return divider;
 }
 
-async function organizeTopicDiary(slug, date, button) {
-  const targetHash = `#/topics/${encodeURIComponent(slug)}/${date}`;
-  button.disabled = true;
-  button.textContent = '整理中…';
-  try {
-    await api(
-      `/api/topics/${encodeURIComponent(slug)}/days/${encodeURIComponent(date)}/diary`,
-      { method: 'POST' },
-    );
-    toast('已开始整理，这天的记忆写好后会自动刷新');
-    for (let attempt = 0; attempt < 120; attempt += 1) {
-      await new Promise((resolve) => setTimeout(resolve, 1000));
-      if (location.hash !== targetHash) return;
-      const data = await api(
-        `/api/topics/${encodeURIComponent(slug)}/days/${encodeURIComponent(date)}`,
-      );
-      if (data.diary !== '') {
-        renderTopicDiary(data);
-        toast('这天的记忆已整理完成');
-        return;
-      }
-    }
-    toast('整理还在后台进行，稍后刷新看看');
-  } catch (error) {
-    button.disabled = false;
-    button.textContent = '整理这天的记忆';
-    toast(error?.message ?? String(error), 'error');
-  }
-}
-
-function renderTopicDayChat(segments) {
+function renderDayChat(segments) {
   const box = $('#topic-day-chat');
   box.innerHTML = '';
   if (segments.length === 0) {
-    box.appendChild(el('p', 'topic-day-chat-empty', '这一天没有这个话题的聊天记录。'));
+    box.appendChild(el('p', 'topic-day-chat-empty', '这一天没有对话记录。'));
     return;
   }
-  for (const [index, segment] of segments.entries()) {
-    if (index > 0) {
-      const divider = el('div', 'topic-segment-divider');
-      divider.appendChild(el('span', 'topic-divider-line'));
-      divider.appendChild(
-        el('span', 'topic-divider-name', `片段 ${index + 1} · ${hhmm(segment.startedAt)}`),
-      );
-      divider.appendChild(el('span', 'topic-divider-line'));
-      box.appendChild(divider);
-    }
+  for (const segment of segments) {
+    box.appendChild(
+      dayDivider(segment.topicName ?? segment.topicSlug ?? '话题', hhmm(segment.startedAt)),
+    );
     const messages = segment.messages ?? [];
     const toolResults = new Map();
     for (const message of messages) {
@@ -722,6 +625,24 @@ function renderTopicDayChat(segments) {
         appendToolCard(turn, call, toolResults.get(call.id));
       }
     }
+  }
+}
+
+function renderDayMemory(memories) {
+  const diary = $('#topic-day-diary');
+  diary.innerHTML = '';
+  if (memories.length === 0) {
+    diary.appendChild(el('p', 'topic-empty', '这一天还没有话题记忆。'));
+    return;
+  }
+  for (const memory of memories) {
+    const item = el('section', 'day-memory-item');
+    const label = `--------${memory.topicSlug}-${String(memory.time).replace(':', '-')}--------`;
+    item.appendChild(el('div', 'day-memory-label', label));
+    const body = el('div', 'assistant-message');
+    body.innerHTML = renderMarkdown(memory.content ?? '');
+    item.appendChild(body);
+    diary.appendChild(item);
   }
 }
 
@@ -2185,13 +2106,8 @@ function wire() {
   $('#open-topics').addEventListener('click', () => {
     showPage(state.page === 'chat' ? 'topics' : 'chat');
   });
-  $('#topics-back').addEventListener('click', () => {
-    location.hash = '#/topics';
-  });
   $('#topic-day-back').addEventListener('click', () => {
-    if (state.topicSlug !== null) {
-      location.hash = `#/topics/${encodeURIComponent(state.topicSlug)}`;
-    }
+    location.hash = '#/topics';
   });
   for (const tab of document.querySelectorAll('[data-topic-tab]')) {
     tab.addEventListener('click', () => setTopicTab(tab.dataset.topicTab));

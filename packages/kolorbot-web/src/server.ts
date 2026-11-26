@@ -42,6 +42,7 @@ import {
   personaSignature,
   readDiaryEntries,
   readDiaryTopicSection,
+  readAllTopicMemoryFilesForDate,
   readTopicMemoryForDate,
   readTopicMemoryFiles,
   readTopicMemoryRecordsForDate,
@@ -77,8 +78,8 @@ function topicSegmentDates(segments: ReadonlyArray<{ topicSlug: string; startedA
 }
 
 /** Local days on which this topic has a timestamped memory file. */
-function topicDiaryDates(workspace: string, topicName: string): string[] {
-  return [...new Set(readTopicMemoryFiles(workspace, topicName).map((file) => file.date))].sort();
+function topicDiaryDates(workspace: string, topicSlug: string): string[] {
+  return [...new Set(readTopicMemoryFiles(workspace, topicSlug).map((file) => file.date))].sort();
 }
 /** Default quiet period before the automatic diary turn. */
 const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
@@ -432,6 +433,55 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       return;
     }
 
+    if (pathname === '/api/calendar' && method === 'GET') {
+      const unique = [...new Set(
+        store.store.listSegments().map((segment) => diaryDateKey(new Date(segment.startedAt))),
+      )].sort();
+      const byMonth = new Map<string, string[]>();
+      for (const date of unique) {
+        const month = date.slice(0, 7);
+        const days = byMonth.get(month);
+        if (days === undefined) byMonth.set(month, [date]);
+        else days.push(date);
+      }
+      sendJson(response, 200, {
+        dates: unique,
+        months: [...byMonth.entries()]
+          .sort(([a], [b]) => b.localeCompare(a))
+          .map(([month, days]) => ({ month, days })),
+        count: unique.length,
+      });
+      return;
+    }
+
+    const globalDayMatch = /^\/api\/days\/(\d{4}-\d{2}-\d{2})$/.exec(pathname);
+    if (globalDayMatch !== null && method === 'GET') {
+      const date = globalDayMatch[1] as string;
+      const topicNames = new Map(
+        store.store.listTopics().map((topic) => [topic.slug, topic.name]),
+      );
+      const segments = store.store
+        .listSegments()
+        .filter((segment) => diaryDateKey(new Date(segment.startedAt)) === date)
+        .sort((a, b) => a.startedAt.localeCompare(b.startedAt))
+        .map((segment) => ({
+          id: segment.id,
+          topicSlug: segment.topicSlug,
+          topicName: topicNames.get(segment.topicSlug) ?? segment.topicSlug,
+          startedAt: segment.startedAt,
+          endedAt: segment.endedAt,
+          messages: store.store.segmentMessages(segment.id),
+        }));
+      const memories = readAllTopicMemoryFilesForDate(config.frameRoot, date).map((record) => ({
+        topicSlug: record.topicSlug,
+        topicName: topicNames.get(record.topicSlug) ?? record.topicSlug,
+        time: record.time,
+        content: record.content,
+      }));
+      sendJson(response, 200, { date, segments, memories });
+      return;
+    }
+
     if (pathname === '/api/topics' && method === 'GET') {
       const topics = store.store.listTopics();
       const segments = store.store.listSegments();
@@ -439,7 +489,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const diaryCounts = new Map<string, Set<string>>();
       for (const topic of topics) {
         conversationDates.set(topic.slug, new Set(topicSegmentDates(segments, topic.slug)));
-        diaryCounts.set(topic.slug, new Set(topicDiaryDates(config.frameRoot, topic.name)));
+        diaryCounts.set(topic.slug, new Set(topicDiaryDates(config.frameRoot, topic.slug)));
       }
       sendJson(response, 200, {
         topics: topics.map((topic) => ({
@@ -487,7 +537,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
           endedAt: segment.endedAt,
           messages: store.store.segmentMessages(segment.id),
         }));
-      const records = readTopicMemoryRecordsForDate(config.frameRoot, topic.name, date);
+      const records = readTopicMemoryRecordsForDate(config.frameRoot, topic.slug, date);
       const diary = records
         .map((record, index) => {
           const segment = segments[index];
@@ -515,7 +565,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const topic = store.store.topic(slug);
       if (topic === undefined) throw new HttpError(404, 'unknown topic');
       const dates = topicSegmentDates(store.store.listSegments(), slug);
-      const diaryDates = topicDiaryDates(config.frameRoot, topic.name);
+      const diaryDates = topicDiaryDates(config.frameRoot, topic.slug);
       const byMonth = new Map<string, string[]>();
       for (const date of dates) {
         const month = date.slice(0, 7);
@@ -527,7 +577,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         topic,
         dates,
         diaryDates,
-        memory: readTopicMemory(config.frameRoot, topic.name, topic.slug),
+        memory: readTopicMemory(config.frameRoot, topic.slug),
         months: [...byMonth.entries()]
           .sort(([a], [b]) => b.localeCompare(a))
           .map(([month, days]) => ({ month, days })),
@@ -1289,12 +1339,12 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     const persona = memory.self().content;
     const signature = personaSignature(persona);
     if (count === 0 || input.segment.memorySignature !== signature) {
-      const records = readTopicMemoryFiles(config.frameRoot, input.topic.name);
+      const records = readTopicMemoryFiles(config.frameRoot, input.topic.slug);
       const latestRecord = records.at(-1);
       const memoryBlock = formatTopicMemoryBlock({
         persona,
         topicName: input.topic.name,
-        topicContent: readTopicMemory(config.frameRoot, input.topic.name, input.topic.slug),
+        topicContent: readTopicMemory(config.frameRoot, input.topic.slug),
         ...(latestRecord === undefined
           ? {}
           : {
@@ -1670,7 +1720,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       for await (const _event of agent.stream(message)) {
         // No UI/SSE consumer for this isolated turn.
       }
-      if (readTopicMemoryForDate(config.frameRoot, topic.name, sectionDate) !== '') {
+      if (readTopicMemoryForDate(config.frameRoot, topic.slug, sectionDate) !== '') {
         store.store.markDiaryWritten(segments.map((segment) => segment.id));
       } else {
         options.logger?.('the diary agent finished without appending anything');

@@ -5,6 +5,7 @@ import type { ConversationStore, Topic } from 'kolorbot-conversation';
 import {
   appendDiaryEntry,
   diaryDateKey,
+  readAllTopicMemoryFilesForDate,
   readDiaryEntries,
   readDiaryTopicSection,
   topicMemoryPath,
@@ -59,6 +60,42 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
   const writeEnabled = options.writeEnabled ?? (() => true);
 
   return [
+    {
+      name: 'read_today_memory',
+      description:
+        'Read every topic\'s timestamped memory records for a local date (today by default), across all workspace/topic/<slug>/ directories. Returns records in time order with separators like --------<slug>-HH-mm--------.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          date: {
+            type: 'string',
+            description: 'Local date YYYY-MM-DD; omit for today',
+          },
+        },
+        additionalProperties: false,
+      },
+      concurrency: 'parallel',
+      execute: (input: unknown) => {
+        const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+        const requested = typeof args.date === 'string' ? args.date.trim() : '';
+        const date = requested === '' ? diaryDateKey(now()) : requested;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+          return { content: 'date must be YYYY-MM-DD.', isError: true };
+        }
+        const records = readAllTopicMemoryFilesForDate(options.workspace, date);
+        if (records.length === 0) {
+          return { content: `No topic memory records for ${date}.` };
+        }
+        return {
+          content: records
+            .map((record) => {
+              const time = record.time.replace(':', '-');
+              return `--------${record.topicSlug}-${time}--------\n${record.content.trim()}`;
+            })
+            .join('\n\n'),
+        };
+      },
+    },
     {
       name: 'list_topics',
       description:
@@ -230,7 +267,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
         if (topic === undefined) return { content: 'No current topic.', isError: true };
         const at = options.writeAt?.() ?? now();
         try {
-          const written = writeTopicMemoryFile(options.workspace, topic.name, at, content);
+          const written = writeTopicMemoryFile(options.workspace, topic.slug, at, content);
           return { content: `Wrote topic memory ${written.relativePath}.` };
         } catch (error) {
           return {
@@ -272,7 +309,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
         if (content === '') return { content: 'content must not be empty.', isError: true };
         const body = /^#\s+/m.test(content) ? content : `# ${topic.name}\n\n${content}`;
         try {
-          const written = writeTopicMainMemory(options.workspace, topic.name, body);
+          const written = writeTopicMainMemory(options.workspace, topic.slug, body);
           return {
             content: `Wrote key topic memory ${written.relativePath}.`,
           };

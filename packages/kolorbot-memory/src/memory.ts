@@ -360,9 +360,9 @@ export interface TopicMemoryFile {
   content: string;
 }
 
-/** Directory name used for a topic's timestamped memory files. */
-export function topicMemoryDirectory(workspace: string, topicName: string): string {
-  const cleaned = topicName
+/** Directory for a topic's memory files, named by topic slug. */
+export function topicMemoryDirectory(workspace: string, topicSlug: string): string {
+  const cleaned = topicSlug
     .replace(/[<>:"/\\|?*\u0000-\u001f]/g, '_')
     .replace(/[. ]+$/g, '')
     .trim();
@@ -379,8 +379,8 @@ export function topicMemoryFileName(at: Date): string {
 }
 
 /** All timestamped memory files for a topic, oldest first. */
-export function readTopicMemoryFiles(workspace: string, topicName: string): TopicMemoryFile[] {
-  const dir = topicMemoryDirectory(workspace, topicName);
+export function readTopicMemoryFiles(workspace: string, topicSlug: string): TopicMemoryFile[] {
+  const dir = topicMemoryDirectory(workspace, topicSlug);
   if (!existsSync(dir)) return [];
   const files: TopicMemoryFile[] = [];
   for (const name of readdirSync(dir)) {
@@ -389,7 +389,7 @@ export function readTopicMemoryFiles(workspace: string, topicName: string): Topi
     const path = join(dir, name);
     files.push({
       path,
-      relativePath: join('topic', topicName, name),
+      relativePath: join('topic', topicSlug, name),
       date: match[1] as string,
       time: `${match[2]}:${match[3]}`,
       content: readFileSync(path, 'utf8'),
@@ -399,65 +399,90 @@ export function readTopicMemoryFiles(workspace: string, topicName: string): Topi
 }
 
 /**
- * Read the topic's durable key memory (`topic/<topic-name>/main.md`).
+ * Read the topic's durable key memory (`topic/<slug>/main.md`).
  * Legacy `topic/<slug>.md` is accepted for older workspaces.
  */
-export function readTopicMemory(workspace: string, topicName: string, slug?: string): string {
-  const path = join(topicMemoryDirectory(workspace, topicName), 'main.md');
+export function readTopicMemory(workspace: string, topicSlug: string): string {
+  const path = join(topicMemoryDirectory(workspace, topicSlug), 'main.md');
   if (existsSync(path)) return readFileSync(path, 'utf8');
-  if (slug === undefined) return '';
-  const legacy = topicMemoryPath(workspace, slug);
+  const legacy = topicMemoryPath(workspace, topicSlug);
   return existsSync(legacy) ? readFileSync(legacy, 'utf8') : '';
 }
 
 /** Write the durable key memory file for a topic. */
 export function writeTopicMainMemory(
   workspace: string,
-  topicName: string,
+  topicSlug: string,
   content: string,
 ): { path: string; relativePath: string } {
-  const dir = topicMemoryDirectory(workspace, topicName);
+  const dir = topicMemoryDirectory(workspace, topicSlug);
   mkdirSync(dir, { recursive: true });
   const path = join(dir, 'main.md');
   writeFileSync(path, `${content.trim()}\n`, 'utf8');
-  return { path, relativePath: join('topic', topicName, 'main.md') };
+  return { path, relativePath: join('topic', topicSlug, 'main.md') };
 }
 
 /** Timestamped "what was done" records for one local date. */
 export function readTopicMemoryRecordsForDate(
   workspace: string,
-  topicName: string,
+  topicSlug: string,
   date: string,
 ): TopicMemoryFile[] {
-  return readTopicMemoryFiles(workspace, topicName).filter((file) => file.date === date);
+  return readTopicMemoryFiles(workspace, topicSlug).filter((file) => file.date === date);
 }
 
 /** Memory files for one local date, oldest first. */
 export function readTopicMemoryForDate(
   workspace: string,
-  topicName: string,
+  topicSlug: string,
   date: string,
 ): string {
-  return readTopicMemoryFiles(workspace, topicName)
+  return readTopicMemoryFiles(workspace, topicSlug)
     .filter((file) => file.date === date)
     .map((file) => file.content.trim())
     .filter((content) => content !== '')
     .join('\n\n---\n\n');
 }
 
+export interface TopicMemoryRecord extends TopicMemoryFile {
+  /** Directory name under workspace/topic, i.e. the topic slug. */
+  topicSlug: string;
+}
+
+/** Every topic's timestamped records for one local date, oldest first. */
+export function readAllTopicMemoryFilesForDate(
+  workspace: string,
+  date: string,
+): TopicMemoryRecord[] {
+  const root = join(workspace, 'topic');
+  if (!existsSync(root)) return [];
+  const records: TopicMemoryRecord[] = [];
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    for (const file of readTopicMemoryFiles(workspace, entry.name)) {
+      if (file.date !== date) continue;
+      records.push({ ...file, topicSlug: entry.name });
+    }
+  }
+  return records.sort(
+    (left, right) =>
+      left.time.localeCompare(right.time) || left.topicSlug.localeCompare(right.topicSlug),
+  );
+}
+
 /** Write one timestamped topic memory file; content has no added headings. */
 export function writeTopicMemoryFile(
   workspace: string,
-  topicName: string,
+  topicSlug: string,
   at: Date,
   content: string,
 ): { path: string; relativePath: string } {
-  const dir = topicMemoryDirectory(workspace, topicName);
+  const dir = topicMemoryDirectory(workspace, topicSlug);
   mkdirSync(dir, { recursive: true });
   const name = topicMemoryFileName(at);
   const path = join(dir, name);
   writeFileSync(path, `${content.trim()}\n`, 'utf8');
-  return { path, relativePath: join('topic', topicName, name) };
+  return { path, relativePath: join('topic', topicSlug, name) };
 }
 
 /** Signature of the persona only (topic switches always resend the block). */
