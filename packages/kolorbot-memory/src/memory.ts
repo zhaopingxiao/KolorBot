@@ -790,11 +790,11 @@ function stripSystemBlocks(content: string): string {
 }
 
 /**
- * Trigger message for writing one segment's "what was done" record.
+ * Trigger message for writing one segment's activity record and updating the
+ * topic's key memory.
  *
- * The layout is `workspace/topic/<topic name>/<YYYY-MM-DD-HH-mm>.md`.
- * The filename timestamp is the segment's last message completion time; the
- * AI only supplies the activity body. Durable key facts belong in main.md.
+ * The layout is `workspace/topic/<slug>/<YYYY-MM-DD-HH-mm>.md`.
+ * The filename timestamp is the segment's last message completion time.
  */
 export function buildTopicDiaryMessage(
   now: Date,
@@ -802,11 +802,13 @@ export function buildTopicDiaryMessage(
   options: { targetDate?: string } = {},
 ): string {
   const date = options.targetDate ?? diaryDateKey(now);
+  const slug = segments[0]?.topicSlug ?? 'unknown';
   const lines: string[] = [
-    `It's ${formatTimestamp(now)}. Write a timestamped record of what was done for the topic segment below.`,
+    `It's ${formatTimestamp(now)}. Organize the topic segment below: write its activity record and update its key memory.`,
     '',
-    'Use the dedicated tool:',
-    '- write_topic_note({ content }): write the CURRENT topic\'s activity record to workspace/topic/<topic name>/<timestamp>.md. The server chooses the timestamp from the segment\'s last message completion time; do not write date, time or headings.',
+    'Use the dedicated tools:',
+    `- read_topic_memory({ slug: "${slug}" }): read the current main.md and latest record first.`,
+    '- write_topic_note({ content, main }): content is the activity record for this segment; main is the full updated key memory. The server chooses the timestamp from the segment\'s last message completion time; do not write date, time or headings.',
     '',
   ];
   if (segments.length === 0) {
@@ -826,11 +828,12 @@ export function buildTopicDiaryMessage(
   lines.push(
     '',
     'Rules:',
-    '1. Call write_topic_note with only the activity record markdown. Never write a heading, date, time or "### HH:mm".',
-    '2. The output file is topic/<topic name>/<YYYY-MM-DD-HH-mm>.md; its timestamp is the last message completion time, not the organization time.',
-    '3. Record what was done: tasks, actions, results and current progress. Do NOT copy durable key facts, decisions or long reference data into this record; key memory lives in main.md and is used separately.',
-    '4. Do not use write_file for topic memory. The tool owns the directory and filename.',
-    '5. If there is genuinely no new content, reply "No new content." and do not call write_topic_note.',
+    `1. First call read_topic_memory({ slug: "${slug}" }) to read the current main.md and latest record.`,
+    '2. Call write_topic_note with content = only the activity record markdown. Never write a heading, date, time or "### HH:mm".',
+    '3. Every organization must also pass main = the FULL updated main.md: keep existing durable facts, merge new durable facts/decisions/state/next steps, and do not paste the raw transcript. If there are no key changes, pass the current main unchanged.',
+    '4. The output file is topic/<slug>/<YYYY-MM-DD-HH-mm>.md; its timestamp is the last message completion time, not the organization time.',
+    '5. Do not use write_file for topic memory. The tool owns the directory, filename and main.md update.',
+    '6. If there is genuinely no new content, reply "No new content." and do not invent files or facts.',
     `Context date: ${date}.`,
   );
   return lines.join('\n');

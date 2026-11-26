@@ -8,6 +8,8 @@ import {
   readAllTopicMemoryFilesForDate,
   readDiaryEntries,
   readDiaryTopicSection,
+  readTopicMemory,
+  readTopicMemoryFiles,
   topicMemoryPath,
   writeTopicMemoryFile,
   writeTopicMainMemory,
@@ -94,6 +96,37 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
             })
             .join('\n\n'),
         };
+      },
+    },
+    {
+      name: 'read_topic_memory',
+      description:
+        'Read one topic\'s durable key memory (main.md) and latest timestamped record, using the same sections as <system-memory>. Requires the topic slug.',
+      inputSchema: {
+        type: 'object',
+        properties: {
+          slug: {
+            type: 'string',
+            description: 'Topic slug (for example: greeting)',
+          },
+        },
+        required: ['slug'],
+        additionalProperties: false,
+      },
+      execute: (input: unknown) => {
+        const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
+        const slug = typeof args.slug === 'string' ? args.slug.trim() : '';
+        if (slug === '') return { content: 'slug is required.', isError: true };
+        const topic = options.store.topic(slug);
+        if (topic === undefined) return unknownSlug(slug);
+        const main = readTopicMemory(options.workspace, slug).trim();
+        const latest = readTopicMemoryFiles(options.workspace, slug).at(-1);
+        const lines = [`## Topic: ${topic.name}`, '', main === '' ? '(no key memory)' : main];
+        if (latest !== undefined) {
+          const name = latest.path.split(/[\\/]/).at(-1) ?? 'latest';
+          lines.push('', `## Latest record (${name})`, '', latest.content.trim());
+        }
+        return { content: lines.join('\n') };
       },
     },
     {
@@ -239,13 +272,18 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
     {
       name: 'write_topic_note',
       description:
-        'Write a timestamped record of what was done for the CURRENT topic into workspace/topic/<topic name>/<timestamp>.md. Content is an activity record only: tasks, actions and results, not durable key facts (those belong in main.md). No date/time headings are written. The filename timestamp is the completion time of the segment\'s last message, supplied by the server.',
+        'Write one organization result for the CURRENT topic: a timestamped activity record and, when main is supplied, the updated durable key memory (main.md). No date/time headings are written. The filename timestamp is the completion time of the segment\'s last message, supplied by the server.',
       inputSchema: {
         type: 'object',
         properties: {
           content: {
             type: 'string',
             description: 'Activity record in markdown: what was done and what happened. No heading is added.',
+          },
+          main: {
+            type: 'string',
+            description:
+              'Optional full updated main.md key memory (facts/decisions/state/next steps); written to workspace/topic/<slug>/main.md.',
           },
         },
         required: ['content'],
@@ -262,13 +300,20 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
         }
         const args = input !== null && typeof input === 'object' ? (input as Record<string, unknown>) : {};
         const content = typeof args.content === 'string' ? args.content.trim() : '';
+        const main = typeof args.main === 'string' ? args.main.trim() : '';
         if (content === '') return { content: 'content must not be empty.', isError: true };
         const topic = currentTopic(options);
         if (topic === undefined) return { content: 'No current topic.', isError: true };
         const at = options.writeAt?.() ?? now();
         try {
           const written = writeTopicMemoryFile(options.workspace, topic.slug, at, content);
-          return { content: `Wrote topic memory ${written.relativePath}.` };
+          if (main !== '') {
+            const body = /^#\s+/m.test(main) ? main : `# ${topic.name}\n\n${main}`;
+            writeTopicMainMemory(options.workspace, topic.slug, body);
+          }
+          return {
+            content: `Wrote topic memory ${written.relativePath}${main === '' ? '' : ' and updated main.md'}.`,
+          };
         } catch (error) {
           return {
             content: `Could not write topic memory: ${error instanceof Error ? error.message : String(error)}`,

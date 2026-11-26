@@ -348,12 +348,17 @@ async function loadConversation() {
   state.conversation = data.conversation;
   state.currentTopic = data.current?.topic ?? null;
   const messages = state.conversation?.messages ?? [];
-  const last = messages[messages.length - 1];
+  const today = localDateKey(new Date());
+  const todayMessages = messages.filter((entry) => {
+    const at = entry.createdAt === undefined ? null : new Date(entry.createdAt);
+    return at !== null && !Number.isNaN(at.getTime()) && localDateKey(at) === today;
+  });
+  const last = todayMessages[todayMessages.length - 1];
   state.session = {
     id: 'main',
-    name: state.currentTopic?.name ?? '对话',
-    topic: state.currentTopic?.name ?? '',
-    messageCount: messages.length,
+    name: state.currentTopic?.slug ?? '对话',
+    topic: state.currentTopic?.slug ?? '',
+    messageCount: todayMessages.length,
     updatedAt: last?.createdAt ?? null,
     context: [],
   };
@@ -393,7 +398,7 @@ function newChat() {
 
 const PAGES = {
   chat: { title: '对话', subtitle: '' },
-  topics: { title: '话题', subtitle: '话题 / 全部日历' },
+  topics: { title: '历史', subtitle: '历史 / 全部日历' },
   skills: { title: '技能', subtitle: '三个技能区 / MCP' },
   models: { title: '模型', subtitle: 'OpenAI Chat Completions 提供商' },
   memory: { title: '设定', subtitle: 'AI 人设 / AI.md' },
@@ -440,13 +445,13 @@ function renderHeader() {
   const session = state.session;
   const topic = state.currentTopic;
   const page = PAGES[state.page] ?? PAGES.chat;
-  $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
+  $('#session-title').textContent = state.page === 'chat' ? (topic?.slug ?? '对话') : page.title;
   const topicsButton = $('#open-topics');
   const showTopics = state.page === 'chat' || state.page === 'topics';
   topicsButton.classList.toggle('hidden', !showTopics);
   topicsButton.classList.toggle('active', state.page === 'topics');
-  topicsButton.setAttribute('aria-label', state.page === 'topics' ? '回到对话' : '打开话题');
-  topicsButton.title = state.page === 'topics' ? '回到对话' : '话题';
+  topicsButton.setAttribute('aria-label', state.page === 'topics' ? '回到对话' : '打开历史');
+  topicsButton.title = state.page === 'topics' ? '回到对话' : '历史';
   $('#session-meta').textContent =
     state.page === 'chat'
       ? session
@@ -682,7 +687,12 @@ function renderMessages(forceBottom = false, note = null) {
   container.innerHTML = '';
   const view = state.conversation;
   if (view === null) return;
-  if (view.messages.length === 0) {
+  const today = localDateKey(new Date());
+  const todayMessages = (view.messages ?? []).filter((entry) => {
+    const at = entry.createdAt === undefined ? null : new Date(entry.createdAt);
+    return at !== null && !Number.isNaN(at.getTime()) && localDateKey(at) === today;
+  });
+  if (todayMessages.length === 0) {
     const empty = el('div', 'chat-empty');
     empty.appendChild(el('h2', 'chat-empty-title', '今天有什么可以帮到你？'));
     empty.appendChild(el('p', 'chat-empty-sub', '直接说说你在做什么，或者想改什么。'));
@@ -692,13 +702,15 @@ function renderMessages(forceBottom = false, note = null) {
 
   const topicNames = new Map(view.topics.map((topic) => [topic.slug, topic.name]));
   const segmentTopic = new Map(view.segments.map((segment) => [segment.id, segment.topicSlug]));
+  let renderedSegments = 0;
 
-  for (const [index, segment] of view.segments.entries()) {
-    const stored = view.messages.filter((message) => message.segmentId === segment.id);
+  for (const segment of view.segments) {
+    const stored = todayMessages.filter((message) => message.segmentId === segment.id);
     if (stored.length === 0) continue;
-    if (index > 0) {
+    if (renderedSegments > 0) {
       container.appendChild(topicDivider(topicNames.get(segmentTopic.get(segment.id)) ?? '话题'));
     }
+    renderedSegments += 1;
 
     const toolResults = new Map();
     for (const entry of stored) {
@@ -733,6 +745,13 @@ function renderMessages(forceBottom = false, note = null) {
         appendToolCard(turn, call, toolResults.get(call.id));
       }
     }
+  }
+
+  if (renderedSegments === 0) {
+    const empty = el('div', 'chat-empty');
+    empty.appendChild(el('h2', 'chat-empty-title', '今天有什么可以帮到你？'));
+    empty.appendChild(el('p', 'chat-empty-sub', '直接说说你在做什么，或者想改什么。'));
+    container.appendChild(empty);
   }
 
   if (note !== null) {

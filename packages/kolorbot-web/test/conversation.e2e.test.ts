@@ -419,7 +419,7 @@ test('the idle diary writes a topic section and creates the topic file', async (
     const send = (value: unknown): void => {
       response.write(`data: ${JSON.stringify(value)}\n\n`);
     };
-    if (lastUser.includes('Write a timestamped record of what was done')) {
+    if (lastUser.includes('Organize the topic segment below')) {
       const hasTool = messages.some((message) => message.role === 'tool');
       if (!hasTool) {
         send({
@@ -436,6 +436,7 @@ test('the idle diary writes a topic section and creates the topic file', async (
                       name: 'write_topic_note',
                       arguments: JSON.stringify({
                         content: '把 remotion 的时间轴改好了。',
+                        main: '# Remotion\n\n- 时间轴已改好',
                       }),
                     },
                   },
@@ -493,7 +494,111 @@ test('the idle diary writes a topic section and creates the topic file', async (
   assert.match(topicFile, new RegExp(`${today}-\\d{2}-\\d{2}\\.md$`));
   assert.match(memory, /把 remotion 的时间轴改好了/);
   assert.equal(memory.includes('###'), false);
+  assert.match(readFileSync(join(topicDir, 'main.md'), 'utf8'), /时间轴已改好/);
 });
+test('switching topics queues the previous segment and updates main.md', async (t) => {
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk as Buffer));
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+      messages?: ChatMessage[];
+    };
+    const messages = body.messages ?? [];
+    const system = String(messages.find((message) => message.role === 'system')?.content ?? '');
+    const lastUser = String(
+      [...messages].reverse().find((message) => message.role === 'user')?.content ?? '',
+    );
+    if (system.includes('route a single conversation into topics')) {
+      const newMessage = lastUser.split('New user message:').at(-1)?.trim() ?? lastUser;
+      const greeting = newMessage.includes('greeting');
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  action: 'new',
+                  name: greeting ? 'Greeting' : 'Remotion',
+                  slug: greeting ? 'greeting' : 'remotion',
+                }),
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+    const send = (value: unknown): void => {
+      response.write(`data: ${JSON.stringify(value)}\n\n`);
+    };
+    if (lastUser.includes('Organize the topic segment below')) {
+      if (!messages.some((message) => message.role === 'tool')) {
+        send({
+          choices: [
+            {
+              index: 0,
+              delta: {
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: 'call_switch',
+                    type: 'function',
+                    function: {
+                      name: 'write_topic_note',
+                      arguments: JSON.stringify({
+                        content: '上一段做了什么。',
+                        main: '# Greeting\n\n- 切换后的关键记忆',
+                      }),
+                    },
+                  },
+                ],
+              },
+              finish_reason: null,
+            },
+          ],
+        });
+        for (const frame of finish('tool_calls')) send(frame);
+      } else {
+        send(textDelta('整理完成。'));
+        for (const frame of finish('stop')) send(frame);
+      }
+    } else {
+      send(textDelta('聊完了。'));
+      for (const frame of finish('stop')) send(frame);
+    }
+    response.write('data: [DONE]\n\n');
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const { app, frameRoot } = await tempApp(t, `http://127.0.0.1:${port}/v1`, {
+    diaryIdleMs: 3_600_000,
+  });
+  await postChat(app, 'greeting 第一段');
+  await postChat(app, 'remotion 切换');
+  const topicDir = join(frameRoot, 'topic', 'greeting');
+  let record = '';
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    try {
+      record = readdirSync(topicDir).find((name) => /^\d{4}-\d{2}-\d{2}-\d{2}-\d{2}\.md$/.test(name)) ?? '';
+      if (record !== '') break;
+    } catch {
+      // The isolated diary turn may still be running.
+    }
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  }
+  assert.notEqual(record, '');
+  assert.match(readFileSync(join(topicDir, record), 'utf8'), /上一段做了什么/);
+  assert.match(readFileSync(join(topicDir, 'main.md'), 'utf8'), /切换后的关键记忆/);
+});
+
 test('lists topics and returns a topic day with segments and diary', async (t) => {
   const model = await startModel();
   t.after(() => model.close());
@@ -639,7 +744,7 @@ test('backfills a missing diary for a conversation day', async (t) => {
     const send = (value: unknown): void => {
       response.write(`data: ${JSON.stringify(value)}\n\n`);
     };
-    if (lastUser.includes('Write a timestamped record of what was done')) {
+    if (lastUser.includes('Organize the topic segment below')) {
       if (!messages.some((message) => message.role === 'tool')) {
         send({
           choices: [
@@ -655,6 +760,7 @@ test('backfills a missing diary for a conversation day', async (t) => {
                       name: 'write_topic_note',
                       arguments: JSON.stringify({
                         content: '补写的日记内容',
+                        main: '# Remotion\n\n- 补写记忆',
                       }),
                     },
                   },

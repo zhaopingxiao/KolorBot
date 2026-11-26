@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 117 个测试
+pnpm test      # 118 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -123,7 +123,8 @@ npm run web -- --host 0.0.0.0
 ![移动端](docs/mobile.png)
 
 - **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolorbot/conversation.db`。
-- **话题页**：对话标题左边的话题图标进入；直接显示所有月份日历（所有话题合并），紫色日期可点开当天**全部话题**的聊天记录和当天记忆。
+- **对话页只显示今天**：按消息的本地创建日期过滤；历史记录全在「历史」页。
+- **历史页**：对话标题左边的日历图标进入；直接显示所有月份日历（所有话题合并），紫色日期可点开当天**全部话题**的聊天记录和当天记忆。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与记忆](#单对话话题与记忆)。
 - 模型：侧栏「技能」下面的「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。
 - 设定：侧栏底部 agent 卡片的「⋯」→「设定」管理 AI.md，可用 `/self-md-update` / `/self-md-tell …` 创建或更新；页面不再显示日记项。
@@ -133,7 +134,7 @@ npm run web -- --host 0.0.0.0
 - 聊天：流式输出、工具调用卡片（**默认折叠**，点开看参数 / 结果 / 状态）、停止按钮、思考时的三个点。运行中继续输入并按 Enter 会先排队，等这一轮结束后自动发出。每次工具调用前后的文字各自成段；AI 回复**边出边渲染 Markdown**。
 - 断线不丢回答：一轮对话在服务端跑，关闭标签页、刷新、切网都只是断开镜像；回来时从服务端缓冲回放整轮。同一时间只允许一轮，重复发送返回 409。
 - 跟随滚动：只有离消息列表底部**一行字以内**时才自动拉到底；往上翻读历史时不会被拽走。
-- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image` 由 agent-loop 直接注册；话题记忆另有 `list_topics` / `read_today_memory` / `read_diary` / `write_diary` / `write_topic`。额外 MCP 只能写在技能目录的 `kolor.json` 里。
+- 内置工具：`read_file` / `write_file` / `list_files` / `bash` / `skills` / `read_image` 由 agent-loop 直接注册；话题记忆另有 `list_topics` / `read_today_memory` / `read_topic_memory` / `read_diary` / `write_diary` / `write_topic`。额外 MCP 只能写在技能目录的 `kolor.json` 里。
 
 | 环境变量 | 默认值 | 作用 |
 | --- | --- | --- |
@@ -396,7 +397,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 切换话题时自动整理上一个话题：
 
 1. 上一段 segment 关闭后，服务端把这段对话记录整理成 transcript，交给一个**全新的整理 Agent**（新的临时 agent id、`context = []`，不复用当前对话 Agent）。
-2. 该 Agent 只拿到这段 transcript、整理规则和写作工具；通过 `write_topic_note` 写当前话题的**每日记录**，不修改 `main.md` 关键记忆。
+2. 该 Agent 只拿到这段 transcript、整理规则和写作工具；先读 `main.md`，再通过 `write_topic_note` 写当前话题的**每日记录**，同时更新 `main.md` 关键记忆。
 3. 如果同一话题跨了本地日期，第二天第一条消息会强制新开 segment，所以上一天会先被整理，不会因为话题没变而漏掉。
 4. 记录路径：`workspace/topic/<slug>/<YYYY-MM-DD-HH-mm>.md`；关键记忆仍在同一目录的 `main.md`。
 5. 文件名时间是**该 segment 最后一条消息的完成时间**，不是整理时间；跨天时以最后一条消息所在日期为准。
@@ -407,9 +408,10 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 
 ### 整理工具
 
-- `write_topic_note({ content })`：把当前话题的**每日记录**写入 `workspace/topic/<slug>/<timestamp>.md`；只写做了什么，正文直接写入，不加标题/时间。
+- `write_topic_note({ content, main? })`：把当前话题的**每日记录**写入 `workspace/topic/<slug>/<timestamp>.md`，并把 `main` 写入 `main.md` 关键记忆；正文直接写入，不加标题/时间。
 - `write_topic({ content })`：创建/替换当前话题的**关键记忆** `workspace/topic/<slug>/main.md`。
 - `read_today_memory({ date? })`：扫描 `workspace/topic/<slug>/` 下所有话题的 `YYYY-MM-DD-HH-mm.md`，按时间排序返回；每条前带 `--------<slug>-HH-mm--------` 分隔线。
+- `read_topic_memory({ slug })`：读取指定话题的 `main.md` 和最新一条时间戳记录，格式与 `<system-memory>` 的 Topic / Latest record 段一致。
 - `read_diary` / `write_diary` 是旧格式兼容工具；新的自动整理只使用 `write_topic_note`。
 
 `write_topic_note` / `write_topic` 只在整理任务里启用；普通聊天中调用会返回错误，模型也不应再用 `write_file` 改 `topic/` 目录。
@@ -420,7 +422,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 
 - 开关状态存在 `~/.kolorbot/memory.json`（`{ "version": 1, "diary": { "autoAppend": true } }`）。
 - 切换话题触发的整理任务与主对话并行，但整理 Agent 的上下文在任务结束后丢弃；只有文件写入保留。
-- 话题页补写也走同一个独立整理 Agent。
+- 历史页补写也走同一个独立整理 Agent。
 
 ## 单对话、话题与记忆
 
@@ -962,13 +964,13 @@ Content-Type: application/json
 pnpm test
 ```
 
-共 117 个测试：
+共 118 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（34）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务。
+- `kolorbot-web`（35）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
 
 全部测试不需要网络和 API key。
 

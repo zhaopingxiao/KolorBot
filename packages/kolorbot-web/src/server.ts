@@ -90,7 +90,7 @@ const DEFAULT_DIARY_IDLE_MS = 10 * 60 * 1000;
 const KOLOR_SYSTEM_PROMPT = [
   DEFAULT_SYSTEM_PROMPT,
   '',
-  'The conversation is organized into topics. list_topics and read_diary are available for reading. write_diary, write_topic and write_topic_note are only enabled during an explicit memory turn; in ordinary chat, do not write diary entries or topic memory files.',
+  'The conversation is organized into topics. list_topics, read_today_memory, read_topic_memory and read_diary are available for reading. write_diary, write_topic and write_topic_note are only enabled during an explicit memory turn; in ordinary chat, do not write diary entries or topic memory files.',
   'Finish what you start: do not end a turn with a promise to do something later, and do not stop after a plan or a partial implementation. Keep calling tools and verifying until the task is actually done, then report briefly. Only stop early when you need information or permission from the user.',
 ].join('\n');
 
@@ -129,6 +129,7 @@ const STATIC_FILES = new Map<string, string>([
   ['/favicon.svg', 'favicon.svg'],
   ['/icons/chat.svg', 'icons/chat.svg'],
   ['/icons/topics.svg', 'icons/topics.svg'],
+  ['/icons/history.svg', 'icons/history.svg'],
   ['/icons/skills.svg', 'icons/skills.svg'],
   ['/icons/models.svg', 'icons/models.svg'],
   ['/icons/memory.svg', 'icons/memory.svg'],
@@ -142,6 +143,7 @@ const CONTENT_TYPES: Record<string, string> = {
   'favicon.svg': 'image/svg+xml',
   'icons/chat.svg': 'image/svg+xml',
   'icons/topics.svg': 'image/svg+xml',
+  'icons/history.svg': 'image/svg+xml',
   'icons/skills.svg': 'image/svg+xml',
   'icons/models.svg': 'image/svg+xml',
   'icons/memory.svg': 'image/svg+xml',
@@ -791,7 +793,10 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       if (activeTarget() === undefined) {
         throw new HttpError(400, 'no usable model: add a provider in the web UI (模型)');
       }
-      const pending = store.store.pendingDiarySegments();
+      const currentSegmentId = store.current().segment.id;
+      const pending = store.store
+        .pendingDiarySegments()
+        .filter((entry) => entry.segment.id !== currentSegmentId);
       const groups = new Map<string, Array<{ id: string; topicSlug: string; startedAt: string }>>();
       for (const entry of pending) {
         const slug = entry.segment.topicSlug;
@@ -1095,6 +1100,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       if (diaryTurn) diaryWriteAllowed = false;
       // Only a user turn restarts the quiet period.
       diaryIdle.noteTurnFinished(session.id);
+      if (!diaryTurn) enqueuePendingSegments(segment.id);
     }
   }
 
@@ -1746,6 +1752,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       (segment) => pending.has(segment.id) && !diaryScheduled.has(segment.id),
     );
     if (fresh.length === 0) return Promise.resolve();
+    options.logger?.(`queued diary for ${slug}: ${fresh.map((segment) => segment.id).join(', ')}`);
     for (const segment of fresh) diaryScheduled.add(segment.id);
     const job = diaryQueue.then(() => organizeDiary(slug, fresh, targetDate));
     diaryQueue = job.catch((error: unknown) => {
@@ -1754,6 +1761,34 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     return job.finally(() => {
       for (const segment of fresh) diaryScheduled.delete(segment.id);
     });
+  }
+
+  /**
+   * Safety net for switch/idle races: after a main turn, organize every
+   * pending segment except the still-open current one.
+   */
+  function enqueuePendingSegments(exceptSegmentId?: string): void {
+    const pending = store.store
+      .pendingDiarySegments()
+      .filter((entry) => entry.segment.id !== exceptSegmentId);
+    if (pending.length === 0) return;
+    const groups = new Map<string, Array<{ id: string; topicSlug: string; startedAt: string }>>();
+    for (const entry of pending) {
+      const date = diaryDateKey(new Date(entry.segment.startedAt));
+      const key = `${entry.segment.topicSlug}\u0000${date}`;
+      const group = groups.get(key);
+      if (group === undefined) groups.set(key, [entry.segment]);
+      else group.push(entry.segment);
+    }
+    for (const segments of groups.values()) {
+      const first = segments[0];
+      if (first === undefined) continue;
+      void enqueueDiary(
+        first.topicSlug,
+        segments,
+        diaryDateKey(new Date(first.startedAt)),
+      );
+    }
   }
 
   /**

@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（117 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（118 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
@@ -61,7 +61,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - MCP 客户端：stdio / Streamable HTTP / SSE，工具名 `mcp__<server>__<tool>`。
 - 事件流、取消、超时、`concludeTurn`、上下文导入导出。
 - 本地工具：文件读写、bash、技能读取、`read_image`。`read_image` 会把图片附到下一次模型请求；不支持视觉的模型自动降级。
-- `KOLOR_SYSTEM_PROMPT` 描述：话题组织、`list_topics` / `read_today_memory` / `read_diary` 可读、`write_topic_note` 等写入只在整理任务启用；普通聊天不要写话题记忆。
+- `KOLOR_SYSTEM_PROMPT` 描述：话题组织、`list_topics` / `read_today_memory` / `read_topic_memory` / `read_diary` 可读、`write_topic_note` 等写入只在整理任务启用；普通聊天不要写话题记忆。
 
 ### 3.2 单对话与话题（`kolorbot-conversation`）
 
@@ -114,16 +114,17 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
   - 同一天多个片段在话题页按 `### 片段 N · HH:mm` + `---` 分隔显示。
   - 旧的 `workspace/daily` 日记格式不再由整理任务写入。
 - `read_today_memory({ date? })`：扫描所有 `workspace/topic/<slug>/` 下当天的时间戳文件，按 `HH-mm` 排序，每条前输出 `--------<slug>-HH-mm--------`。
+- `read_topic_memory({ slug })`：返回指定话题的 `main.md` + 最新记录，格式与 `<system-memory>` 的 Topic / Latest record 一致。
 
 #### 整理任务
 
 - **切换话题自动整理（2026-11-18）**：上一 segment 关闭后，将其对话记录交给独立的整理 Agent（`diary-<uuid>`，独立 `AgentPool`，`context = []`），不占用主对话、不复用主 Agent 上下文。
 - **跨天强制分段**：同一话题跨本地日期时，第二天第一条普通消息会强制新开 segment；上一天 segment 被关闭并进入整理队列。
-- 整理工具是 `write_topic_note({ content })`，只写每日记录；服务端绑定当前话题和最后消息时间。
-- 关键记忆 `main.md` 不由这个自动整理 Agent 重写，继续作为上下文使用。
-- 任务完成后上下文丢弃，只保留每日记录文件写入，并标记 `diary_at`。
-- 10 分钟静默仍作为兜底，使用同一个独立整理 Agent；切换/跨天已整理的 segment 不会重复。
-- 话题页补写、UI `/update-daily-memory` 也走独立整理 Agent（`/api/diary/organize`）。
+- 整理工具是 `write_topic_note({ content, main })`：`content` 写每日记录，`main` 更新 `main.md`；服务端绑定当前话题和最后消息时间。
+- 整理 Agent 会先读 `read_topic_memory`，再把 `main.md` 一起更新；不再只写时间戳文件。
+- 任务完成后上下文丢弃，只保留每日记录和 `main.md` 写入，并标记 `diary_at`。
+- 10 分钟静默仍作为兜底；主对话每轮结束后还会扫描除当前 segment 外的 pending segment，补做切换时漏掉的整理。
+- 历史页补写、UI `/update-daily-memory` 也走独立整理 Agent（`/api/diary/organize`）。
 
 ### 3.5 技能与 MCP（`kolorbot-skills`）
 
@@ -192,17 +193,20 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
   - 头像通过 `/api/agent` + `/api/agent/avatar` 提供；
   - 没有 AI.md / 没有名字时回退 `KolorBot`。
 - 顶部标题：
-  - 对话页标题左侧显示话题 SVG 图标，点击进入话题页；
-  - 话题页同样显示图标并加深，点击回到对话；
+  - 对话页标题左侧显示日历 SVG 图标，点击进入历史页；
+  - 历史页同样显示图标并加深，点击回到对话；
   - 技能 / 模型 / 设定页不显示这个图标。
 - 对话页：
-  - 标题只显示当前话题名；右侧不再显示「N 条消息 · 时间」或话题 pill，标题下只显示相对时间；
+  - 标题只显示当前话题 slug；显示名只用于聊天分割线；
+  - 只渲染本地日期为今天的消息，历史记录看「历史」页；
+  - 右侧不再显示「N 条消息 · 时间」或话题 pill，标题下只显示相对时间；
   - 空对话显示大标题「今天有什么可以帮到你？」；
   - 输入框大圆角、白色卡片、阴影，发送按钮为蓝色圆形 `↑`；
   - 输入 `/` 弹出指令补全：`/self-md-update`、`/self-md-tell`、`/update-daily-memory`，点击自动填充；`/self-md-tell` 会补空格；
   - 2 秒轮询只在会话签名变化时重建消息列表，重建时保留当前滚动位置；外部 `/api/message` 启动的轮次也会在 2 秒内被 Web 接上；
   - 只有离底部一行以内才自动跟随新内容。
-- 话题页：
+- 历史页（原话题页）：
+  - 标题和图标改为「历史」+ `icons/history.svg`（日历）；
   - 不再显示话题列表，直接显示所有话题合并后的全部月份日历；
   - 点日期进入当天全部话题的聊天记录 + 当天记忆；
   - 聊天片段分隔线显示圆角话题名徽标和加深的时间徽标（如 `打招呼` + `08:27`）；
@@ -223,8 +227,8 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 136,335,872 bytes
-  - SHA256 `8749849FF388B66C154AA812C84ACCDEEC59B408C4C33D75BB5944E1D5948FD6`
+  - 大小 136,340,480 bytes
+  - SHA256 `89A67091CE4995E3816D7347B423C7DF154FB73A0222B0E1BEF3CA3565C3E1FB`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -317,12 +321,12 @@ npm run web       # 默认尝试 3399 -> 3420 -> 随机
 当前测试：
 
 ```text
-pnpm test  ✅ 117/117
+pnpm test  ✅ 118/118
   kolorbot-agent-loop 53
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        34
+  kolorbot-web        35
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -348,7 +352,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 117（conversation 5；memory 11；web 34）。
+20. **测试数不要写回旧值**：当前 118（conversation 5；memory 11；web 35）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -390,7 +394,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 117/117；release SHA256 8749849FF388B66C154AA812C84ACCDEEC59B408C4C33D75BB5944E1D5948FD6。
+- 测试 118/118；release SHA256 89A67091CE4995E3816D7347B423C7DF154FB73A0222B0E1BEF3CA3565C3E1FB。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

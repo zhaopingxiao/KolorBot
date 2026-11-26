@@ -82,7 +82,9 @@ test('topic diary trigger carries the new layout and topic file instruction', ()
     },
   ]);
   assert.match(message, /## Remotion/);
-  assert.match(message, /workspace\/topic\/<topic name>\/<timestamp>\.md/);
+  assert.match(message, /topic\/<slug>\/<YYYY-MM-DD-HH-mm>\.md/);
+  assert.match(message, /read_topic_memory/);
+  assert.match(message, /every organization must also pass main/i);
   assert.match(message, /write_topic_note/);
   assert.match(message, /last message completion time/);
   assert.equal(message.includes('### 19:00'), false);

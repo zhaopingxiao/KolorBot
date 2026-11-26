@@ -58,8 +58,10 @@ test('diary tools use the current topic and require topic memory', async () => {
 
     const note = await run(tools, 'write_topic_note', {
       content: '- 记忆直接内容\n- 无标题',
+      main: '# Remotion\n\n- 更新后的关键记忆',
     });
     assert.match(note.content, /topic[\\/]remotion[\\/]2026-11-14-19-21\.md/);
+    assert.match(note.content, /updated main\.md/);
     const noteRaw = readFileSync(
       join(dir, 'topic', 'remotion', '2026-11-14-19-21.md'),
       'utf8',
@@ -67,6 +69,13 @@ test('diary tools use the current topic and require topic memory', async () => {
     assert.match(noteRaw, /记忆直接内容/);
     assert.equal(noteRaw.includes('### 19:21'), false);
     assert.equal(noteRaw.startsWith('#'), false);
+    assert.match(readFileSync(join(dir, 'topic', 'remotion', 'main.md'), 'utf8'), /更新后的关键记忆/);
+
+    const combined = await run(tools, 'read_topic_memory', { slug: 'remotion' });
+    assert.match(combined.content, /## Topic: Remotion/);
+    assert.match(combined.content, /更新后的关键记忆/);
+    assert.match(combined.content, /## Latest record \(2026-11-14-19-21\.md\)/);
+    assert.match(combined.content, /记忆直接内容/);
 
     const dates = await run(tools, 'read_diary', {});
     assert.match(dates.content, /2026-11-14/);
