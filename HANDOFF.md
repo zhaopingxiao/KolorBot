@@ -197,7 +197,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
   - 历史页同样显示图标并加深，点击回到对话；
   - 技能 / 模型 / 设定页不显示这个图标。
 - 对话页：
-  - 标题只显示当前话题 slug；显示名只用于聊天分割线；
+  - 标题显示当前话题显示名；显示名也用于聊天/历史分割线；
   - 只渲染本地日期为今天的消息，历史记录看「历史」页；
   - 右侧不再显示「N 条消息 · 时间」或话题 pill，标题下只显示相对时间；
   - 空对话显示大标题「今天有什么可以帮到你？」；
@@ -228,7 +228,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 当前 release：
   - 版本 0.4.0
   - 大小 136,340,480 bytes
-  - SHA256 `CE10E8BCAD01A92AAFA39DFF67188ED282EA3AD1CCC63F9BE36A190CF9F07DAF`
+  - SHA256 `B579ABC280B7750C409DBCF1823A622324667924A9BAFE8E6421E6A27AE843AF`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -394,7 +394,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 118/118；release SHA256 CE10E8BCAD01A92AAFA39DFF67188ED282EA3AD1CCC63F9BE36A190CF9F07DAF。
+- 测试 118/118；release SHA256 B579ABC280B7750C409DBCF1823A622324667924A9BAFE8E6421E6A27AE843AF。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

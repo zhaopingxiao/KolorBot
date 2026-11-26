@@ -1,4 +1,4 @@
-/* KolorBot web client: vanilla ES module, no build step. */
+﻿/* KolorBot web client: vanilla ES module, no build step. */
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -356,8 +356,8 @@ async function loadConversation() {
   const last = todayMessages[todayMessages.length - 1];
   state.session = {
     id: 'main',
-    name: state.currentTopic?.slug ?? '对话',
-    topic: state.currentTopic?.slug ?? '',
+    name: state.currentTopic?.name ?? '对话',
+    topic: state.currentTopic?.name ?? '',
     messageCount: todayMessages.length,
     updatedAt: last?.createdAt ?? null,
     context: [],
@@ -369,7 +369,7 @@ async function loadConversation() {
     state.runningIds = new Set();
   }
   const signature = [
-    state.currentTopic?.slug ?? '',
+    state.currentTopic?.name ?? '',
     state.conversation?.segments.length ?? 0,
     messages.length,
     last?.id ?? '',
@@ -445,7 +445,7 @@ function renderHeader() {
   const session = state.session;
   const topic = state.currentTopic;
   const page = PAGES[state.page] ?? PAGES.chat;
-  $('#session-title').textContent = state.page === 'chat' ? (topic?.slug ?? '对话') : page.title;
+  $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
   const topicsButton = $('#open-topics');
   const showTopics = state.page === 'chat' || state.page === 'topics';
   topicsButton.classList.toggle('hidden', !showTopics);
