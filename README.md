@@ -408,7 +408,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 
 ### 整理工具
 
-- `write_topic_note({ content, main? })`：把当前话题的**每日记录**写入 `workspace/topic/<slug>/<timestamp>.md`，并把 `main` 写入 `main.md` 关键记忆；正文直接写入，不加标题/时间。
+- `write_topic_note({ content, main })`：把当前话题的**每日记录**写入 `workspace/topic/<slug>/<timestamp>.md`，并把 `main` 写入 `main.md` 关键记忆；正文直接写入，不加标题/时间。
 - `write_topic({ content })`：创建/替换当前话题的**关键记忆** `workspace/topic/<slug>/main.md`。
 - `read_today_memory({ date? })`：扫描 `workspace/topic/<slug>/` 下所有话题的 `YYYY-MM-DD-HH-mm.md`，按时间排序返回；每条前带 `--------<slug>-HH-mm--------` 分隔线。
 - `read_topic_memory({ slug })`：读取指定话题的 `main.md` 和最新一条时间戳记录，格式与 `<system-memory>` 的 Topic / Latest record 段一致。

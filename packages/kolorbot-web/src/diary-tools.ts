@@ -272,7 +272,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
     {
       name: 'write_topic_note',
       description:
-        'Write one organization result for the CURRENT topic: a timestamped activity record and, when main is supplied, the updated durable key memory (main.md). No date/time headings are written. The filename timestamp is the completion time of the segment\'s last message, supplied by the server.',
+        'Write one organization result for the CURRENT topic: a timestamped activity record and the full updated durable key memory (main.md). Both are required. No date/time headings are written. The filename timestamp is the completion time of the segment\'s last message, supplied by the server.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -283,10 +283,10 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
           main: {
             type: 'string',
             description:
-              'Optional full updated main.md key memory (facts/decisions/state/next steps); written to workspace/topic/<slug>/main.md.',
+              'Full updated main.md key memory (facts/decisions/state/next steps); written to workspace/topic/<slug>/main.md.',
           },
         },
-        required: ['content'],
+        required: ['content', 'main'],
         additionalProperties: false,
       },
       concurrency: 'exclusive',
@@ -302,17 +302,21 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
         const content = typeof args.content === 'string' ? args.content.trim() : '';
         const main = typeof args.main === 'string' ? args.main.trim() : '';
         if (content === '') return { content: 'content must not be empty.', isError: true };
+        if (main === '') {
+          return {
+            content: 'main is required: pass the full updated main.md available from read_topic_memory.',
+            isError: true,
+          };
+        }
         const topic = currentTopic(options);
         if (topic === undefined) return { content: 'No current topic.', isError: true };
         const at = options.writeAt?.() ?? now();
         try {
+          const body = /^#\s+/m.test(main) ? main : `# ${topic.name}\n\n${main}`;
+          writeTopicMainMemory(options.workspace, topic.slug, body);
           const written = writeTopicMemoryFile(options.workspace, topic.slug, at, content);
-          if (main !== '') {
-            const body = /^#\s+/m.test(main) ? main : `# ${topic.name}\n\n${main}`;
-            writeTopicMainMemory(options.workspace, topic.slug, body);
-          }
           return {
-            content: `Wrote topic memory ${written.relativePath}${main === '' ? '' : ' and updated main.md'}.`,
+            content: `Wrote topic memory ${written.relativePath} and updated main.md.`,
           };
         } catch (error) {
           return {
@@ -325,7 +329,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
     {
       name: 'write_topic',
       description:
-        'Create or replace the CURRENT topic\'s durable key memory (workspace/topic/<topic name>/main.md) with durable facts, decisions, current state, next steps and related paths. No slug argument is needed. This is separate from the timestamped daily records written by write_topic_note.',
+        'Create or replace the CURRENT topic\'s durable key memory (workspace/topic/<slug>/main.md) with durable facts, decisions, current state, next steps and related paths. No slug argument is needed. This is separate from the timestamped daily records written by write_topic_note.',
       inputSchema: {
         type: 'object',
         properties: {
