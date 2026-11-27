@@ -972,6 +972,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
     const text = body.text.trim();
     if (text === '') throw new HttpError(400, 'text must not be empty');
+    const autoNext = body.autoNext !== false;
     const target = activeTarget();
     if (target === undefined) {
       throw new HttpError(
@@ -1092,6 +1093,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         target,
         context: store.store.segmentMessages(segment.id),
         message: prepared,
+        autoNext: autoNext && !commandTurn,
       });
     } catch (error) {
       // A broken socket must still close the run, or the conversation stays busy.
@@ -1378,6 +1380,47 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
    * losing the network only detaches the live view. The context is persisted
    * at the end, which is what a client returning later reads back.
    */
+  function lastAssistantContentEmpty(context: readonly AgentMessage[]): boolean {
+    for (let index = context.length - 1; index >= 0; index -= 1) {
+      const message = context[index];
+      if (message?.role === 'assistant') return message.content.trim() === '';
+    }
+    return true;
+  }
+
+  /**
+   * Continue a naturally finished turn whose last assistant message is empty.
+   * This is deliberately a normal user message: it is persisted, shown in the
+   * conversation and routed through the regular chat path.
+   */
+  function requestAutoNext(): void {
+    if (localBaseUrl === '') {
+      options.logger?.('cannot send automatic Next.: server URL is not ready');
+      return;
+    }
+    void (async () => {
+      try {
+        const response = await fetch(`${localBaseUrl}/api/chat`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ text: 'Next.', autoNext: false }),
+        });
+        if (!response.ok) {
+          options.logger?.(`automatic Next. request failed with HTTP ${response.status}`);
+          await response.body?.cancel().catch(() => undefined);
+          return;
+        }
+        if (response.body === null) return;
+        const reader = response.body.getReader();
+        while (!(await reader.read()).done) {
+          // Drain the SSE stream so the headless turn can finish cleanly.
+        }
+      } catch (error) {
+        options.logger?.('automatic Next. request failed', error);
+      }
+    })();
+  }
+
   async function driveTurn(
     run: Run,
     input: {
@@ -1386,9 +1429,12 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       message: string;
       /** False for helper/backfill turns that must not alter the chat history. */
       persist?: boolean;
+      /** False disables the automatic "Next." continuation for this turn. */
+      autoNext?: boolean;
     },
   ): Promise<void> {
     const sessionId = run.sessionId;
+    let savedContext: AgentMessage[] | undefined;
     let agent: KolorAgent | undefined;
     let failure: unknown;
     try {
@@ -1422,7 +1468,9 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
 
       if (agent !== undefined && !discarded && input.persist !== false) {
         try {
-          const updated = store.replaceContext(sessionId, agent.exportContext());
+          const context = agent.exportContext();
+          const updated = store.replaceContext(sessionId, context);
+          savedContext = context;
           runs.publish(run, {
             type: 'session/saved',
             session: {
@@ -1441,6 +1489,17 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       }
 
       runs.finish(run, cancelled ? 'cancelled' : failure === undefined ? 'done' : 'error', failure);
+      if (
+        !cancelled &&
+        run.abortReason === null &&
+        run.kind === 'chat' &&
+        input.persist !== false &&
+        input.autoNext !== false &&
+        savedContext !== undefined &&
+        lastAssistantContentEmpty(savedContext)
+      ) {
+        requestAutoNext();
+      }
     } catch (error) {
       // Never leave a run registered as running.
       runs.finish(run, 'error', error);

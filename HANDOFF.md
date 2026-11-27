@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（118 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（120 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
@@ -199,6 +199,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 对话页：
   - 标题显示当前话题显示名；显示名也用于聊天/历史分割线；
   - 只渲染本地日期为今天的消息，历史记录看「历史」页；
+  - AI 自然结束、非手动停止且最后一条 assistant 内容为空时，自动以用户消息发送 `Next.`；自动请求本身不再次触发；
   - 右侧不再显示「N 条消息 · 时间」或话题 pill，标题下只显示相对时间；
   - 空对话显示大标题「今天有什么可以帮到你？」；
   - 输入框大圆角、白色卡片、阴影，发送按钮为蓝色圆形 `↑`；
@@ -227,8 +228,8 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 136,340,480 bytes
-  - SHA256 `B579ABC280B7750C409DBCF1823A622324667924A9BAFE8E6421E6A27AE843AF`
+  - 大小 136,342,016 bytes
+  - SHA256 `0E148584E9777355B496CD9CC8F80E2F278110E6F589C3CB814D4B8C60C726F9`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -321,12 +322,12 @@ npm run web       # 默认尝试 3399 -> 3420 -> 随机
 当前测试：
 
 ```text
-pnpm test  ✅ 118/118
+pnpm test  ✅ 120/120
   kolorbot-agent-loop 53
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        35
+  kolorbot-web        37
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -352,7 +353,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 118（conversation 5；memory 11；web 35）。
+20. **测试数不要写回旧值**：当前 120（conversation 5；memory 11；web 37）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -394,7 +395,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 118/118；release SHA256 B579ABC280B7750C409DBCF1823A622324667924A9BAFE8E6421E6A27AE843AF。
+- 测试 120/120；release SHA256 0E148584E9777355B496CD9CC8F80E2F278110E6F589C3CB814D4B8C60C726F9。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

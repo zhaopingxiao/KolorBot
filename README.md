@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 118 个测试
+pnpm test      # 120 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -124,6 +124,7 @@ npm run web -- --host 0.0.0.0
 
 - **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolorbot/conversation.db`。
 - **对话页只显示今天**：按消息的本地创建日期过滤；历史记录全在「历史」页。
+- **空输出续写**：AI 自然结束（非手动停止）且最后一条 assistant 内容为空时，自动以用户身份发送 `Next.`，显示在对话里；自动 `Next.` 本身不会再次触发，避免循环。
 - **历史页**：对话标题左边的日历图标进入；直接显示所有月份日历（所有话题合并），紫色日期可点开当天**全部话题**的聊天记录和当天记忆。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与记忆](#单对话话题与记忆)。
 - 模型：侧栏「技能」下面的「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。
@@ -964,13 +965,13 @@ Content-Type: application/json
 pnpm test
 ```
 
-共 118 个测试：
+共 120 个测试：
 
 - `kolorbot-agent-loop`（53）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、skills、`read_image`。
 - `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（35）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
+- `kolorbot-web`（37）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
 
 全部测试不需要网络和 API key。
 
