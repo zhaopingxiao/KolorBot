@@ -236,7 +236,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 当前 release：
   - 版本 0.4.0
   - 大小 136,376,832 bytes
-  - SHA256 `82D1D9D4C2703379FA9DF15C5A7D03C11AFBBA20605E9744EA335F278D3D007E`
+  - SHA256 `615153188464E7AAE2605BAE7471A4F3BB34AF0442CC47C97DCD64E58CD3B301`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -402,7 +402,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 131/131；release SHA256 82D1D9D4C2703379FA9DF15C5A7D03C11AFBBA20605E9744EA335F278D3D007E。
+- 测试 131/131；release SHA256 615153188464E7AAE2605BAE7471A4F3BB34AF0442CC47C97DCD64E58CD3B301。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

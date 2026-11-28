@@ -182,6 +182,8 @@ export class AgentPool {
 /** Stable identity of a model target; hashed so the key is not kept as a map value. */
 function signatureOf(target: ModelTarget): string {
   return createHash('sha1')
-    .update(`${target.apiUrl}\n${target.apiModelName}\n${target.apiKey}`)
+    .update(
+      `${target.apiProtocol}\n${target.vendor ?? ''}\n${target.apiUrl}\n${target.apiModelName}\n${target.apiKey}`,
+    )
     .digest('hex');
 }
