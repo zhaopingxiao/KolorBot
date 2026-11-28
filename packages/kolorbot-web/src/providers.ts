@@ -596,8 +596,8 @@ function safeHostname(baseUrl: string): string {
   }
 }
 
-function normalizeKind(value: unknown): ModelKind {
-  return value === 'speech' || value === 'image' || value === 'video' ? value : 'llm';
+function normalizeKind(_value: unknown): ModelKind {
+  return 'llm';
 }
 
 function normalizeProtocol(value: unknown, kind: ModelKind): ModelProtocol {

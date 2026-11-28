@@ -56,18 +56,8 @@ test('adds, masks and persists a provider', (t) => {
   assert.match(onDisk, /"version": 1/);
 });
 
-test('supports model kinds, Anthropic and vendor presets', (t) => {
+test('supports Anthropic, vendor and code providers', (t) => {
   const store = new ProviderStore({ path: join(tempDir(t), 'providers.json') });
-
-  const image = store.add({
-    kind: 'image',
-    protocol: 'openai',
-    baseUrl: 'https://images.example.com/v1',
-    models: ['image-1'],
-  });
-  assert.equal(image.kind, 'image');
-  assert.equal(store.resolve(NO_KEY), undefined);
-  assert.throws(() => store.setActive(image.id, 'image-1'));
 
   const anthropic = store.add({
     kind: 'llm',
@@ -95,7 +85,7 @@ test('supports model kinds, Anthropic and vendor presets', (t) => {
   assert.equal(vendorTarget?.vendor, 'minimax');
 
   const code = store.add({
-    kind: 'speech',
+    kind: 'llm',
     protocol: 'code',
     code: 'async function generate(input) { return input; }',
   });

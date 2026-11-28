@@ -1767,9 +1767,6 @@ function skillListItem(skill) {
 
 const MODEL_KIND_LABELS = {
   llm: '大语言模型',
-  speech: '语音生成模型',
-  image: '图片生成模型',
-  video: '视频生成模型',
 };
 const MODEL_PROTOCOL_LABELS = {
   openai: 'OpenAI v1',
@@ -1806,12 +1803,10 @@ async function loadProviders() {
 
 function updateProviderFormOptions() {
   const data = state.providerData;
-  const kindSelect = $('#provider-kind');
   const protocolSelect = $('#provider-protocol');
-  const kind = kindSelect.value || 'llm';
-  const options = data?.protocols?.[kind] ?? [
-    { id: 'openai', label: 'OpenAI v1' },
+  const options = data?.protocols?.llm ?? [
     { id: 'vendor', label: '厂商集成' },
+    { id: 'openai', label: 'OpenAI v1' },
     { id: 'code', label: '代码接入' },
   ];
   const previous = protocolSelect.value;
@@ -1827,7 +1822,7 @@ function updateProviderFormOptions() {
 }
 
 function updateProviderForm() {
-  const kind = $('#provider-kind').value;
+  const kind = 'llm';
   const protocol = $('#provider-protocol').value;
   const vendorRow = $('#provider-vendor-row');
   const vendorSelect = $('#provider-vendor');
@@ -2066,7 +2061,7 @@ async function addProvider() {
   const errorNode = $('#provider-error');
   errorNode.textContent = '';
   const name = $('#provider-name').value.trim();
-  const kind = $('#provider-kind').value;
+  const kind = 'llm';
   const protocol = $('#provider-protocol').value;
   const vendor = protocol === 'vendor' ? $('#provider-vendor').value : '';
   const baseUrl = protocol === 'vendor' || protocol === 'code' ? '' : $('#provider-url').value.trim();
@@ -2280,7 +2275,6 @@ function wire() {
   }
   window.addEventListener('hashchange', () => showPage(pageFromHash(), false));
   $('#self-refresh').addEventListener('click', () => void loadMemory());
-  $('#provider-kind').addEventListener('change', () => updateProviderFormOptions());
   $('#provider-protocol').addEventListener('change', () => updateProviderForm());
   $('#provider-vendor').addEventListener('change', () => {
     const vendor = currentProviderVendor();

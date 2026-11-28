@@ -1672,9 +1672,6 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       kinds: MODEL_KINDS,
       protocols: {
         llm: protocolsFor('llm'),
-        speech: protocolsFor('speech'),
-        image: protocolsFor('image'),
-        video: protocolsFor('video'),
       },
       vendors: VENDORS,
       defaults: {
@@ -1695,9 +1692,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   async function addProvider(request: IncomingMessage): Promise<Record<string, unknown>> {
     const body = await readJsonBody(request);
     if (!isRecord(body)) throw new HttpError(400, 'request body must be JSON');
-    const kind = (body.kind === 'speech' || body.kind === 'image' || body.kind === 'video'
-      ? body.kind
-      : 'llm') as ModelKind;
+    const kind = 'llm' as ModelKind;
     const protocol = (body.protocol === 'anthropic' ||
     body.protocol === 'vendor' ||
     body.protocol === 'code'

@@ -8,7 +8,7 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 
 > 新对话 / 交接请先读 [HANDOFF.md](HANDOFF.md)：包含项目结构、已完成改动、关键约束和运行方式。
 
-模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页选择模型类型和协议，再填接口地址和 API Key；OpenAI v1 和 Anthropic 都会自动识别模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
+模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页选择协议，再填接口地址和 API Key；OpenAI v1 和 Anthropic 都会自动识别模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
 
 - **`kolorbot-agent-loop`** — 主循环 + 内置 KolorFrame 工具：调用模型 → 执行工具 → 把结果写回会话 → 再调用模型，直到模型给出最终答复。文件/目录/bash/技能/read_image 工具都在这个包里，可独立作为库使用。
 - **`kolorbot-conversation`** — 单对话存储：SQLite 里的 topics / segments / messages；切换话题会新建 segment，模型上下文只取当前 segment。
@@ -310,26 +310,15 @@ KolorFrame 提供：
 
 ![模型](docs/models.png)
 
-侧栏「模型」页管理模型提供商。添加时先选模型类型，再选协议：
+侧栏「模型」页管理模型提供商。当前只支持大语言模型：
 
-| 模型类型 | 用途 | 当前是否接入聊天 |
-| --- | --- | --- |
-| 大语言模型 | 对话、推理、工具调用 | 是 |
-| 语音生成模型 | 文字转语音、语音克隆 | 预留 |
-| 图片生成模型 | 文生图、图生图 | 预留 |
-| 视频生成模型 | 文生视频、图生视频 | 预留 |
-
-协议规则：
-
-- **厂商集成**：所有类型都有，排在协议第一位；选择厂商后使用预置接口地址。Anthropic 通过厂商集成选择，走 Anthropic Messages API；兼容 OpenAI v1 的厂商直接复用 OpenAI 客户端。
-- **OpenAI v1**：所有模型类型都有；支持 `/chat/completions` 和 `/models` 发现。
-- **代码接入**：所有类型都有。保存一个 Node.js 方法源码，接口约定如下；运行时接入尚未启用，先保留接口。
+- **厂商集成**：选择厂商后使用预置接口地址。Anthropic 通过厂商集成选择，走 Anthropic Messages API；兼容 OpenAI v1 的厂商直接复用 OpenAI 客户端。
+- **OpenAI v1**：支持 `/chat/completions` 和 `/models` 发现模型。
+- **代码接入**：保存一个 Node.js 方法源码，接口约定如下；运行时接入尚未启用，先保留接口。
 
 ### 厂商集成
 
 当前常用厂商预置：
-
-### 大语言模型
 
 | 厂商 | 接口 | 适配方式 |
 | --- | --- | --- |
@@ -353,63 +342,6 @@ KolorFrame 提供：
 | Cohere | `https://api.cohere.com/compatibility/v1` | OpenAI 兼容入口 |
 | Ollama（本机） | `http://127.0.0.1:11434/v1` | OpenAI v1 |
 
-### 语音生成模型
-
-| 厂商 | 接口 |
-| --- | --- |
-| OpenAI 语音 | `https://api.openai.com/v1` |
-| MiniMax 语音 | `https://api.minimax.io/v1` |
-| ElevenLabs | `https://api.elevenlabs.io/v1` |
-| Google Cloud TTS | `https://texttospeech.googleapis.com/v1` |
-| Amazon Polly | `https://polly.us-east-1.amazonaws.com` |
-| Deepgram Aura | `https://api.deepgram.com/v1` |
-| Cartesia | `https://api.cartesia.ai` |
-| PlayHT | `https://api.play.ht/api/v2` |
-| Fish Audio | `https://api.fish.audio` |
-| 通义 CosyVoice | `https://dashscope.aliyuncs.com/api/v1` |
-| 火山语音 | `https://openspeech.bytedance.com/api/v1` |
-| 腾讯云 TTS | `https://tts.tencentcloudapi.com` |
-| 讯飞语音 | `https://tts-api.xfyun.cn/v2/tts` |
-| 百度语音 | `https://tsn.baidu.com/text2audio` |
-
-### 图片生成模型
-
-| 厂商 | 接口 |
-| --- | --- |
-| OpenAI 图片 | `https://api.openai.com/v1` |
-| Stability AI | `https://api.stability.ai` |
-| Google Imagen | `https://generativelanguage.googleapis.com/v1beta` |
-| Black Forest Labs / FLUX | `https://api.bfl.ai/v1` |
-| Replicate 图片 | `https://api.replicate.com/v1` |
-| fal.ai 图片 | `https://fal.run` |
-| Together 图片 | `https://api.together.xyz/v1` |
-| MiniMax 图片 | `https://api.minimax.io/v1` |
-| 通义万相 | `https://dashscope.aliyuncs.com/api/v1` |
-| 火山 Seedream | `https://ark.cn-beijing.volces.com/api/v3` |
-| 智谱 CogView | `https://open.bigmodel.cn/api/paas/v4` |
-| Ideogram | `https://api.ideogram.ai` |
-| Recraft | `https://external.api.recraft.ai/v1` |
-| Leonardo AI | `https://cloud.leonardo.ai/api/rest/v1` |
-| Adobe Firefly | `https://firefly-api.adobe.io/v3` |
-
-### 视频生成模型
-
-| 厂商 | 接口 |
-| --- | --- |
-| Runway | `https://api.dev.runwayml.com/v1` |
-| MiniMax 海螺 | `https://api.minimax.io/v1` |
-| Google Veo | `https://generativelanguage.googleapis.com/v1beta` |
-| Luma Dream Machine | `https://api.lumalabs.ai/dream-machine/v1` |
-| 可灵 Kling | `https://api.klingai.com/v1` |
-| OpenAI 视频 | `https://api.openai.com/v1` |
-| 火山 Seedance | `https://ark.cn-beijing.volces.com/api/v3` |
-| 通义万相视频 | `https://dashscope.aliyuncs.com/api/v1` |
-| Replicate 视频 | `https://api.replicate.com/v1` |
-| fal.ai 视频 | `https://fal.run` |
-| Stability 视频 | `https://api.stability.ai` |
-
-MiniMax 的 OpenAI 兼容文档：[Create Chat Completion](https://platform.minimax.io/docs/api-reference/text-chat-openai)。语音、图片、视频厂商已出现在对应类型的厂商列表里，但运行时接入仍为预留。
-
 ### 代码接入
 
 在协议中选择「代码接入」时，`providers.json` 会保存 `code` 字段。方法约定：
@@ -430,15 +362,15 @@ async function generate(input, context) {
 
 添加流程：
 
-1. 选模型类型；协议会自动限制为允许的选项。
+1. 选择协议：厂商集成 / OpenAI v1 / 代码接入。
 2. 选厂商集成时使用厂商预设地址，不需要填写接口地址；选 OpenAI v1 时手动填接口地址。
 3. 填 API Key；服务端会自动识别该提供商的模型。
-4. 点「添加提供商」：OpenAI v1 和 Anthropic 会自动请求模型列表；厂商原生接口暂未接入模型发现。
-5. 输入框上方的下拉框只显示大语言模型；其它类型暂不支持作为聊天模型。
+4. 点「添加提供商」：OpenAI v1 和 Anthropic 会自动请求模型列表。
+5. 输入框上方的下拉框选择当前聊天模型。
 
 其它行为：
 
-- 「刷新」只对 OpenAI v1/兼容厂商显示，重新识别模型列表。
+- 「刷新」对 OpenAI v1、Anthropic 和兼容厂商显示，重新识别模型列表。
 - 「删除」移除提供商。
 - 删除当前提供商、或在下拉框里选「环境变量」时，回退到显式配置的 `KOLOR_API_URL` + `KOLOR_API_MODEL` + key。**没有内置默认**。
 - 模型选择是全局的：切换后所有会话的下一轮都用新模型，进行中的轮次不受影响。
