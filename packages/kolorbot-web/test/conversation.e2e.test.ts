@@ -259,11 +259,13 @@ test('serves skill code plugins and their supporting files', async (t) => {
 
   const catalog = (await (await fetch(`${app.url}/api/skills`)).json()) as {
     categories: Array<{ id: string; label: string }>;
+    skills: Array<{ id: string; hasCode: boolean }>;
   };
   assert.deepEqual(
     catalog.categories.map((category) => category.label),
     ['Kolorbot Skill', '通用 Agent Skills', 'Agent Skill'],
   );
+  assert.equal(catalog.skills.find((skill) => skill.id === 'history-demo')?.hasCode, true);
 
   const list = (await (await fetch(`${app.url}/api/skill-code`)).json()) as {
     skills: Array<{ id: string; url: string }>;

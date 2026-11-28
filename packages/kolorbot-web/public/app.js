@@ -401,8 +401,8 @@ function newChat() {
 const PAGES = {
   chat: { title: '对话', subtitle: '' },
   topics: { title: '历史', subtitle: '历史 / 全部日历' },
-  skills: { title: '技能', subtitle: '三个技能区 / MCP' },
-  models: { title: '模型', subtitle: 'OpenAI Chat Completions 提供商' },
+  skills: { title: '技能', subtitle: 'Kolorbot Skill / 通用 Agent Skills / MCP' },
+  models: { title: '模型', subtitle: '厂商集成 / OpenAI v1 / 代码接入' },
   memory: { title: '设定', subtitle: 'AI 人设 / AI.md' },
 };
 
@@ -1773,14 +1773,8 @@ function skillListItem(skill) {
   const item = el('div', 'list-item');
   const grow = el('div', 'grow');
   const name = el('div', 'list-name', skill.name);
-  const sourceLabel = {
-    kolorbot: 'Kolorbot',
-    builtin: 'Kolorbot',
-    user: 'Agent',
-    agents: '通用',
-  }[skill.source];
-  if (sourceLabel !== undefined) name.appendChild(el('span', 'badge', sourceLabel));
   if (servers.length > 0) name.appendChild(mcpBadge(servers.length));
+  if (skill.hasCode === true) name.appendChild(el('span', 'badge do', 'Do'));
   grow.appendChild(name);
   grow.appendChild(el('div', 'list-sub', skill.description));
   item.appendChild(grow);
@@ -2010,7 +2004,7 @@ function renderProviderList() {
   list.innerHTML = '';
   if (providers.length === 0) {
     list.appendChild(
-      el('p', 'provider-empty', '还没有提供商。在下面填写接口地址和 API Key，会自动识别它的所有模型。'),
+      el('p', 'provider-empty', '还没有提供商。选择协议/厂商并填写 API Key，服务端会自动识别模型。'),
     );
     return;
   }

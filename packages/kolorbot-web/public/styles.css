@@ -1264,6 +1264,13 @@ button:focus-visible {
   letter-spacing: 0.02em;
 }
 
+.badge.do {
+  background: var(--accent-soft);
+  color: #4a3ad0;
+  font-family: var(--mono);
+  letter-spacing: 0.02em;
+}
+
 .provider-models {
   display: flex;
   flex-wrap: wrap;

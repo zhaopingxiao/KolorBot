@@ -758,8 +758,10 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         name: string;
         transport: string;
       } => ({ name: server.name, transport: server.transport });
+      const codeSkillIds = new Set(skillsRegistry.codeSkills().map((skill) => skill.id));
       const skills = skillsRegistry.list().map((skill) => ({
         ...skill,
+        hasCode: codeSkillIds.has(skill.id),
         mcpServers: mcpServers
           .filter((server) => server.skillId === skill.id)
           .map(publicServer),
@@ -809,6 +811,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       sendJson(response, 200, {
         skill: {
           ...skill,
+          hasCode: skillsRegistry.codeSkills().some((entry) => entry.id === id),
           mcpServers: publicMcpServers(skillsRegistry)
             .filter((server) => server.skillId === id)
             .map((server) => ({ name: server.name, transport: server.transport })),
