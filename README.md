@@ -329,19 +329,86 @@ KolorFrame 提供：
 
 当前常用厂商预置：
 
+### 大语言模型
+
 | 厂商 | 接口 | 适配方式 |
 | --- | --- | --- |
 | Anthropic | `https://api.anthropic.com` | Anthropic Messages API |
 | OpenAI | `https://api.openai.com/v1` | OpenAI v1 |
-| MiniMax | `https://api.minimax.io/v1` | OpenAI Chat Completions 兼容，无专用适配 |
+| MiniMax | `https://api.minimax.io/v1` | OpenAI Chat Completions 兼容 |
 | DeepSeek | `https://api.deepseek.com/v1` | OpenAI v1 |
 | Moonshot / Kimi | `https://api.moonshot.cn/v1` | OpenAI v1 |
 | 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | OpenAI v1 |
 | 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI v1 |
 | xAI Grok | `https://api.x.ai/v1` | OpenAI v1 |
 | Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | OpenAI 兼容入口 |
+| 火山方舟 / 豆包 | `https://ark.cn-beijing.volces.com/api/v3` | OpenAI v1 |
+| 腾讯混元 | `https://api.hunyuan.cloud.tencent.com/v1` | OpenAI v1 |
+| 百川智能 | `https://api.baichuan-ai.com/v1` | OpenAI v1 |
+| SiliconFlow | `https://api.siliconflow.cn/v1` | OpenAI v1 |
+| OpenRouter | `https://openrouter.ai/api/v1` | OpenAI v1 |
+| Groq | `https://api.groq.com/openai/v1` | OpenAI v1 |
+| Mistral | `https://api.mistral.ai/v1` | OpenAI v1 |
+| Together AI | `https://api.together.xyz/v1` | OpenAI v1 |
+| Cohere | `https://api.cohere.com/compatibility/v1` | OpenAI 兼容入口 |
+| Ollama（本机） | `http://127.0.0.1:11434/v1` | OpenAI v1 |
 
-MiniMax 的 OpenAI 兼容文档：[Create Chat Completion](https://platform.minimax.io/docs/api-reference/text-chat-openai)。语音、图片、视频厂商（ElevenLabs、Stability、Runway 等）已出现在对应类型的厂商列表里，但运行时接入仍为预留。
+### 语音生成模型
+
+| 厂商 | 接口 |
+| --- | --- |
+| OpenAI 语音 | `https://api.openai.com/v1` |
+| MiniMax 语音 | `https://api.minimax.io/v1` |
+| ElevenLabs | `https://api.elevenlabs.io/v1` |
+| Google Cloud TTS | `https://texttospeech.googleapis.com/v1` |
+| Amazon Polly | `https://polly.us-east-1.amazonaws.com` |
+| Deepgram Aura | `https://api.deepgram.com/v1` |
+| Cartesia | `https://api.cartesia.ai` |
+| PlayHT | `https://api.play.ht/api/v2` |
+| Fish Audio | `https://api.fish.audio` |
+| 通义 CosyVoice | `https://dashscope.aliyuncs.com/api/v1` |
+| 火山语音 | `https://openspeech.bytedance.com/api/v1` |
+| 腾讯云 TTS | `https://tts.tencentcloudapi.com` |
+| 讯飞语音 | `https://tts-api.xfyun.cn/v2/tts` |
+| 百度语音 | `https://tsn.baidu.com/text2audio` |
+
+### 图片生成模型
+
+| 厂商 | 接口 |
+| --- | --- |
+| OpenAI 图片 | `https://api.openai.com/v1` |
+| Stability AI | `https://api.stability.ai` |
+| Google Imagen | `https://generativelanguage.googleapis.com/v1beta` |
+| Black Forest Labs / FLUX | `https://api.bfl.ai/v1` |
+| Replicate 图片 | `https://api.replicate.com/v1` |
+| fal.ai 图片 | `https://fal.run` |
+| Together 图片 | `https://api.together.xyz/v1` |
+| MiniMax 图片 | `https://api.minimax.io/v1` |
+| 通义万相 | `https://dashscope.aliyuncs.com/api/v1` |
+| 火山 Seedream | `https://ark.cn-beijing.volces.com/api/v3` |
+| 智谱 CogView | `https://open.bigmodel.cn/api/paas/v4` |
+| Ideogram | `https://api.ideogram.ai` |
+| Recraft | `https://external.api.recraft.ai/v1` |
+| Leonardo AI | `https://cloud.leonardo.ai/api/rest/v1` |
+| Adobe Firefly | `https://firefly-api.adobe.io/v3` |
+
+### 视频生成模型
+
+| 厂商 | 接口 |
+| --- | --- |
+| Runway | `https://api.dev.runwayml.com/v1` |
+| MiniMax 海螺 | `https://api.minimax.io/v1` |
+| Google Veo | `https://generativelanguage.googleapis.com/v1beta` |
+| Luma Dream Machine | `https://api.lumalabs.ai/dream-machine/v1` |
+| 可灵 Kling | `https://api.klingai.com/v1` |
+| OpenAI 视频 | `https://api.openai.com/v1` |
+| 火山 Seedance | `https://ark.cn-beijing.volces.com/api/v3` |
+| 通义万相视频 | `https://dashscope.aliyuncs.com/api/v1` |
+| Replicate 视频 | `https://api.replicate.com/v1` |
+| fal.ai 视频 | `https://fal.run` |
+| Stability 视频 | `https://api.stability.ai` |
+
+MiniMax 的 OpenAI 兼容文档：[Create Chat Completion](https://platform.minimax.io/docs/api-reference/text-chat-openai)。语音、图片、视频厂商已出现在对应类型的厂商列表里，但运行时接入仍为预留。
 
 ### 代码接入
 
