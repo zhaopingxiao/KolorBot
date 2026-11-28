@@ -8,7 +8,7 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 
 > 新对话 / 交接请先读 [HANDOFF.md](HANDOFF.md)：包含项目结构、已完成改动、关键约束和运行方式。
 
-模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页填入任意 OpenAI Chat Completions 兼容提供商的接口地址和 API Key，会自动识别该提供商的全部模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
+模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页选择模型类型和协议，再填接口地址和 API Key；OpenAI v1 会自动识别模型，Anthropic/厂商专用可手动填写模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
 
 - **`kolorbot-agent-loop`** — 主循环 + 内置 KolorFrame 工具：调用模型 → 执行工具 → 把结果写回会话 → 再调用模型，直到模型给出最终答复。文件/目录/bash/技能/read_image 工具都在这个包里，可独立作为库使用。
 - **`kolorbot-conversation`** — 单对话存储：SQLite 里的 topics / segments / messages；切换话题会新建 segment，模型上下文只取当前 segment。
@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 128 个测试
+pnpm test      # 131 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -128,7 +128,7 @@ npm run web -- --host 0.0.0.0
 - **后台 Bash**：`bash` 支持 `wait: true`，命令后台运行并按首个参数生成任务名（冲突时 `_2`、`_3`）；完成后若 AI 已空闲，会自动发送 `<任务名> has done.`；最多同时运行 8 个，重启不保留。
 - **历史页**：对话标题左边的日历图标进入；直接显示所有月份日历（所有话题合并），紫色日期可点开当天**全部话题**的聊天记录和当天记忆。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与记忆](#单对话话题与记忆)。
-- 模型：侧栏「技能」下面的「模型」管理提供商（OpenAI Chat Completions 协议），自动识别该提供商的全部模型；输入框上方的下拉框随时切换当前模型。
+- 模型：侧栏「技能」下面的「模型」管理提供商（大语言模型 / 语音 / 图片 / 视频；OpenAI v1、Anthropic、厂商专用、代码接入），输入框上方的下拉框随时切换当前聊天模型。
 - 设定：侧栏底部 agent 卡片的「⋯」→「设定」管理 AI.md，可用 `/self-md-update` / `/self-md-tell …` 创建或更新；页面不再显示日记项。
 - 输入框输入 `/` 会弹出指令补全（`/self-md-update`、`/self-md-tell`、`/update-daily-memory`），点击自动填充。
 - 技能：侧栏「技能」查看三个技能区的 Claude 标准技能；每个话题的第一条消息会带 `<system-skills>`，AI 用 `skills(id)` 工具读详情。
@@ -310,21 +310,71 @@ KolorFrame 提供：
 
 ![模型](docs/models.png)
 
-侧栏「模型」页管理模型提供商。一个提供商就是一组 **接口地址 + API Key**，走 OpenAI Chat Completions 协议（DeepSeek、OpenAI、OpenRouter、vLLM、Ollama 的 `/v1` 等都适用）。
+侧栏「模型」页管理模型提供商。添加时先选模型类型，再选协议：
+
+| 模型类型 | 用途 | 当前是否接入聊天 |
+| --- | --- | --- |
+| 大语言模型 | 对话、推理、工具调用 | 是 |
+| 语音生成模型 | 文字转语音、语音克隆 | 预留 |
+| 图片生成模型 | 文生图、图生图 | 预留 |
+| 视频生成模型 | 文生视频、图生视频 | 预留 |
+
+协议规则：
+
+- **OpenAI v1**：所有模型类型都有；支持 `/chat/completions` 和 `/models` 发现。
+- **Anthropic**：大语言模型专属，走 Anthropic Messages API（不走 OpenAI 格式）。
+- **厂商专用**：选择厂商后使用预置接口地址；如果厂商本身兼容 OpenAI v1，就直接复用 OpenAI 客户端，不需要专门适配。
+- **代码接入**：所有类型都有。保存一个 Node.js 方法源码，接口约定如下；运行时接入尚未启用，先保留接口。
+
+### 厂商专用
+
+当前常用厂商预置：
+
+| 厂商 | 接口 | 适配方式 |
+| --- | --- | --- |
+| OpenAI | `https://api.openai.com/v1` | OpenAI v1 |
+| MiniMax | `https://api.minimax.io/v1` | OpenAI Chat Completions 兼容，无专用适配 |
+| DeepSeek | `https://api.deepseek.com/v1` | OpenAI v1 |
+| Moonshot / Kimi | `https://api.moonshot.cn/v1` | OpenAI v1 |
+| 智谱 GLM | `https://open.bigmodel.cn/api/paas/v4` | OpenAI v1 |
+| 通义千问 | `https://dashscope.aliyuncs.com/compatible-mode/v1` | OpenAI v1 |
+| xAI Grok | `https://api.x.ai/v1` | OpenAI v1 |
+| Google Gemini | `https://generativelanguage.googleapis.com/v1beta/openai` | OpenAI 兼容入口 |
+
+MiniMax 的 OpenAI 兼容文档：[Create Chat Completion](https://platform.minimax.io/docs/api-reference/text-chat-openai)。语音、图片、视频厂商（ElevenLabs、Stability、Runway 等）已出现在对应类型的厂商列表里，但运行时接入仍为预留。
+
+### 代码接入
+
+在协议中选择「代码接入」时，`providers.json` 会保存 `code` 字段。方法约定：
+
+```js
+/**
+ * @param {string} input 输入内容
+ * @param {{ model?: string, kind: string, provider: string }} context
+ * @returns {Promise<unknown>|unknown} 输出内容
+ */
+async function generate(input, context) {
+  // 调用厂商 REST API，或在这里做任意本地处理
+  return output;
+}
+```
+
+当前版本只保存方法源码并展示接口，不会自动执行这段代码；聊天仍只使用大语言模型的 OpenAI v1 / Anthropic 协议。
 
 添加流程：
 
-1. 填名称（可留空，默认用域名）、接口地址（如 `https://api.openai.com/v1`）、API Key（本地服务可留空）。
-2. 点「添加并识别模型」：服务端请求 `GET <base>/models`，把返回的模型全部存下来；基于 `/v1` 的网关会先试 `<base>/models`，再试 `<base>/v1/models`。
-3. 输入框上方的下拉框里出现 `提供商 · 模型`，选中即生效。第一个提供商添加后会自动选中它的第一个模型。
+1. 选模型类型；协议会自动限制为允许的选项。
+2. 选 OpenAI v1 或 Anthropic 时填接口地址；选厂商专用时地址自动填入厂商预设。
+3. 填 API Key；没有 `/models` 的协议手动填写模型名。
+4. 点「添加提供商」：OpenAI v1 会自动请求 `/models`，其它协议直接使用手动模型。
+5. 输入框上方的下拉框只显示大语言模型；其它类型暂不支持作为聊天模型。
 
 其它行为：
 
-- 「刷新」重新识别模型列表；「删除」移除提供商。
-- 没有 `/models` 接口的网关可以手动填模型名（逗号分隔），此时跳过识别。
-- 识别失败会直接报错（例如 `返回 401 Unauthorized`），不会保存一个没有模型的提供商。
-- 删除当前提供商、或在下拉框里选「环境变量」时，回退到显式配置的 `KOLOR_API_URL` + `KOLOR_API_MODEL` + key。**没有内置默认**：这三项没配全就没有可选项，聊天会提示添加提供商。
-- 模型选择是全局的：切换后所有会话的下一轮都用新模型，进行中的轮次不受影响。切换模型会在该会话重建 agent（MCP 会重连）。
+- 「刷新」只对 OpenAI v1/兼容厂商显示，重新识别模型列表。
+- 「删除」移除提供商。
+- 删除当前提供商、或在下拉框里选「环境变量」时，回退到显式配置的 `KOLOR_API_URL` + `KOLOR_API_MODEL` + key。**没有内置默认**。
+- 模型选择是全局的：切换后所有会话的下一轮都用新模型，进行中的轮次不受影响。
 
 存储位置是 `~/.kolorbot/providers.json`，和 `conversation.db` 同级：
 
@@ -336,6 +386,8 @@ KolorFrame 提供：
     {
       "id": "p_1a2b3c4d5e6f",
       "name": "OpenAI",
+      "kind": "llm",
+      "protocol": "openai",
       "baseUrl": "https://api.openai.com/v1",
       "apiKey": "sk-...",
       "models": ["gpt-4o", "gpt-4o-mini"],
@@ -968,13 +1020,13 @@ Content-Type: application/json
 pnpm test
 ```
 
-共 128 个测试：
+共 131 个测试：
 
-- `kolorbot-agent-loop`（59）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、后台任务、skills、`read_image`。
+- `kolorbot-agent-loop`（61）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、后台任务、skills、`read_image`。
 - `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（39）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
+- `kolorbot-web`（40）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
 
 全部测试不需要网络和 API key。
 

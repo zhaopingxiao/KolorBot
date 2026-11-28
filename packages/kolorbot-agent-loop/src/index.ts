@@ -40,7 +40,9 @@ export { executeToolCalls } from './tools/scheduler.js';
 export type { ToolSchedulerEvent, ToolSchedulerOptions, ToolSchedulerOutcome } from './tools/scheduler.js';
 
 export { OpenAiCompatibleClient } from './llm/openai.js';
+export { AnthropicClient, toAnthropicMessagesUrl } from './llm/anthropic.js';
 export type { FetchLike, OpenAiClientOptions } from './llm/openai.js';
+export type { AnthropicClientOptions } from './llm/anthropic.js';
 export { parseSseData } from './llm/sse.js';
 
 export { McpManager } from './mcp/manager.js';

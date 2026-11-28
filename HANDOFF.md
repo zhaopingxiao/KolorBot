@@ -10,13 +10,13 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（128 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（131 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
 KolorBot 是一个本地运行的 Node.js 智能体运行时，配一个轻量 Web 聊天界面。
 
-- 只使用用户在「模型」页添加的 OpenAI Chat Completions 兼容提供商，可自动发现模型；没有内置默认模型。
+- 只使用用户在「模型」页添加的语言模型，可自动发现模型；没有内置默认模型。
 - 整个应用只有一条对话，按话题划分为 `topics` / `segments` / `messages`。
 - 模型消息先做话题判定；切换话题会新开 segment，模型上下文只取当前 segment。
 - 技能遵循 Claude `SKILL.md`，支持三个技能区；技能可以声明 MCP server。
@@ -145,7 +145,12 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 
 ### 3.6 提供商与模型
 
-- Web「模型」页添加 OpenAI Chat Completions 兼容提供商：名称、接口地址、API Key；调用 `/models` 自动识别模型。
+- Web「模型」页：先选模型类型（大语言模型 / 语音 / 图片 / 视频），再选协议。
+- 协议：所有类型有 OpenAI v1；大语言模型另有 Anthropic；所有类型有厂商专用和代码接入。
+- 厂商专用来自 `model-catalog.ts` 的预置表（MiniMax、DeepSeek、Moonshot、智谱、通义、xAI、Gemini 等）；兼容 OpenAI v1 的厂商只预填 endpoint，不写专用适配。
+- Anthropic 走 `llm/anthropic.ts` 的 Messages API：system 顶层化、tool_use/tool_result 转换、SSE 增量与 usage 解析。
+- 代码接入保存 `code` 字段，接口约定见 README；运行时尚未执行。
+- 当前只有大语言模型能作为聊天模型；其它类型可保存但不能选中。
 - 存储 `~/.kolorbot/providers.json`，key 只存在本地文件，API 只返回 `hasKey` + 末四位。
 - 选择模型是全局的；切换后下一轮生效，运行中的 turn 不受影响。
 - 没有内置默认模型；只有显式设置 `KOLOR_API_URL` + `KOLOR_API_MODEL` + key 才出现环境变量回退项。
@@ -230,8 +235,8 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 136,352,256 bytes
-  - SHA256 `B6A861437A1B86843E9AC164BF5CE0ABA3BC3BFF49DBAF313A271FDAC67CAC5A`
+  - 大小 136,376,832 bytes
+  - SHA256 `82D1D9D4C2703379FA9DF15C5A7D03C11AFBBA20605E9744EA335F278D3D007E`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -324,12 +329,12 @@ npm run web       # 默认尝试 3399 -> 3420 -> 随机
 当前测试：
 
 ```text
-pnpm test  ✅ 128/128
-  kolorbot-agent-loop 59
+pnpm test  ✅ 131/131
+  kolorbot-agent-loop 61
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        39
+  kolorbot-web        40
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -355,7 +360,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 128（conversation 5；memory 11；agent-loop 59；web 39）。
+20. **测试数不要写回旧值**：当前 131（conversation 5；memory 11；agent-loop 61；web 40）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -397,7 +402,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 128/128；release SHA256 B6A861437A1B86843E9AC164BF5CE0ABA3BC3BFF49DBAF313A271FDAC67CAC5A。
+- 测试 131/131；release SHA256 82D1D9D4C2703379FA9DF15C5A7D03C11AFBBA20605E9744EA335F278D3D007E。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

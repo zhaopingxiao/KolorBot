@@ -1,20 +1,36 @@
-﻿import { randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { KolorStateError, toChatCompletionsUrl } from 'kolorbot-agent-loop';
 import { resolveKolorHome } from 'kolorbot-conversation';
+import {
+  effectiveProtocol,
+  findVendor,
+  isChatProvider,
+  type ModelKind,
+  type ModelProtocol,
+  type VendorPreset,
+} from './model-catalog.js';
 
-/** One OpenAI-compatible provider stored on disk. */
+/** One provider stored on disk. */
 export interface ProviderRecord {
   id: string;
   /** Label shown in the UI. */
   name: string;
+  /** Capability family; only `llm` is used by chat today. */
+  kind: ModelKind;
+  /** Selected protocol; `vendor` resolves through `vendor`. */
+  protocol: ModelProtocol;
+  /** Vendor preset id for `protocol: "vendor"`. */
+  vendor?: string;
   /** Base URL as entered (trailing `/chat/completions` / `/models` removed). */
   baseUrl: string;
   /** Bearer token. Never sent to the browser and never written into a session. */
   apiKey: string;
-  /** Model ids returned by `GET <base>/models`. */
+  /** Model ids returned by discovery or entered manually. */
   models: string[];
+  /** Source for `protocol: "code"`; reserved for the code adapter contract. */
+  code?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -23,9 +39,13 @@ export interface ProviderRecord {
 export interface ProviderView {
   id: string;
   name: string;
+  kind: ModelKind;
+  protocol: ModelProtocol;
+  vendor?: string;
   baseUrl: string;
   models: string[];
   hasKey: boolean;
+  hasCode: boolean;
   /** `••••abcd`, or an empty string when no key is stored. */
   keyHint: string;
   createdAt: string;
@@ -43,6 +63,10 @@ export interface ModelTarget {
   label: string;
   /** `null` when the target comes from the environment instead of a provider. */
   providerId: string | null;
+  /** Effective wire protocol after resolving a vendor preset. */
+  apiProtocol: 'openai' | 'anthropic' | 'native' | 'code';
+  kind: ModelKind;
+  vendor?: string;
 }
 
 /** Active model as shown in the composer and the provider dialog. */
@@ -51,6 +75,7 @@ export interface ActiveModelView {
   model: string;
   label: string;
   source: 'provider' | 'env' | 'none';
+  kind?: ModelKind;
 }
 
 /** Fallback endpoint taken from the environment (`DEEPSEEK_API_KEY` etc.). */
@@ -133,7 +158,7 @@ export class ProviderStore {
     const active = file.active;
     if (active !== null) {
       const provider = file.providers.find((entry) => entry.id === active.providerId);
-      if (provider !== undefined) {
+      if (provider !== undefined && isChatProvider(provider)) {
         const model = active.model !== '' ? active.model : (provider.models[0] ?? '');
         if (model !== '') return providerTarget(provider, model);
       }
@@ -147,6 +172,8 @@ export class ProviderStore {
         apiKey: defaults.apiKey,
         label: `环境变量 · ${fallbackModel}`,
         providerId: null,
+        apiProtocol: 'openai',
+        kind: 'llm',
       };
     }
     return undefined;
@@ -164,6 +191,7 @@ export class ProviderStore {
         model: target.apiModelName,
         label: target.label,
         source: 'env',
+        kind: 'llm',
       };
     }
     return {
@@ -171,6 +199,7 @@ export class ProviderStore {
       model: target.apiModelName,
       label: target.label,
       source: 'provider',
+      kind: target.kind,
     };
   }
 
@@ -180,30 +209,52 @@ export class ProviderStore {
    * The first provider (or the first provider that gets models) becomes active
    * automatically, so adding one is enough to start chatting.
    */
-  add(input: { name?: string; baseUrl: string; apiKey?: string; models: string[] }): ProviderRecord {
+  add(input: {
+    name?: string;
+    kind?: ModelKind;
+    protocol?: ModelProtocol;
+    vendor?: string;
+    baseUrl?: string;
+    apiKey?: string;
+    models?: string[];
+    code?: string;
+  }): ProviderRecord {
     const file = this.#read();
-    const baseUrl = normalizeBaseUrl(input.baseUrl);
+    const kind = normalizeKind(input.kind);    const protocol = normalizeProtocol(input.protocol, kind);
+    const vendor = protocol === 'vendor' ? requireVendor(input.vendor, kind).id : undefined;
+    const preset = vendor === undefined ? undefined : requireVendor(vendor, kind);
+    const baseUrl =
+      protocol === 'code'
+        ? ''
+        : normalizeBaseUrl(input.baseUrl?.trim() === '' || input.baseUrl === undefined
+            ? (preset?.baseUrl ?? '')
+            : input.baseUrl);
     const apiKey = (input.apiKey ?? '').trim();
-    const models = normalizeModels(input.models);
-    if (models.length === 0) {
+    const models = normalizeModels(input.models ?? []);
+    if (models.length === 0 && protocol !== 'code') {
       throw new KolorStateError('a provider needs at least one model; run discovery or list them manually');
     }
     const now = new Date().toISOString();
     const provider: ProviderRecord = {
       id: `p_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
-      name: normalizeName(input.name, baseUrl),
+      name: normalizeName(input.name, baseUrl || preset?.label || '代码接入'),
+      kind,
+      protocol,
+      ...(vendor === undefined ? {} : { vendor }),
       baseUrl,
       apiKey,
-      models,
+      models: models.length === 0 ? ['code'] : models,
+      ...(typeof input.code === 'string' && input.code.trim() !== ''
+        ? { code: input.code.trim() }
+        : {}),
       createdAt: now,
       updatedAt: now,
     };
     const isFirst = file.providers.length === 0;
     file.providers.push(provider);
-    // Only the very first provider steals the selection; adding another one
-    // must not override a deliberate "default endpoint" choice.
-    if (isFirst && file.active === null) {
-      file.active = { providerId: provider.id, model: models[0] as string };
+    // Only the very first chat provider steals the selection.
+    if (isFirst && file.active === null && isChatProvider(provider) && provider.models.length > 0) {
+      file.active = { providerId: provider.id, model: provider.models[0] as string };
     }
     this.#write(file);
     return provider;
@@ -248,6 +299,9 @@ export class ProviderStore {
     }
     const provider = file.providers.find((entry) => entry.id === providerId);
     if (provider === undefined) throw new KolorStateError(`unknown provider "${providerId}"`);
+    if (!isChatProvider(provider)) {
+      throw new KolorStateError('this provider is not a chat-capable language model');
+    }
     const chosen = model.trim() !== '' ? model.trim() : (provider.models[0] ?? '');
     if (chosen === '') throw new KolorStateError('this provider has no models to select');
     file.active = { providerId, model: chosen };
@@ -413,13 +467,24 @@ function normalizeFile(value: unknown): ProviderFile {
       if (!isRecord(entry)) continue;
       const id = typeof entry.id === 'string' ? entry.id : '';
       const baseUrl = typeof entry.baseUrl === 'string' ? entry.baseUrl.trim() : '';
-      if (id === '' || baseUrl === '') continue;
+      const kind = normalizeKind(entry.kind);
+      const protocol = normalizeProtocol(entry.protocol, kind);
+      const vendorId = typeof entry.vendor === 'string' ? entry.vendor.trim() : '';
+      const vendor = protocol === 'vendor' ? (findVendor(vendorId)?.id ?? undefined) : undefined;
+      if (id === '' || (protocol !== 'code' && baseUrl === '')) continue;
+      const code = typeof entry.code === 'string' && entry.code.trim() !== '' ? entry.code : undefined;
       providers.push({
         id,
         name: typeof entry.name === 'string' && entry.name.trim() !== '' ? entry.name.trim() : baseUrl,
+        kind,
+        protocol,
+        ...(vendor === undefined ? {} : { vendor }),
         baseUrl,
         apiKey: typeof entry.apiKey === 'string' ? entry.apiKey : '',
-        models: normalizeModels(entry.models),
+        models: normalizeModels(entry.models).length === 0 && protocol === 'code'
+          ? ['code']
+          : normalizeModels(entry.models),
+        ...(code === undefined ? {} : { code }),
         createdAt: typeof entry.createdAt === 'string' ? entry.createdAt : new Date(0).toISOString(),
         updatedAt: typeof entry.updatedAt === 'string' ? entry.updatedAt : new Date(0).toISOString(),
       });
@@ -465,6 +530,25 @@ function safeHostname(baseUrl: string): string {
   }
 }
 
+function normalizeKind(value: unknown): ModelKind {
+  return value === 'speech' || value === 'image' || value === 'video' ? value : 'llm';
+}
+
+function normalizeProtocol(value: unknown, kind: ModelKind): ModelProtocol {
+  if (value === 'anthropic') return kind === 'llm' ? 'anthropic' : 'openai';
+  if (value === 'vendor') return 'vendor';
+  if (value === 'code') return 'code';
+  return 'openai';
+}
+
+function requireVendor(id: string | undefined, kind: ModelKind): VendorPreset {
+  const vendor = findVendor(id ?? '');
+  if (vendor === undefined || vendor.kind !== kind) {
+    throw new KolorStateError('选择厂商专用时，必须选择一个当前类型的厂商');
+  }
+  return vendor;
+}
+
 function providerTarget(provider: ProviderRecord, model: string): ModelTarget {
   return {
     apiUrl: provider.baseUrl,
@@ -472,6 +556,9 @@ function providerTarget(provider: ProviderRecord, model: string): ModelTarget {
     apiKey: provider.apiKey,
     label: `${provider.name} · ${model}`,
     providerId: provider.id,
+    apiProtocol: effectiveProtocol(provider),
+    kind: provider.kind,
+    ...(provider.vendor === undefined ? {} : { vendor: provider.vendor }),
   };
 }
 
@@ -479,9 +566,13 @@ function toView(provider: ProviderRecord): ProviderView {
   return {
     id: provider.id,
     name: provider.name,
+    kind: provider.kind,
+    protocol: provider.protocol,
+    ...(provider.vendor === undefined ? {} : { vendor: provider.vendor }),
     baseUrl: provider.baseUrl,
     models: [...provider.models],
     hasKey: provider.apiKey !== '',
+    hasCode: provider.code !== undefined,
     keyHint: keyHint(provider.apiKey),
     createdAt: provider.createdAt,
     updatedAt: provider.updatedAt,

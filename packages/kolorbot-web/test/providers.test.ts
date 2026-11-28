@@ -1,4 +1,4 @@
-﻿import assert from 'node:assert/strict';
+import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -52,6 +52,55 @@ test('adds, masks and persists a provider', (t) => {
   const onDisk = readFileSync(file, 'utf8');
   assert.match(onDisk, /sk-secret-abcd/);
   assert.match(onDisk, /"version": 1/);
+});
+
+test('supports model kinds, Anthropic and vendor presets', (t) => {
+  const store = new ProviderStore({ path: join(tempDir(t), 'providers.json') });
+
+  const image = store.add({
+    kind: 'image',
+    protocol: 'openai',
+    baseUrl: 'https://images.example.com/v1',
+    models: ['image-1'],
+  });
+  assert.equal(image.kind, 'image');
+  assert.equal(store.resolve(NO_KEY), undefined);
+  assert.throws(() => store.setActive(image.id, 'image-1'));
+
+  const anthropic = store.add({
+    kind: 'llm',
+    protocol: 'anthropic',
+    baseUrl: 'https://api.anthropic.com',
+    apiKey: 'sk-ant',
+    models: ['claude-test'],
+  });
+  store.setActive(anthropic.id, 'claude-test');
+  const anthropicTarget = store.resolve(NO_KEY);
+  assert.equal(anthropicTarget?.apiProtocol, 'anthropic');
+  assert.equal(anthropicTarget?.kind, 'llm');
+
+  const miniMax = store.add({
+    kind: 'llm',
+    protocol: 'vendor',
+    vendor: 'minimax',
+    apiKey: 'sk-mini',
+    models: ['MiniMax-M2'],
+  });
+  assert.equal(miniMax.baseUrl, 'https://api.minimax.io/v1');
+  store.setActive(miniMax.id, 'MiniMax-M2');
+  const vendorTarget = store.resolve(NO_KEY);
+  assert.equal(vendorTarget?.apiProtocol, 'openai');
+  assert.equal(vendorTarget?.vendor, 'minimax');
+
+  const code = store.add({
+    kind: 'speech',
+    protocol: 'code',
+    code: 'async function generate(input) { return input; }',
+  });
+  assert.equal(code.baseUrl, '');
+  assert.deepEqual(code.models, ['code']);
+  assert.equal(store.list().find((entry) => entry.id === code.id)?.hasCode, true);
+  assert.throws(() => store.setActive(code.id, 'code'));
 });
 
 test('names a provider after its host when no name is given', (t) => {

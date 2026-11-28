@@ -1,4 +1,4 @@
-﻿import type { ConcurrencyMode } from './types.js';
+import type { ConcurrencyMode } from './types.js';
 import { KolorConfigError } from './util/errors.js';
 
 /** MCP server reachable by spawning a child process and talking JSON-RPC over stdio. */
@@ -59,6 +59,10 @@ export interface KolorConfig {
   apiModelName: string;
   /** Bearer token. Never logged, never copied into results. */
   apiKey: string;
+  /** Wire protocol; defaults to OpenAI Chat Completions. */
+  apiProtocol?: 'openai' | 'anthropic' | 'native' | 'code';
+  /** Vendor id for diagnostics; the concrete protocol is selected above. */
+  apiVendor?: string;
   /** Replaces the built-in system prompt when set (empty string disables it). */
   systemPrompt?: string;
   /** Hard ceiling on model calls inside one turn. Default 40. */
@@ -85,12 +89,14 @@ export interface KolorConfig {
 }
 
 /** Configuration with every optional field resolved to a concrete value. */
-export interface ResolvedKolorConfig extends Required<Omit<KolorConfig, 'mcpServers' | 'temperature' | 'maxTokens' | 'systemPrompt' | 'headers'>> {
+export interface ResolvedKolorConfig extends Required<Omit<KolorConfig, 'mcpServers' | 'temperature' | 'maxTokens' | 'systemPrompt' | 'headers' | 'apiProtocol' | 'apiVendor'>> {
   systemPrompt: string;
   temperature: number | undefined;
   maxTokens: number | undefined;
   headers: Record<string, string>;
   mcpServers: McpServerConfig[];
+  apiProtocol: 'openai' | 'anthropic' | 'native' | 'code';
+  apiVendor: string | undefined;
   /** Fully resolved chat-completions endpoint. */
   endpoint: string;
 }
@@ -111,6 +117,7 @@ const DEFAULTS = {
   agentId: 'kolor-agent',
   mcpConnectTimeoutMs: 20_000,
   mcpDefaultConcurrency: 'parallel' as ConcurrencyMode,
+  apiProtocol: 'openai' as const,
 };
 
 /**
@@ -219,6 +226,15 @@ export function resolveConfig(input: KolorConfig): ResolvedKolorConfig {
   if (input.maxTokens !== undefined && (!Number.isInteger(input.maxTokens) || input.maxTokens <= 0)) {
     issues.push('maxTokens must be a positive integer');
   }
+  const apiProtocol = input.apiProtocol ?? DEFAULTS.apiProtocol;
+  if (
+    apiProtocol !== 'openai' &&
+    apiProtocol !== 'anthropic' &&
+    apiProtocol !== 'native' &&
+    apiProtocol !== 'code'
+  ) {
+    issues.push('apiProtocol must be openai, anthropic, native or code');
+  }
 
   const mcpServers = (input.mcpServers ?? []).map((server, index) => {
     validateServer(server, index, issues);
@@ -237,6 +253,8 @@ export function resolveConfig(input: KolorConfig): ResolvedKolorConfig {
     apiUrl: input.apiUrl,
     apiModelName: input.apiModelName.trim(),
     apiKey: input.apiKey,
+    apiProtocol,
+    apiVendor: input.apiVendor,
     endpoint,
     systemPrompt: input.systemPrompt ?? DEFAULT_SYSTEM_PROMPT,
     maxSteps,

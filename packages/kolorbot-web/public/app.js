@@ -1,4 +1,4 @@
-﻿/* KolorBot web client: vanilla ES module, no build step. */
+/* KolorBot web client: vanilla ES module, no build step. */
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -1765,14 +1765,111 @@ function skillListItem(skill) {
 
 /* ---------------- models & providers ---------------- */
 
+const MODEL_KIND_LABELS = {
+  llm: '大语言模型',
+  speech: '语音生成模型',
+  image: '图片生成模型',
+  video: '视频生成模型',
+};
+const MODEL_PROTOCOL_LABELS = {
+  openai: 'OpenAI v1',
+  anthropic: 'Anthropic',
+  vendor: '厂商专用',
+  code: '代码接入',
+};
+
+function providerVendor(vendorId) {
+  return (state.providerData?.vendors ?? []).find((vendor) => vendor.id === vendorId);
+}
+
+function providerKindLabel(provider) {
+  return MODEL_KIND_LABELS[provider.kind] ?? provider.kind;
+}
+
+function providerProtocolLabel(provider) {
+  if (provider.protocol === 'vendor') {
+    return `厂商专用 · ${providerVendor(provider.vendor)?.label ?? provider.vendor ?? '未选择'}`;
+  }
+  return MODEL_PROTOCOL_LABELS[provider.protocol] ?? provider.protocol;
+}
+
 async function loadProviders() {
   try {
     state.providerData = await api('/api/providers');
   } catch {
     return;
   }
+  updateProviderFormOptions();
   renderModelSelect();
   if (state.page === 'models') renderProviderList();
+}
+
+function updateProviderFormOptions() {
+  const data = state.providerData;
+  const kindSelect = $('#provider-kind');
+  const protocolSelect = $('#provider-protocol');
+  const kind = kindSelect.value || 'llm';
+  const options = data?.protocols?.[kind] ?? [
+    { id: 'openai', label: 'OpenAI v1' },
+    { id: 'vendor', label: '厂商专用' },
+    { id: 'code', label: '代码接入' },
+  ];
+  const previous = protocolSelect.value;
+  protocolSelect.innerHTML = '';
+  for (const option of options) {
+    const node = document.createElement('option');
+    node.value = option.id;
+    node.textContent = option.label;
+    protocolSelect.appendChild(node);
+  }
+  if (options.some((option) => option.id === previous)) protocolSelect.value = previous;
+  updateProviderForm();
+}
+
+function updateProviderForm() {
+  const kind = $('#provider-kind').value;
+  const protocol = $('#provider-protocol').value;
+  const vendorRow = $('#provider-vendor-row');
+  const vendorSelect = $('#provider-vendor');
+  const url = $('#provider-url');
+  const key = $('#provider-key');
+  const code = $('#provider-code');
+  const hint = $('#provider-hint');
+  const isVendor = protocol === 'vendor';
+  const isCode = protocol === 'code';
+  vendorRow.classList.toggle('hidden', !isVendor);
+  code.classList.toggle('hidden', !isCode);
+  url.classList.toggle('hidden', isCode);
+  key.classList.toggle('hidden', isCode);
+  if (isVendor) {
+    const vendors = (state.providerData?.vendors ?? []).filter((vendor) => vendor.kind === kind);
+    const previous = vendorSelect.value;
+    vendorSelect.innerHTML = '';
+    for (const vendor of vendors) {
+      const node = document.createElement('option');
+      node.value = vendor.id;
+      node.textContent = `${vendor.label} · ${vendor.protocol === 'openai' ? 'OpenAI v1' : '专用接口'}`;
+      vendorSelect.appendChild(node);
+    }
+    if (vendors.some((vendor) => vendor.id === previous)) vendorSelect.value = previous;
+    const selected = providerVendor(vendorSelect.value);
+    if (selected !== undefined) url.value = selected.baseUrl;
+  } else if (protocol === 'anthropic' && url.value.trim() === '') {
+    url.value = 'https://api.anthropic.com';
+  }
+  if (hint !== null) {
+    hint.textContent = isCode
+      ? '代码接入：provider 保存 Node.js 方法源码；方法参数是输入内容，返回值是输出内容。接口定义见 README。'
+      : isVendor
+        ? '厂商专用：接口地址按厂商预设；Key 只保存在本机的 providers.json。'
+        : protocol === 'anthropic'
+          ? 'Anthropic Messages API；非 Anthropic 官方接口请使用「厂商专用」。'
+          : 'OpenAI v1 兼容协议；Key 只保存在本机的 providers.json。';
+  }
+}
+
+function currentProviderVendor() {
+  return providerVendor($('#provider-vendor').value);
 }
 
 function parseModelValue(value) {
@@ -1792,6 +1889,9 @@ function renderModelSelect() {
   const active = data?.active ?? null;
   const options = [];
   for (const provider of data?.providers ?? []) {
+    const vendor = providerVendor(provider.vendor);
+    const effective = provider.protocol === 'vendor' ? vendor?.protocol : provider.protocol;
+    if (provider.kind !== 'llm' || effective === 'native' || effective === 'code') continue;
     for (const model of provider.models) {
       options.push({ value: modelValue(provider, model), label: `${provider.name} · ${model}` });
     }
@@ -1885,6 +1985,8 @@ function renderProviderList() {
     const head = el('div', 'list-item');
     const grow = el('div', 'grow');
     const name = el('div', 'list-name', provider.name);
+    name.appendChild(el('span', 'badge', providerKindLabel(provider)));
+    name.appendChild(el('span', 'badge', providerProtocolLabel(provider)));
     if (active.source === 'provider' && active.providerId === provider.id) {
       name.appendChild(el('span', 'badge active', '使用中'));
     }
@@ -1894,7 +1996,7 @@ function renderProviderList() {
         'div',
         'list-sub',
         [
-          provider.baseUrl,
+          provider.baseUrl || (provider.hasCode ? '代码接入' : '未填写接口地址'),
           provider.hasKey ? provider.keyHint : '无 Key',
           `${provider.models.length} 个模型`,
         ].join(' · '),
@@ -1903,26 +2005,41 @@ function renderProviderList() {
     head.appendChild(grow);
 
     const actions = el('div', 'actions');
-    const refresh = el('button', 'text-button', '刷新');
-    refresh.addEventListener('click', () => void refreshProvider(provider, refresh));
+    const canDiscover =
+      provider.protocol === 'openai' ||
+      (provider.protocol === 'vendor' && providerVendor(provider.vendor)?.protocol === 'openai');
+    if (canDiscover) {
+      const refresh = el('button', 'text-button', '刷新');
+      refresh.addEventListener('click', () => void refreshProvider(provider, refresh));
+      actions.appendChild(refresh);
+    }
     const remove = el('button', 'text-button danger', '删除');
     remove.addEventListener('click', () => void removeProvider(provider));
-    actions.append(refresh, remove);
+    actions.append(remove);
     head.appendChild(actions);
     item.appendChild(head);
 
     if (provider.models.length > 0) {
       const models = el('div', 'provider-models');
+      const vendor = providerVendor(provider.vendor);
+      const effective = provider.protocol === 'vendor' ? vendor?.protocol : provider.protocol;
+      const selectable =
+        provider.kind === 'llm' && (effective === 'openai' || effective === 'anthropic');
       for (const model of provider.models) {
         const chip = el('button', 'model-chip', model);
-        if (
-          active.source === 'provider' &&
-          active.providerId === provider.id &&
-          active.model === model
-        ) {
-          chip.classList.add('active');
+        if (selectable) {
+          if (
+            active.source === 'provider' &&
+            active.providerId === provider.id &&
+            active.model === model
+          ) {
+            chip.classList.add('active');
+          }
+          chip.addEventListener('click', () => void applyModel(modelValue(provider, model)));
+        } else {
+          chip.disabled = true;
+          chip.title = '该类型暂未接入聊天';
         }
-        chip.addEventListener('click', () => void applyModel(modelValue(provider, model)));
         models.appendChild(chip);
       }
       item.appendChild(models);
@@ -1937,34 +2054,60 @@ async function addProvider() {
   const errorNode = $('#provider-error');
   errorNode.textContent = '';
   const name = $('#provider-name').value.trim();
+  const kind = $('#provider-kind').value;
+  const protocol = $('#provider-protocol').value;
+  const vendor = protocol === 'vendor' ? $('#provider-vendor').value : '';
   const baseUrl = $('#provider-url').value.trim();
-  const apiKey = $('#provider-key').value.trim();
+  const apiKey = protocol === 'code' ? '' : $('#provider-key').value.trim();
   const modelsText = $('#provider-models').value.trim();
-  if (baseUrl === '') {
-    errorNode.textContent = '请填写接口地址';
+  const code = protocol === 'code' ? $('#provider-code').value.trim() : '';
+  if (protocol !== 'code' && baseUrl === '') {
+    errorNode.textContent = '请填写接口地址或选择厂商';
+    return;
+  }
+  if (protocol === 'vendor' && vendor === '') {
+    errorNode.textContent = '请选择厂商';
+    return;
+  }
+  if (protocol === 'code' && code === '') {
+    errorNode.textContent = '请填写代码接入的 Node.js 方法';
     return;
   }
 
   const models = modelsText === '' ? [] : modelsText.split(/[,，\s]+/).filter(Boolean);
+  if (protocol !== 'code' && models.length === 0 && protocol !== 'openai' && vendor === '') {
+    errorNode.textContent = '该协议请手动填写模型名';
+    return;
+  }
   const button = $('#provider-add');
   button.disabled = true;
-  button.textContent = '识别中…';
+  button.textContent = '添加中…';
   try {
     await api('/api/providers', {
       method: 'POST',
-      body: JSON.stringify({ name, baseUrl, apiKey, models }),
+      body: JSON.stringify({
+        name,
+        kind,
+        protocol,
+        vendor,
+        baseUrl,
+        apiKey,
+        models,
+        code,
+      }),
     });
     $('#provider-name').value = '';
     $('#provider-url').value = '';
     $('#provider-key').value = '';
     $('#provider-models').value = '';
+    $('#provider-code').value = '';
     await loadProviders();
     toast('提供商已添加');
   } catch (error) {
     errorNode.textContent = error.message;
   } finally {
     button.disabled = false;
-    button.textContent = '添加并识别模型';
+    button.textContent = '添加提供商';
   }
 }
 
@@ -2133,6 +2276,12 @@ function wire() {
   }
   window.addEventListener('hashchange', () => showPage(pageFromHash(), false));
   $('#self-refresh').addEventListener('click', () => void loadMemory());
+  $('#provider-kind').addEventListener('change', () => updateProviderFormOptions());
+  $('#provider-protocol').addEventListener('change', () => updateProviderForm());
+  $('#provider-vendor').addEventListener('change', () => {
+    const vendor = currentProviderVendor();
+    if (vendor !== undefined) $('#provider-url').value = vendor.baseUrl;
+  });
   $('#provider-add').addEventListener('click', () => void addProvider());
   $('#model-select').addEventListener('change', (event) => void applyModel(event.target.value));
 

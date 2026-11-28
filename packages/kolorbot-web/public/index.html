@@ -118,6 +118,25 @@
             <div id="provider-list" class="list"></div>
 
             <div class="form-block">
+              <div class="dialog-row provider-selects">
+                <label class="provider-field">
+                  <span>模型类型</span>
+                  <select id="provider-kind">
+                    <option value="llm">大语言模型</option>
+                    <option value="speech">语音生成模型</option>
+                    <option value="image">图片生成模型</option>
+                    <option value="video">视频生成模型</option>
+                  </select>
+                </label>
+                <label class="provider-field">
+                  <span>协议</span>
+                  <select id="provider-protocol"></select>
+                </label>
+              </div>
+              <label id="provider-vendor-row" class="provider-field hidden">
+                <span>厂商</span>
+                <select id="provider-vendor"></select>
+              </label>
               <input id="provider-name" placeholder="名称（可选，如 OpenAI）" autocomplete="off" />
               <input
                 id="provider-url"
@@ -137,12 +156,19 @@
                 autocomplete="off"
                 spellcheck="false"
               />
+              <textarea
+                id="provider-code"
+                class="provider-code hidden"
+                rows="6"
+                placeholder="async function generate(input) { return output; }"
+                spellcheck="false"
+              ></textarea>
               <div class="dialog-row">
-                <button id="provider-add" class="primary-button">添加并识别模型</button>
+                <button id="provider-add" class="primary-button">添加提供商</button>
                 <span id="provider-error" class="form-error"></span>
               </div>
-              <p class="form-hint">
-                使用 OpenAI Chat Completions 协议；Key 只保存在本机的 providers.json，不会回传到浏览器。
+              <p class="form-hint" id="provider-hint">
+                Key 只保存在本机的 providers.json，不会回传到浏览器。代码接入的 Node.js 方法见 README。
               </p>
             </div>
           </div>

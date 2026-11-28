@@ -1,4 +1,4 @@
-﻿import { createHash } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   KolorAgent,
   type AgentMessage,
@@ -79,6 +79,8 @@ export class AgentPool {
         apiUrl: target.apiUrl,
         apiModelName: target.apiModelName,
         apiKey: target.apiKey,
+        apiProtocol: target.apiProtocol,
+        ...(target.vendor === undefined ? {} : { apiVendor: target.vendor }),
         agentId: sessionId,
         mcpServers: this.#options.mcpConfigs(),
         ...(this.#options.systemPrompt === undefined

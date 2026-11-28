@@ -56,6 +56,15 @@ import {
   type DefaultModelConfig,
   type ModelTarget,
 } from './providers.js';
+import {
+  MODEL_KINDS,
+  VENDORS,
+  effectiveProtocol,
+  findVendor,
+  protocolsFor,
+  type ModelKind,
+  type ModelProtocol,
+} from './model-catalog.js';
 import { RunBroker, type Run, type RunListener } from './runs.js';
 import { classifyTopic, type TopicDecision } from './topic-classifier.js';
 import { createDiaryTools } from './diary-tools.js';
@@ -632,6 +641,9 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const id = providerModelsMatch[1] as string;
       const provider = providers.record(id);
       if (provider === undefined) throw new HttpError(404, `unknown provider "${id}"`);
+      if (effectiveProtocol(provider) !== 'openai') {
+        throw new HttpError(400, '该协议不支持自动识别模型，请手动填写模型名');
+      }
       const discovered = await discoverModels({
         baseUrl: provider.baseUrl,
         apiKey: provider.apiKey,
@@ -1649,6 +1661,14 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     return {
       providers: providers.list(),
       active: providers.activeView(defaults()),
+      kinds: MODEL_KINDS,
+      protocols: {
+        llm: protocolsFor('llm'),
+        speech: protocolsFor('speech'),
+        image: protocolsFor('image'),
+        video: protocolsFor('video'),
+      },
+      vendors: VENDORS,
       defaults: {
         apiUrl: config.apiUrl,
         apiModelName: config.apiModelName,
@@ -1666,18 +1686,40 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
    */
   async function addProvider(request: IncomingMessage): Promise<Record<string, unknown>> {
     const body = await readJsonBody(request);
-    if (!isRecord(body) || typeof body.baseUrl !== 'string' || body.baseUrl.trim() === '') {
-      throw new HttpError(400, 'request body must contain a "baseUrl" string');
+    if (!isRecord(body)) throw new HttpError(400, 'request body must be JSON');
+    const kind = (body.kind === 'speech' || body.kind === 'image' || body.kind === 'video'
+      ? body.kind
+      : 'llm') as ModelKind;
+    const protocol = (body.protocol === 'anthropic' ||
+    body.protocol === 'vendor' ||
+    body.protocol === 'code'
+      ? body.protocol
+      : 'openai') as ModelProtocol;
+    const vendorId = typeof body.vendor === 'string' ? body.vendor.trim() : '';
+    const preset = findVendor(vendorId);
+    if (protocol === 'vendor' && (preset === undefined || preset.kind !== kind)) {
+      throw new HttpError(400, '请选择与模型类型匹配的厂商');
     }
-    const baseUrl = body.baseUrl;
     const apiKey = typeof body.apiKey === 'string' ? body.apiKey : '';
     const manual = Array.isArray(body.models)
       ? body.models.filter((model): model is string => typeof model === 'string')
       : [];
+    const baseUrl = (
+      typeof body.baseUrl === 'string' && body.baseUrl.trim() !== ''
+        ? body.baseUrl
+        : (preset?.baseUrl ?? '')
+    ).trim();
+    if (protocol !== 'code' && baseUrl === '') {
+      throw new HttpError(400, '请填写接口地址或选择厂商');
+    }
+    const effective = protocol === 'vendor' ? (preset?.protocol ?? 'native') : protocol;
 
     let models = manual;
     let endpoint: string | undefined;
-    if (models.length === 0) {
+    if (models.length === 0 && protocol !== 'code') {
+      if (effective !== 'openai') {
+        throw new HttpError(400, '该协议无法自动识别模型，请手动填写模型名');
+      }
       const discovered = await discoverModels({ baseUrl, apiKey });
       models = discovered.models;
       endpoint = discovered.endpoint;
@@ -1690,10 +1732,14 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
 
     const provider = providers.add({
+      ...(typeof body.name === 'string' ? { name: body.name } : {}),
+      kind,
+      protocol,
+      ...(vendorId === '' ? {} : { vendor: vendorId }),
       baseUrl,
       apiKey,
       models,
-      ...(typeof body.name === 'string' ? { name: body.name } : {}),
+      ...(typeof body.code === 'string' ? { code: body.code } : {}),
     });
     return {
       provider: providers.get(provider.id),

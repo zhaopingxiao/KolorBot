@@ -4,6 +4,7 @@ import { resolveConfig, type KolorConfig, type ResolvedKolorConfig } from './con
 import { validateAgentContext } from './context.js';
 import type { KolorEvent, KolorEventListener, KolorEventType } from './events.js';
 import { OpenAiCompatibleClient, type FetchLike } from './llm/openai.js';
+import { AnthropicClient, toAnthropicMessagesUrl } from './llm/anthropic.js';
 import { McpManager, type McpServerStatus } from './mcp/manager.js';
 import { SessionLog } from './session.js';
 import { executeToolCalls, type ToolSchedulerOutcome } from './tools/scheduler.js';
@@ -119,13 +120,26 @@ export class KolorAgent {
     this.#options = options;
     this.#model =
       options.modelClient ??
-      new OpenAiCompatibleClient({
-        endpoint: this.config.endpoint,
-        apiKey: this.config.apiKey,
-        timeoutMs: this.config.requestTimeoutMs,
-        headers: this.config.headers,
-        ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
-      });
+      (this.config.apiProtocol === 'anthropic'
+        ? new AnthropicClient({
+            endpoint: toAnthropicMessagesUrl(this.config.apiUrl),
+            apiKey: this.config.apiKey,
+            timeoutMs: this.config.requestTimeoutMs,
+            ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+          })
+        : this.config.apiProtocol === 'openai'
+          ? new OpenAiCompatibleClient({
+              endpoint: this.config.endpoint,
+              apiKey: this.config.apiKey,
+              timeoutMs: this.config.requestTimeoutMs,
+              headers: this.config.headers,
+              ...(options.fetchImpl === undefined ? {} : { fetchImpl: options.fetchImpl }),
+            })
+          : (() => {
+              throw new KolorStateError(
+                `provider protocol "${this.config.apiProtocol}" is not wired into the agent yet`,
+              );
+            })());
     this.#mcp = new McpManager({
       defaultConcurrency: this.config.mcpDefaultConcurrency,
       defaultTimeoutMs: this.config.toolTimeoutMs,
