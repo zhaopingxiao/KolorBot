@@ -1394,6 +1394,11 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
    * at the end, which is what a client returning later reads back.
    */
   function lastAssistantContentEmpty(context: readonly AgentMessage[]): boolean {
+    const last = context.at(-1);
+    // A turn that ends on a tool result (or with no assistant at all) never
+    // reached its final answer; a tool-call assistant alone does not count.
+    if (last?.role === 'tool' || last?.role === 'user') return true;
+    if (last?.role === 'assistant') return last.content.trim() === '';
     for (let index = context.length - 1; index >= 0; index -= 1) {
       const message = context[index];
       if (message?.role === 'assistant') return message.content.trim() === '';

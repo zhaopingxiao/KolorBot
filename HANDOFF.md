@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（127 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（128 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
@@ -200,7 +200,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 对话页：
   - 标题显示当前话题显示名；显示名也用于聊天/历史分割线；
   - 只渲染本地日期为今天的消息，历史记录看「历史」页；
-  - AI 自然结束、非手动停止且最后一条 assistant 内容为空时，自动以用户消息发送 `Next.`；自动请求本身不再次触发；
+  - AI 自然结束、非手动停止，且最后一条 assistant 内容为空或停在 tool 结果后没有最终 assistant 时，自动以用户消息发送 `Next.`；自动请求本身不再次触发；
   - 后台任务完成时，空闲立即发送 `<任务名> has done.`，AI 运行中则排队到本轮结束；完成通知优先于同一边界的 `Next.`；
   - 右侧不再显示「N 条消息 · 时间」或话题 pill，标题下只显示相对时间；
   - 空对话显示大标题「今天有什么可以帮到你？」；
@@ -230,8 +230,8 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 打包前需要把源码 `packages/kolorbot-web/public` 和 `inner/` 复制到 `staging/`；当前构建脚本会读取 `staging/public`。
 - 当前 release：
   - 版本 0.4.0
-  - 大小 136,351,744 bytes
-  - SHA256 `E0D4C3EDFAA3F06A23A2C116C13D736BB4C1199F3FFAD70F38DFC66FD5EC877B`
+  - 大小 136,352,256 bytes
+  - SHA256 `B6A861437A1B86843E9AC164BF5CE0ABA3BC3BFF49DBAF313A271FDAC67CAC5A`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -324,12 +324,12 @@ npm run web       # 默认尝试 3399 -> 3420 -> 随机
 当前测试：
 
 ```text
-pnpm test  ✅ 127/127
+pnpm test  ✅ 128/128
   kolorbot-agent-loop 59
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        38
+  kolorbot-web        39
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -355,7 +355,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 127（conversation 5；memory 11；agent-loop 59；web 38）。
+20. **测试数不要写回旧值**：当前 128（conversation 5；memory 11；agent-loop 59；web 39）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -397,7 +397,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 127/127；release SHA256 E0D4C3EDFAA3F06A23A2C116C13D736BB4C1199F3FFAD70F38DFC66FD5EC877B。
+- 测试 128/128；release SHA256 B6A861437A1B86843E9AC164BF5CE0ABA3BC3BFF49DBAF313A271FDAC67CAC5A。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

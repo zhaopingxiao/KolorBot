@@ -853,6 +853,121 @@ test('notifies the chat when a background bash task finishes', async (t) => {
   );
 });
 
+test('automatically sends Next. when a turn ends on a tool result', async (t) => {
+  const server = createServer(async (request, response) => {
+    const chunks: Buffer[] = [];
+    for await (const chunk of request) chunks.push(Buffer.from(chunk as Buffer));
+    const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as {
+      messages?: ChatMessage[];
+    };
+    const messages = body.messages ?? [];
+    const system = String(messages.find((message) => message.role === 'system')?.content ?? '');
+    const lastUser = String(
+      [...messages].reverse().find((message) => message.role === 'user')?.content ?? '',
+    );
+    if (system.includes('route a single conversation into topics')) {
+      const newMessage = lastUser.split('New user message:').at(-1)?.trim() ?? lastUser;
+      response.writeHead(200, { 'content-type': 'application/json' });
+      response.end(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify(
+                  newMessage.includes('Next.')
+                    ? { action: 'continue' }
+                    : { action: 'new', name: 'Greeting', slug: 'greeting' },
+                ),
+              },
+            },
+          ],
+        }),
+      );
+      return;
+    }
+    if (lastUser.includes('Next.')) {
+      response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+      const send = (value: unknown): void => {
+        response.write(`data: ${JSON.stringify(value)}\n\n`);
+      };
+      send(textDelta('继续完成。'));
+      for (const frame of finish('stop')) send(frame);
+      response.write('data: [DONE]\n\n');
+      response.end();
+      return;
+    }
+    if (messages.some((message) => message.role === 'tool')) {
+      // Simulate the provider losing the turn after the tool result; the
+      // persisted context therefore ends on a tool message, not an assistant.
+      response.writeHead(500, { 'content-type': 'application/json' });
+      response.end(JSON.stringify({ error: { message: 'context interrupted' } }));
+      return;
+    }
+    response.writeHead(200, { 'content-type': 'text/event-stream; charset=utf-8' });
+    const send = (value: unknown): void => {
+      response.write(`data: ${JSON.stringify(value)}\n\n`);
+    };
+    send(textDelta('先检查一下。'));
+    send({
+      choices: [
+        {
+          index: 0,
+          delta: {
+            tool_calls: [
+              {
+                index: 0,
+                id: 'call_list_before_stop',
+                type: 'function',
+                function: {
+                  name: 'list_files',
+                  arguments: JSON.stringify({ path: '.' }),
+                },
+              },
+            ],
+          },
+          finish_reason: null,
+        },
+      ],
+    });
+    for (const frame of finish('tool_calls')) send(frame);
+    response.write('data: [DONE]\n\n');
+    response.end();
+  });
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  const port = (server.address() as AddressInfo).port;
+  t.after(async () => {
+    server.closeAllConnections();
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+  });
+
+  const { app } = await tempApp(t, `http://127.0.0.1:${port}/v1`, {
+    diaryIdleMs: 3_600_000,
+  });
+  await postChat(app, '开始');
+  let view = await conversation(app);
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const hasNext = view.messages.some(
+      (entry) => entry.role === 'user' && String(entry.message.content).includes('Next.'),
+    );
+    const hasReply = view.messages.some(
+      (entry) => entry.role === 'assistant' && entry.message.content === '继续完成。',
+    );
+    if (hasNext && hasReply) break;
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    view = await conversation(app);
+  }
+  assert.ok(
+    view.messages.some(
+      (entry) => entry.role === 'user' && String(entry.message.content).includes('Next.'),
+    ),
+  );
+  assert.ok(
+    view.messages.some(
+      (entry) => entry.role === 'assistant' && entry.message.content === '继续完成。',
+    ),
+  );
+});
+
 test('lists topics and returns a topic day with segments and diary', async (t) => {
   const model = await startModel();
   t.after(() => model.close());
