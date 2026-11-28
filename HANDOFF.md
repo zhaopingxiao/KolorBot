@@ -235,7 +235,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 当前 release：
   - 版本 0.4.0
   - 大小 136,376,832 bytes
-  - SHA256 `F2A5CFA04DF3D7DE097AE38EDEE8D40B063C6F5C53804302F2C118A101A67E94`
+  - SHA256 `74E9AEA3C5F8D5D5F10A686B794AFA91EA37281A09FB8D1DAD9CEFA2FDD90F88`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -264,13 +264,14 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
     ├── conversation.db   # topics / segments / messages
     ├── skills/           # 专属技能区
     ├── AI.md             # 固定头部 + 性格/自我认知
-    └── topic/<slug>/main.md + <YYYY-MM-DD-HH-mm>.md
+    ├── topic/<slug>/main.md + <YYYY-MM-DD-HH-mm>.md
+    └── workspace/        # 文件/bash 工具根；assets/、projects/ 等
 ```
 
-- `KOLOR_FRAME_ROOT` 可改 agent 根目录。
+- `KOLOR_FRAME_ROOT` 可改 agent 的 workspace 根目录。
 - AI.md、daily/ 旧日记、topic/ 新记忆文件都是普通 Markdown，可直接编辑/备份。
 - 2026-11-17 起默认数据目录从 `~/.kolor` 改为 `~/.kolorbot`；现有数据已迁移，旧目录备份在 `C:\Users\jiayi\.kolor.backup-20261117-190135`。应用不再读取旧目录。
-- 2026-11-28 起 `workspace/` 改名为 `agent/`；`skills/` 和 `conversation.db` 移入 `agent/`，启动时自动迁移旧布局。
+- 2026-11-28 起 `workspace/` 改名为 `agent/`；`assets/`、`projects/` 等移入 `agent/workspace/`，`skills/`、`topic/`、`AI.md`、`conversation.db` 留在 `agent/`，启动时自动迁移旧布局。
 - 用户曾手动清空数据：数据库缺数据、话题 404、记忆为空都不是 bug。
 
 ## 5. HTTP API 概览
@@ -402,7 +403,7 @@ pnpm test
 - 新记忆文件：agent/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 134/134；release SHA256 F2A5CFA04DF3D7DE097AE38EDEE8D40B063C6F5C53804302F2C118A101A67E94。
+- 测试 134/134；release SHA256 74E9AEA3C5F8D5D5F10A686B794AFA91EA37281A09FB8D1DAD9CEFA2FDD90F88。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

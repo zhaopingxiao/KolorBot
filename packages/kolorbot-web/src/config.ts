@@ -10,7 +10,9 @@ export interface WebConfig {
   port: number;
   /** KolorBot home (`~/.kolorbot`). */
   home: string;
-  /** Default agent workspace for the built-in frame tools (`<home>/agent`). */
+  /** Agent data root (`<home>/agent`): AI.md, topic, skills, conversation.db. */
+  agentRoot: string;
+  /** Agent working directory for file/bash tools (`<agentRoot>/workspace`). */
   frameRoot: string;
   /** Compatibility skills area (`~/.agents/skills`). */
   skillsDir: string;
@@ -30,7 +32,9 @@ export interface WebConfigOverrides {
   host?: string;
   port?: number;
   home?: string;
+  agentRoot?: string;
   frameRoot?: string;
+  workspaceRoot?: string;
   skillsDir?: string;
   userSkillsDir?: string;
   builtinSkillsDir?: string;
@@ -54,18 +58,24 @@ export function resolveWebConfig(
   env: NodeJS.ProcessEnv = process.env,
 ): WebConfig {
   const home = overrides.home ?? resolveKolorHome(env);
+  const explicitFrameRoot = overrides.frameRoot ?? nonEmpty(env.KOLOR_FRAME_ROOT);
+  const agentRoot =
+    overrides.agentRoot ??
+    (explicitFrameRoot === undefined ? join(home, 'agent') : explicitFrameRoot);
   const frameRoot =
-    overrides.frameRoot ?? nonEmpty(env.KOLOR_FRAME_ROOT) ?? join(home, 'agent');
+    overrides.workspaceRoot ??
+    (explicitFrameRoot === undefined ? join(agentRoot, 'workspace') : explicitFrameRoot);
   return {
     host: overrides.host ?? nonEmpty(env.KOLOR_WEB_HOST) ?? '127.0.0.1',
     port: overrides.port ?? parsePort(env.KOLOR_WEB_PORT) ?? DEFAULT_PORT,
     home,
+    agentRoot,
     frameRoot,
     skillsDir: overrides.skillsDir ?? resolveSkillsRoot(env),
     userSkillsDir:
       overrides.userSkillsDir ??
       nonEmpty(env.KOLOR_USER_SKILLS_DIR) ??
-      join(frameRoot, 'skills'),
+      join(agentRoot, 'skills'),
     builtinSkillsDir:
       overrides.builtinSkillsDir ?? nonEmpty(env.KOLOR_BUILTIN_SKILLS_DIR) ?? findBuiltinSkillsDir(),
     apiUrl: overrides.apiUrl ?? nonEmpty(env.KOLOR_API_URL) ?? '',
@@ -75,7 +85,7 @@ export function resolveWebConfig(
         ? overrides.apiKey
         : (nonEmpty(env.KOLOR_API_KEY) ?? nonEmpty(env.DEEPSEEK_API_KEY) ?? ''),
     conversationDbPath:
-      nonEmpty(env.KOLOR_CONVERSATION_DB) ?? join(frameRoot, 'conversation.db'),
+      nonEmpty(env.KOLOR_CONVERSATION_DB) ?? join(agentRoot, 'conversation.db'),
   };
 }
 

@@ -1,4 +1,4 @@
-# KolorBot
+﻿# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -146,7 +146,7 @@ npm run web -- --host 0.0.0.0
 | `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT` | `127.0.0.1` / `3399` | 监听地址与端口；显式设置端口时不回退 |
 | `KOLOR_HOME` | `~/.kolorbot` | 数据目录（`providers.json`、`memory.json`、`agent/`；对话库和技能在 `agent/` 内） |
 | `KOLOR_CONVERSATION_DB` | `<home>/agent/conversation.db` | 单对话 / 话题数据库 |
-| `KOLOR_FRAME_ROOT` | `<home>/agent` | 内置文件/bash 工具的工作区根 |
+| `KOLOR_FRAME_ROOT` | `<home>/agent/workspace` | 内置文件/bash 工具的工作区根 |
 | `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 兼容技能区（Claude 标准） |
 | `KOLOR_USER_SKILLS_DIR` | `<home>/agent/skills` | 专属技能区（默认 `~/.kolorbot/agent/skills`） |
 | `KOLOR_BUILTIN_SKILLS_DIR` | `<repo>/inner/skills` | 内置技能区 |
@@ -159,7 +159,7 @@ npm run web -- --host 0.0.0.0
 
 > 2026-11-17 起默认数据目录改为 `~/.kolorbot`。当前机器的旧目录 `~/.kolor` 已迁移，备份在 `C:\Users\jiayi\.kolor.backup-20261117-190135`；应用不再读取旧目录。
 >
-> 2026-11-28 起 workspace 改名为 `agent/`；`skills/` 和 `conversation.db` 也移入 `agent/`。启动时会自动迁移旧的 `workspace/`、`~/.kolorbot/skills/` 和 `~/.kolorbot/conversation.db`。
+> 2026-11-28 起 workspace 改名为 `agent/`；`assets/`、`projects/` 等文件移入 `agent/workspace/`，`skills/`、`topic/`、`AI.md`、`conversation.db` 留在 `agent/`。启动时会自动迁移旧布局。
 
 ### 如何运行 TypeScript
 

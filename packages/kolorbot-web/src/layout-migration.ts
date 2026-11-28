@@ -15,21 +15,23 @@ export interface LayoutMigrationResult {
  *   <home>/conversation.db
  *
  * New layout:
- *   <home>/agent/AI.md, topic/, daily/, skills/, conversation.db
+ *   <home>/agent/{AI.md,topic,daily,skills,conversation.db}
+ *   <home>/agent/workspace/{assets,projects,...}
  *
  * Migration only runs for the default `agent` root. Custom
  * KOLOR_FRAME_ROOT / KOLOR_CONVERSATION_DB paths are never touched.
  */
 export function migrateLegacyLayout(
   home: string,
-  frameRoot: string,
+  agentRoot: string,
+  workspaceRoot: string,
   conversationDbPath: string,
   logger?: (message: string) => void,
 ): LayoutMigrationResult {
   const moved: string[] = [];
   const skipped: string[] = [];
   const targetRoot = join(home, 'agent');
-  if (frameRoot !== targetRoot) return { moved, skipped };
+  if (agentRoot !== targetRoot) return { moved, skipped };
 
   const legacyRoot = join(home, 'workspace');
   if (existsSync(legacyRoot)) {
@@ -42,10 +44,10 @@ export function migrateLegacyLayout(
   }
 
   const legacySkills = join(home, 'skills');
-  const targetSkills = join(frameRoot, 'skills');
+  const targetSkills = join(agentRoot, 'skills');
   if (existsSync(legacySkills)) {
     if (!existsSync(targetSkills)) {
-      mkdirSync(frameRoot, { recursive: true });
+      mkdirSync(agentRoot, { recursive: true });
       renameSync(legacySkills, targetSkills);
       moved.push(`${legacySkills} -> ${targetSkills}`);
     } else {
@@ -54,13 +56,13 @@ export function migrateLegacyLayout(
   }
 
   const legacyDb = join(home, 'conversation.db');
-  const targetDb = join(frameRoot, 'conversation.db');
+  const targetDb = join(agentRoot, 'conversation.db');
   if (
     conversationDbPath === targetDb &&
     existsSync(legacyDb) &&
     !existsSync(targetDb)
   ) {
-    mkdirSync(frameRoot, { recursive: true });
+    mkdirSync(agentRoot, { recursive: true });
     renameSync(legacyDb, targetDb);
     for (const suffix of ['-wal', '-shm']) {
       const source = `${legacyDb}${suffix}`;
@@ -70,6 +72,21 @@ export function migrateLegacyLayout(
     moved.push(`${legacyDb} -> ${targetDb}`);
   } else if (existsSync(legacyDb)) {
     skipped.push(`${legacyDb} (target already exists or a custom DB path is set)`);
+  }
+
+  if (workspaceRoot !== agentRoot) {
+    for (const entry of ['assets', 'projects']) {
+      const source = join(agentRoot, entry);
+      const target = join(workspaceRoot, entry);
+      if (!existsSync(source)) continue;
+      if (!existsSync(target)) {
+        mkdirSync(workspaceRoot, { recursive: true });
+        renameSync(source, target);
+        moved.push(`${source} -> ${target}`);
+      } else {
+        mergeMissing(source, target, moved, skipped);
+      }
+    }
   }
 
   for (const message of moved) logger?.(`moved legacy data: ${message}`);
