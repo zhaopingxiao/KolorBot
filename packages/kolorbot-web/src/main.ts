@@ -68,7 +68,7 @@ function logWeb(app: KolorWebServer): void {
       active.source === 'none' ? '未配置（请在 Web 的「模型」页添加提供商）' : active.label
     }`,
   );
-  console.log(`workspace     ${app.config.frameRoot}`);
+  console.log(`agent         ${app.config.frameRoot}`);
 }
 
 function installShutdown(close: () => Promise<void>): void {

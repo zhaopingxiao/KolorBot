@@ -18,6 +18,7 @@ import { SingleConversation } from './conversation-session.js';
 import { AgentPool } from './agent-pool.js';
 import { resolveWebConfig, type WebConfig, type WebConfigOverrides } from './config.js';
 import { IdleDiary } from './diary-idle.js';
+import { migrateLegacyLayout } from './layout-migration.js';
 import {
   HttpError,
   describeError,
@@ -229,6 +230,12 @@ function publicMcpServers(
 export async function createKolorWebServer(options: KolorWebOptions = {}): Promise<KolorWebServer> {
   const config = resolveWebConfig(options);
   mkdirSync(config.home, { recursive: true });
+  migrateLegacyLayout(
+    config.home,
+    config.frameRoot,
+    config.conversationDbPath,
+    options.logger === undefined ? undefined : (message) => options.logger?.(message),
+  );
   mkdirSync(config.frameRoot, { recursive: true });
 
   const store = options.store ?? new SingleConversation(new ConversationStore({ path: config.conversationDbPath }));

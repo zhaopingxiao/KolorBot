@@ -10,11 +10,11 @@ export interface WebConfig {
   port: number;
   /** KolorBot home (`~/.kolorbot`). */
   home: string;
-  /** Default workspace for the built-in frame tools. */
+  /** Default agent workspace for the built-in frame tools (`<home>/agent`). */
   frameRoot: string;
   /** Compatibility skills area (`~/.agents/skills`). */
   skillsDir: string;
-  /** Custom skills area next to the workspace (`<home>/skills`). */
+  /** Custom skills area inside the agent workspace (`<frameRoot>/skills`). */
   userSkillsDir: string;
   /** Built-in skills shipped with the source (`<repo>/inner/skills`). */
   builtinSkillsDir: string;
@@ -55,7 +55,7 @@ export function resolveWebConfig(
 ): WebConfig {
   const home = overrides.home ?? resolveKolorHome(env);
   const frameRoot =
-    overrides.frameRoot ?? nonEmpty(env.KOLOR_FRAME_ROOT) ?? join(home, 'workspace');
+    overrides.frameRoot ?? nonEmpty(env.KOLOR_FRAME_ROOT) ?? join(home, 'agent');
   return {
     host: overrides.host ?? nonEmpty(env.KOLOR_WEB_HOST) ?? '127.0.0.1',
     port: overrides.port ?? parsePort(env.KOLOR_WEB_PORT) ?? DEFAULT_PORT,
@@ -63,7 +63,9 @@ export function resolveWebConfig(
     frameRoot,
     skillsDir: overrides.skillsDir ?? resolveSkillsRoot(env),
     userSkillsDir:
-      overrides.userSkillsDir ?? nonEmpty(env.KOLOR_USER_SKILLS_DIR) ?? join(home, 'skills'),
+      overrides.userSkillsDir ??
+      nonEmpty(env.KOLOR_USER_SKILLS_DIR) ??
+      join(frameRoot, 'skills'),
     builtinSkillsDir:
       overrides.builtinSkillsDir ?? nonEmpty(env.KOLOR_BUILTIN_SKILLS_DIR) ?? findBuiltinSkillsDir(),
     apiUrl: overrides.apiUrl ?? nonEmpty(env.KOLOR_API_URL) ?? '',
@@ -72,8 +74,8 @@ export function resolveWebConfig(
       overrides.apiKey !== undefined
         ? overrides.apiKey
         : (nonEmpty(env.KOLOR_API_KEY) ?? nonEmpty(env.DEEPSEEK_API_KEY) ?? ''),
-    conversationDbPath: nonEmpty(env.KOLOR_CONVERSATION_DB) ?? join(home, 'conversation.db'),
-
+    conversationDbPath:
+      nonEmpty(env.KOLOR_CONVERSATION_DB) ?? join(frameRoot, 'conversation.db'),
   };
 }
 

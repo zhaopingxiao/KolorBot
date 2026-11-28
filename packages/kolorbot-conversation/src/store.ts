@@ -421,5 +421,7 @@ function toMessage(row: MessageRow): StoredMessage {
 
 /** Resolve the default database path for callers that only have a home. */
 export function conversationDbPath(home?: string): string {
-  return home === undefined ? join(resolveKolorHome(), 'conversation.db') : join(home, 'conversation.db');
+  return home === undefined
+    ? join(resolveKolorHome(), 'agent', 'conversation.db')
+    : join(home, 'agent', 'conversation.db');
 }

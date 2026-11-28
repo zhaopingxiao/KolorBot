@@ -18,7 +18,7 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 
 **话题规则**：每条用户消息都会先经过一次轻量话题判定（continue / switch / new）。切换话题时 UI 插入话题分割线，模型上下文从空开始，并在第一条消息里注入：
 
-- `<system-memory>`：AI.md + `workspace/topic/<slug>/main.md` 关键记忆 + 最新一条时间戳记录；
+- `<system-memory>`：AI.md + `agent/topic/<slug>/main.md` 关键记忆 + 最新一条时间戳记录；
 - `<system-last-message>`：上一个话题最后 10 条 user/assistant 文本。
 
 同一话题后续消息不重复注入，只有 AI.md 变更时才重新发送。定时任务功能已暂时移除。
@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 132 个测试
+pnpm test      # 134 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -122,11 +122,11 @@ npm run web -- --host 0.0.0.0
 
 ![移动端](docs/mobile.png)
 
-- **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolorbot/conversation.db`。
+- **单对话**：整个产品只有一条对话，没有新建会话、会话列表或搜索；所有历史在 `~/.kolorbot/agent/conversation.db`。
 - **对话页只显示今天**：按消息的本地创建日期过滤；历史记录全在「历史」页。
 - **空输出续写**：AI 自然结束（非手动停止），且最后一条 assistant 内容为空，或停在 tool 结果后没有最终 assistant 时，自动以用户身份发送 `Next.`，显示在对话里；自动 `Next.` 本身不会再次触发，避免循环。
 - **后台 Bash**：`bash` 支持 `wait: true`，命令后台运行并按首个参数生成任务名（冲突时 `_2`、`_3`）；完成后若 AI 已空闲，会自动发送 `<任务名> has done.`；最多同时运行 8 个，重启不保留。
-- **历史页**：对话标题左边的日历图标进入；直接显示所有月份日历（所有话题合并），紫色日期可点开当天**全部话题**的聊天记录和当天记忆。
+- **历史页**：左下角智能体卡片的「⋯」→「历史」进入；直接显示所有月份日历（所有话题合并），紫色日期可点开当天**全部话题**的聊天记录和当天记忆。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与记忆](#单对话话题与记忆)。
 - 模型：侧栏「技能」下面的「模型」管理提供商（大语言模型 / 语音 / 图片 / 视频；厂商集成、OpenAI v1、代码接入），输入框上方的下拉框随时切换当前聊天模型。
 - 设定：侧栏底部 agent 卡片的「⋯」→「设定」管理 AI.md，可用 `/self-md-update` / `/self-md-tell …` 创建或更新；页面不再显示日记项。
@@ -144,11 +144,11 @@ npm run web -- --host 0.0.0.0
 | `KOLOR_API_URL` | 空 | 显式环境变量回退的 endpoint；不设就没有任何默认模型 |
 | `KOLOR_API_MODEL` | 空 | 显式环境变量回退的模型名；不设就没有任何默认模型 |
 | `KOLOR_WEB_HOST` / `KOLOR_WEB_PORT` | `127.0.0.1` / `3399` | 监听地址与端口；显式设置端口时不回退 |
-| `KOLOR_HOME` | `~/.kolorbot` | 数据目录（`conversation.db`、`providers.json`、`memory.json`、`workspace/`） |
-| `KOLOR_CONVERSATION_DB` | `<home>/conversation.db` | 单对话 / 话题数据库 |
-| `KOLOR_FRAME_ROOT` | `<home>/workspace` | 内置文件/bash 工具的工作区根 |
+| `KOLOR_HOME` | `~/.kolorbot` | 数据目录（`providers.json`、`memory.json`、`agent/`；对话库和技能在 `agent/` 内） |
+| `KOLOR_CONVERSATION_DB` | `<home>/agent/conversation.db` | 单对话 / 话题数据库 |
+| `KOLOR_FRAME_ROOT` | `<home>/agent` | 内置文件/bash 工具的工作区根 |
 | `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 兼容技能区（Claude 标准） |
-| `KOLOR_USER_SKILLS_DIR` | `<home>/skills` | 专属技能区（默认 `~/.kolorbot/skills`） |
+| `KOLOR_USER_SKILLS_DIR` | `<home>/agent/skills` | 专属技能区（默认 `~/.kolorbot/agent/skills`） |
 | `KOLOR_BUILTIN_SKILLS_DIR` | `<repo>/inner/skills` | 内置技能区 |
 | `BROWSERUSE_VIEW_PORT` | `9223` | browseruse 技能实时画面的端口（经 `kolor.json` 的 `${VAR}` 注入技能进程） |
 | `BROWSERUSE_HEADLESS` | `true` | browseruse 技能用 `false` 时显示真实浏览器窗口 |
@@ -158,6 +158,8 @@ npm run web -- --host 0.0.0.0
 > Web 服务没有鉴权，默认只监听 `127.0.0.1`，不要暴露到公网。
 
 > 2026-11-17 起默认数据目录改为 `~/.kolorbot`。当前机器的旧目录 `~/.kolor` 已迁移，备份在 `C:\Users\jiayi\.kolor.backup-20261117-190135`；应用不再读取旧目录。
+>
+> 2026-11-28 起 workspace 改名为 `agent/`；`skills/` 和 `conversation.db` 也移入 `agent/`。启动时会自动迁移旧的 `workspace/`、`~/.kolorbot/skills/` 和 `~/.kolorbot/conversation.db`。
 
 ### 如何运行 TypeScript
 
@@ -254,7 +256,7 @@ mcpServers: [
 
 工具名会变成 `mcp__<server>__<tool>`（例如 `calc` → `mcp__calc__add`）。单个服务器连不上不会让 agent 启动失败：`agent.mcpServers` 记录 `ok: false` 和原因，同时发出 `mcp/error` 事件。
 
-KolorFrame 不是 MCP，也不额外启动进程：`KolorAgent` 默认把 `read_file`、`write_file`、`list_files`、`bash`、`skills` 注册成本地工具，工作区由 `kolorFrame.root` 指定（Web 默认 `~/.kolorbot/workspace`）。传 `kolorFrame: false` 可以关闭。
+KolorFrame 不是 MCP，也不额外启动进程：`KolorAgent` 默认把 `read_file`、`write_file`、`list_files`、`bash`、`skills` 注册成本地工具，工作区由 `kolorFrame.root` 指定（Web 默认 `~/.kolorbot/agent`）。传 `kolorFrame: false` 可以关闭。
 
 ### 在 skill 里声明 MCP
 
@@ -375,7 +377,7 @@ async function generate(input, context) {
 - 删除当前提供商、或在下拉框里选「环境变量」时，回退到显式配置的 `KOLOR_API_URL` + `KOLOR_API_MODEL` + key。**没有内置默认**。
 - 模型选择是全局的：切换后所有会话的下一轮都用新模型，进行中的轮次不受影响。
 
-存储位置是 `~/.kolorbot/providers.json`，和 `conversation.db` 同级：
+存储位置是 `~/.kolorbot/providers.json`：
 
 ```json
 {
@@ -416,7 +418,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 
 ## Topic: 工作区 Remotion 环境
 
-（workspace/topic/remotion/main.md 的内容）
+（agent/topic/remotion/main.md 的内容）
 
 ## Latest record (2026-11-18-21-32.md)
 
@@ -432,7 +434,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 
 ### 设定（AI.md）
 
-- 文件：`<workspace>/AI.md`，默认 `~/.kolorbot/workspace/AI.md`。固定头部格式：
+- 文件：`<agent>/AI.md`，默认 `~/.kolorbot/agent/AI.md`。固定头部格式：
 
 ```markdown
 # 名字
@@ -440,12 +442,12 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 > 头像路径
 ```
 
-`#` 后是名字，`## head-image` 下一行的 `>` 后是头像路径（相对 workspace 或绝对路径）。
+`#` 后是名字，`## head-image` 下一行的 `>` 后是头像路径（相对 agent 或绝对路径）。
 - 只存：AI 的名字、性格、对自身的了解；可选：自己形象图片的本地路径、AI 认为自己形象是什么样。**超过 1 MiB 必须删减**。
 - 更新命令：
   - `/self-md-update`：让 AI 以当前对话为信息创建/更新 AI.md；
   - `/self-md-tell 你是一个温柔的 AI…`：按命令后面的信息更新（没写内容会被拒绝）。
-  两者都只发一条包含 AI.md 保存规则的消息，直接要求模型用 `write_file` 写 `workspace/AI.md`。
+  两者都只发一条包含 AI.md 保存规则的消息，直接要求模型用 `write_file` 写 `agent/AI.md`。
 
 ### 话题记忆整理
 
@@ -454,18 +456,18 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 1. 上一段 segment 关闭后，服务端把这段对话记录整理成 transcript，交给一个**全新的整理 Agent**（新的临时 agent id、`context = []`，不复用当前对话 Agent）。
 2. 该 Agent 只拿到这段 transcript、整理规则和写作工具；先读 `main.md`，再通过 `write_topic_note` 写当前话题的**每日记录**，同时更新 `main.md` 关键记忆。
 3. 如果同一话题跨了本地日期，第二天第一条消息会强制新开 segment，所以上一天会先被整理，不会因为话题没变而漏掉。
-4. 记录路径：`workspace/topic/<slug>/<YYYY-MM-DD-HH-mm>.md`；关键记忆仍在同一目录的 `main.md`。
+4. 记录路径：`agent/topic/<slug>/<YYYY-MM-DD-HH-mm>.md`；关键记忆仍在同一目录的 `main.md`。
 5. 文件名时间是**该 segment 最后一条消息的完成时间**，不是整理时间；跨天时以最后一条消息所在日期为准。
 6. 记录内容是“做了什么、结果、进展”的正文，不写关键事实，不写 `# 日期`、`## 话题` 或 `### HH:mm`。
 7. 同一话题有多个片段记录时，读取/展示会用 `---` 和 `### 片段 N · HH:mm` 分隔。
 8. 整理任务不占用主对话、不阻塞新话题消息；整理 Agent 的上下文在任务结束后丢弃。
-9. 旧的 `workspace/daily` 日记格式不再由整理任务写入；`write_diary` 只保留为旧工具兼容。
+9. 旧的 `agent/daily` 日记格式不再由整理任务写入；`write_diary` 只保留为旧工具兼容。
 
 ### 整理工具
 
-- `write_topic_note({ content, main })`：把当前话题的**每日记录**写入 `workspace/topic/<slug>/<timestamp>.md`，并把 `main` 写入 `main.md` 关键记忆；正文直接写入，不加标题/时间。
-- `write_topic({ content })`：创建/替换当前话题的**关键记忆** `workspace/topic/<slug>/main.md`。
-- `read_today_memory({ date? })`：扫描 `workspace/topic/<slug>/` 下所有话题的 `YYYY-MM-DD-HH-mm.md`，按时间排序返回；每条前带 `--------<slug>-HH-mm--------` 分隔线。
+- `write_topic_note({ content, main })`：把当前话题的**每日记录**写入 `agent/topic/<slug>/<timestamp>.md`，并把 `main` 写入 `main.md` 关键记忆；正文直接写入，不加标题/时间。
+- `write_topic({ content })`：创建/替换当前话题的**关键记忆** `agent/topic/<slug>/main.md`。
+- `read_today_memory({ date? })`：扫描 `agent/topic/<slug>/` 下所有话题的 `YYYY-MM-DD-HH-mm.md`，按时间排序返回；每条前带 `--------<slug>-HH-mm--------` 分隔线。
 - `read_topic_memory({ slug })`：读取指定话题的 `main.md` 和最新一条时间戳记录，格式与 `<system-memory>` 的 Topic / Latest record 段一致。
 - `read_diary` / `write_diary` 是旧格式兼容工具；新的自动整理只使用 `write_topic_note`。
 
@@ -483,7 +485,7 @@ agent 卡片的「⋯」→「设定」页面只显示 AI.md。记忆按当前�
 
 ### 存储
 
-`~/.kolorbot/conversation.db`（`KOLOR_CONVERSATION_DB` 可覆盖）里有三张表：
+`~/.kolorbot/agent/conversation.db`（`KOLOR_CONVERSATION_DB` 可覆盖）里有三张表：
 
 ```sql
 topics          (slug, name, created_at, updated_at)
@@ -518,7 +520,7 @@ messages        (id, segment_id, topic_slug, role, data_json, created_at)
 ## AI self (AI.md)
 ...
 ## Topic: 工作区 Remotion 环境
-workspace/topic/workspace-environment/main.md 的内容
+agent/topic/workspace-environment/main.md 的内容
 ## Latest record (2026-11-18-21-32.md)
 最后一次时间戳记录的内容
 </system-memory>
@@ -540,7 +542,7 @@ assistant: ...
 ### 每日记录格式
 
 ```text
-workspace/topic/<slug>/<YYYY-MM-DD-HH-mm>.md
+agent/topic/<slug>/<YYYY-MM-DD-HH-mm>.md
 ```
 
 - 每个 segment 一条记录，文件名时间是该 segment 最后一条消息完成时间；
@@ -563,7 +565,7 @@ workspace/topic/<slug>/<YYYY-MM-DD-HH-mm>.md
 ### 话题关键记忆
 
 ```text
-workspace/topic/<slug>/main.md
+agent/topic/<slug>/main.md
 ```
 
 ```markdown
@@ -571,7 +573,7 @@ workspace/topic/<slug>/main.md
 
 ## 关键信息
 
-- 项目路径：workspace/remotion-project
+- 项目路径：agent/remotion-project
 - 当前状态：...
 
 ## 待办 / 下一步
@@ -622,7 +624,7 @@ Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区�
 | 区 | 目录 | 说明 |
 | --- | --- | --- |
 | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR` 可覆盖） | Claude 标准的兼容区，原来的安装位置 |
-| 专属技能 | `<home>/skills`，默认 `~/.kolorbot/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
+| 专属技能 | `<home>/agent/skills`，默认 `~/.kolorbot/agent/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
 | 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` 放在这里 |
 
 - 三个区都按 `<区>/<id>/SKILL.md` 组织；同名技能按 **专属 → 兼容 → 内置** 的优先级取第一个，不会重复注入。
@@ -1019,13 +1021,13 @@ Content-Type: application/json
 pnpm test
 ```
 
-共 132 个测试：
+共 134 个测试：
 
 - `kolorbot-agent-loop`（61）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、后台任务、skills、`read_image`。
 - `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（41）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
+- `kolorbot-web`（43）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
 
 全部测试不需要网络和 API key。
 

@@ -214,13 +214,13 @@ test('switches topics, injects topic memory and the previous 10 messages', async
 test('splits the same topic into two segments at a local day boundary', async (t) => {
   const model = await startModel();
   t.after(() => model.close());
-  const { app, home } = await tempApp(t, model.url);
+  const { app } = await tempApp(t, model.url);
 
   await postChat(app, 'remotion 第一天');
   let view = await conversation(app);
   assert.equal(view.segments.length, 1);
   const segmentId = view.segments[0]?.id as string;
-  const db = new DatabaseSync(join(home, 'conversation.db'));
+  const db = new DatabaseSync(app.config.conversationDbPath);
   try {
     db.prepare('UPDATE segments SET started_at = ? WHERE id = ?').run(
       new Date(Date.now() - 86_400_000).toISOString(),

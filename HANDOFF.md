@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（132 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（134 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
@@ -20,7 +20,7 @@ KolorBot 是一个本地运行的 Node.js 智能体运行时，配一个轻量 W
 - 整个应用只有一条对话，按话题划分为 `topics` / `segments` / `messages`。
 - 模型消息先做话题判定；切换话题会新开 segment，模型上下文只取当前 segment。
 - 技能遵循 Claude `SKILL.md`，支持三个技能区；技能可以声明 MCP server。
-- 记忆由 `AI.md` 和每个话题的 `workspace/topic/<slug>/*.md` 时间戳记忆文件组成。
+- 记忆由 `AI.md` 和每个话题的 `agent/topic/<slug>/*.md` 时间戳记忆文件组成。
 - Web UI 白色极简风，支持桌面和移动端抽屉。
 - 有 Windows 单文件发布版，内置 Node/runtime，空目录可运行。
 
@@ -66,7 +66,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 
 ### 3.2 单对话与话题（`kolorbot-conversation`）
 
-- SQLite `node:sqlite`，默认 `~/.kolorbot/conversation.db`（`KOLOR_CONVERSATION_DB` 可覆盖）。
+- SQLite `node:sqlite`，默认 `~/.kolorbot/agent/conversation.db`（`KOLOR_CONVERSATION_DB` 可覆盖）。
 - 表：`topics` / `segments` / `messages`。
 - 整个应用只有一条对话；切换话题开新 segment，UI 在 segment 之间显示话题分割线。
 - `messages.data_json` 保存完整 `AgentMessage`（含 toolCalls / tool 结果），UI 与模型共用同一份数据。
@@ -78,7 +78,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 新话题创建/复用 topic，开始新 segment，`pool.disposeSession('main')`。
 - 模型上下文只包含当前 segment；切回旧话题也开新 segment，不恢复该话题旧消息。
 - 新 segment 第一条注入：
-  - `<system-memory>`：AI.md + `workspace/topic/<slug>/main.md` 关键记忆 + 最新一条 `<YYYY-MM-DD-HH-mm>.md` 记录；
+  - `<system-memory>`：AI.md + `agent/topic/<slug>/main.md` 关键记忆 + 最新一条 `<YYYY-MM-DD-HH-mm>.md` 记录；
   - `<system-last-message>`：上一 segment 最后 10 条 user/assistant 文本。
 - 同一 segment 内只有 AI.md 变化才重新注入记忆。
 - 重置 `/api/sessions/main/reset` 清空消息/segment，保留话题与记忆文件。
@@ -87,7 +87,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 
 #### AI.md 固定格式
 
-`<workspace>/AI.md`，默认 `~/.kolorbot/workspace/AI.md`。固定头部：
+`<agent>/AI.md`，默认 `~/.kolorbot/agent/AI.md`。固定头部：
 
 ```markdown
 # 名字
@@ -97,7 +97,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 
 - 第一行 `#` 后是名字。
 - `## head-image` 下一行 `>` 后是头像路径。
-- 相对路径按 workspace 解析，也支持绝对路径 / `file://`；远程 `http(s)` 头像由 UI 直接加载。
+- 相对路径按 agent 解析，也支持绝对路径 / `file://`；远程 `http(s)` 头像由 UI 直接加载。
 - 下面继续写性格、自我认知等；整个文件上限 1 MiB，超过会截断注入。
 - `parsePersona()` 解析出 `name` / `headImage`；`MemoryStore.self()` 返回这两个字段。
 - 当前主实例没有 AI.md，所以 agent 卡片显示回退名 `KolorBot`、无头像。
@@ -105,16 +105,16 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 
 #### 话题记忆文件
 
-- 关键记忆：`workspace/topic/<slug>/main.md`。
+- 关键记忆：`agent/topic/<slug>/main.md`。
   - 只放可复用事实、状态、决定、待办；`<system-memory>` 使用它。
   - `<system-memory>` 还带当前话题最新一条时间戳记录（按文件名排序最后一条）。
-  - `write_topic` 写这个文件；旧的 `workspace/topic/<slug>.md` 仅作读取兜底。
-- 每日记录：`workspace/topic/<slug>/<YYYY-MM-DD-HH-mm>.md`。
+  - `write_topic` 写这个文件；旧的 `agent/topic/<slug>.md` 仅作读取兜底。
+- 每日记录：`agent/topic/<slug>/<YYYY-MM-DD-HH-mm>.md`。
   - 每个 segment 一条，文件名时间是该 segment 最后一条消息的完成时间，不是整理时间。
   - 只写“做了什么、结果、进展”，不写关键事实，不写 `# 日期` / `## 话题` / `### HH:mm`。
   - 同一天多个片段在话题页按 `### 片段 N · HH:mm` + `---` 分隔显示。
-  - 旧的 `workspace/daily` 日记格式不再由整理任务写入。
-- `read_today_memory({ date? })`：扫描所有 `workspace/topic/<slug>/` 下当天的时间戳文件，按 `HH-mm` 排序，每条前输出 `--------<slug>-HH-mm--------`。
+  - 旧的 `agent/daily` 日记格式不再由整理任务写入。
+- `read_today_memory({ date? })`：扫描所有 `agent/topic/<slug>/` 下当天的时间戳文件，按 `HH-mm` 排序，每条前输出 `--------<slug>-HH-mm--------`。
 - `read_topic_memory({ slug })`：返回指定话题的 `main.md` + 最新记录，格式与 `<system-memory>` 的 Topic / Latest record 一致。
 
 #### 整理任务
@@ -134,11 +134,11 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 | 区 | 目录 | 说明 |
 | --- | --- | --- |
 | 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR`） | Claude 标准兼容区 |
-| 专属技能 | `<home>/skills`（`KOLOR_USER_SKILLS_DIR`） | 默认 `~/.kolorbot/skills` |
+| 专属技能 | `<home>/agent/skills`（`KOLOR_USER_SKILLS_DIR`） | 默认 `~/.kolorbot/agent/skills` |
 | 内置技能 | `<repo>/inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR`） | `browseruse` 在这里 |
 
 - 按 `<区>/<id>/SKILL.md` 读取；同名技能按 **专属 → 兼容 → 内置** 取第一个。
-- 2026-11-17：专属技能区从 `<home>/workspace/skills` 移到 `<home>/skills`；现有 `deepseek-search` 已迁移。
+- 2026-11-17：专属技能区从 `<home>/skills` 移到 `<home>/agent/skills`；现有 `deepseek-search` 已迁移。
 - `kolor.json` 可声明 `mcpServers`（也接受 `mcp` 别名），支持 `${VAR}` 环境变量展开。
 - Web 的「技能」页按三个区分组展示，有 MCP 的技能带 MCP 标识，详情显示 server 名称/transport。
 - 原来的独立 MCP 页面已删除；MCP 只读，通过技能目录配置。
@@ -198,8 +198,8 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
   - 头像通过 `/api/agent` + `/api/agent/avatar` 提供；
   - 没有 AI.md / 没有名字时回退 `KolorBot`。
 - 顶部标题：
-  - 对话页标题左侧显示日历 SVG 图标，点击进入历史页；
-  - 历史页同样显示图标并加深，点击回到对话；
+  - 历史入口在左下角智能体卡片的「⋯」菜单里；
+  - 对话页标题不再显示历史图标；
   - 技能 / 模型 / 设定页不显示这个图标。
 - 对话页：
   - 标题显示当前话题显示名；显示名也用于聊天/历史分割线；
@@ -235,7 +235,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 当前 release：
   - 版本 0.4.0
   - 大小 136,376,832 bytes
-  - SHA256 `8B2F5780D9D2818613E2B6AD018CAFDF1A190318449118DD703140D784292BE3`
+  - SHA256 `F2A5CFA04DF3D7DE097AE38EDEE8D40B063C6F5C53804302F2C118A101A67E94`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -258,18 +258,19 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 
 ```text
 ~/.kolorbot/
-├── conversation.db       # topics / segments / messages
 ├── memory.json           # 自动整理开关
 ├── providers.json        # 模型提供商 / active 模型 / key
-├── workspace/
-│   ├── AI.md             # 固定头部 + 性格/自我认知
-│   └── topic/<slug>/main.md + <YYYY-MM-DD-HH-mm>.md
-└── logs/                 # 源码运行时日志
+└── agent/
+    ├── conversation.db   # topics / segments / messages
+    ├── skills/           # 专属技能区
+    ├── AI.md             # 固定头部 + 性格/自我认知
+    └── topic/<slug>/main.md + <YYYY-MM-DD-HH-mm>.md
 ```
 
-- `KOLOR_FRAME_ROOT` 可改 workspace。
+- `KOLOR_FRAME_ROOT` 可改 agent 根目录。
 - AI.md、daily/ 旧日记、topic/ 新记忆文件都是普通 Markdown，可直接编辑/备份。
 - 2026-11-17 起默认数据目录从 `~/.kolor` 改为 `~/.kolorbot`；现有数据已迁移，旧目录备份在 `C:\Users\jiayi\.kolor.backup-20261117-190135`。应用不再读取旧目录。
+- 2026-11-28 起 `workspace/` 改名为 `agent/`；`skills/` 和 `conversation.db` 移入 `agent/`，启动时自动迁移旧布局。
 - 用户曾手动清空数据：数据库缺数据、话题 404、记忆为空都不是 bug。
 
 ## 5. HTTP API 概览
@@ -328,12 +329,12 @@ npm run web       # 默认尝试 3399 -> 3420 -> 随机
 当前测试：
 
 ```text
-pnpm test  ✅ 132/132
+pnpm test  ✅ 134/134
   kolorbot-agent-loop 61
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        41
+  kolorbot-web        43
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -346,9 +347,9 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 4. **记忆写入有门禁**：`write_topic_note` 只在整理任务启用；普通聊天不要写。
 5. **跨本地日期强制新 segment**：第二天第一条普通消息会关闭前一天 segment 并触发整理。
 6. **AI.md 头部固定**：`# 名字` → `## head-image` → `> 头像路径`；改格式会导致名字/头像解析不到。
-7. **头像服务只读本地图片**：路径相对 workspace 或绝对路径；扩展名限 png/jpg/jpeg/webp/gif/svg；`http(s)` 直接交给 `<img>`。
+7. **头像服务只读本地图片**：路径相对 agent 或绝对路径；扩展名限 png/jpg/jpeg/webp/gif/svg；`http(s)` 直接交给 `<img>`。
 8. **agent 卡片和设定页依赖 `/api/agent` + `/api/memory`**；没有 AI.md 时显示回退名 `KolorBot`，不是错误。
-9. **话题图标只在对话/话题页**；技能/模型/设定页隐藏。改 `renderHeader` 时要保持这个条件。
+9. **历史入口只在左下角智能体卡片的「⋯」菜单**；对话标题不再显示历史图标。
 10. **对话轮询不能强制滚底**：`loadConversation` 用签名跳过无变化重建；有变化时 `renderMessages(false)` 保留位置。
 11. **`/api/memory` 仍保留旧日记后端**，但设定页不再展示日记；自动整理开关目前只能通过 API/`memory.json` 修改。
 12. **`memory` 页面 key/hash 是历史命名**（`#/memory`），UI 已改叫「设定」；不要因为看到 memory 就加回日记 UI。
@@ -359,7 +360,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 132（conversation 5；memory 11；agent-loop 61；web 41）。
+20. **测试数不要写回旧值**：当前 134（conversation 5；memory 11；agent-loop 61；web 43）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -393,15 +394,15 @@ pnpm test
 - 单对话 + 话题驱动，只有一条 conversation.db；没有 scheduler/定时任务。
 - 模型只来自「模型」页的 OpenAI Chat Completions 提供商；没有内置默认模型。
 - 侧栏是 对话/技能/模型；左下角 agent 卡片有圆形头像、名字和 ⋯ 菜单（设定）。
-- 对话/话题页标题左边有话题图标；话题页点击回对话，其他页面不显示。
+- 对话页标题不再显示历史图标；历史从智能体卡片「⋯」进入。
 - 对话轮询不会强制滚到底；标题下只显示相对时间。
 - 设定页只显示 AI.md（名字/头像路径/预览），不再有旧日记项；页面 key/hash 仍是 memory。
 - 输入框输入 / 弹出三条指令补全：/self-md-update、/self-md-tell、/update-daily-memory。
 - AI.md 固定格式：# 名字 → ## head-image → > 头像路径。
-- 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
+- 新记忆文件：agent/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 132/132；release SHA256 8B2F5780D9D2818613E2B6AD018CAFDF1A190318449118DD703140D784292BE3。
+- 测试 134/134；release SHA256 F2A5CFA04DF3D7DE097AE38EDEE8D40B063C6F5C53804302F2C118A101A67E94。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

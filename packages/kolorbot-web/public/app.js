@@ -1,4 +1,4 @@
-/* KolorBot web client: vanilla ES module, no build step. */
+﻿/* KolorBot web client: vanilla ES module, no build step. */
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -446,12 +446,6 @@ function renderHeader() {
   const topic = state.currentTopic;
   const page = PAGES[state.page] ?? PAGES.chat;
   $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
-  const topicsButton = $('#open-topics');
-  const showTopics = state.page === 'chat' || state.page === 'topics';
-  topicsButton.classList.toggle('hidden', !showTopics);
-  topicsButton.classList.toggle('active', state.page === 'topics');
-  topicsButton.setAttribute('aria-label', state.page === 'topics' ? '回到对话' : '打开历史');
-  topicsButton.title = state.page === 'topics' ? '回到对话' : '历史';
   $('#session-meta').textContent =
     state.page === 'chat'
       ? session
@@ -2170,7 +2164,7 @@ function renderMemory() {
   const selfPreview = $('#self-preview');
   selfPreview.textContent = self?.content?.trim()
     ? self.content
-    : '还没有设定文件 (workspace/AI.md)。发送 /self-md-update 或 /self-md-tell … 让 AI 创建。';
+    : '还没有设定文件 (agent/AI.md)。发送 /self-md-update 或 /self-md-tell … 让 AI 创建。';
 }
 
 function formatBytes(bytes) {
@@ -2258,14 +2252,12 @@ function wire() {
     item.addEventListener('click', () => {
       closeAgentMenu();
       if (item.dataset.agentPage === 'models') openModels();
+      else if (item.dataset.agentPage === 'topics') showPage('topics');
       else openMemory();
     });
   }
   document.addEventListener('click', (event) => {
     if (!event.target.closest('.agent-card')) closeAgentMenu();
-  });
-  $('#open-topics').addEventListener('click', () => {
-    showPage(state.page === 'chat' ? 'topics' : 'chat');
   });
   $('#topic-day-back').addEventListener('click', () => {
     location.hash = '#/topics';

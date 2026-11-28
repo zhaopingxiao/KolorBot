@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+﻿import { createHash } from 'node:crypto';
 import {
   existsSync,
   mkdirSync,
@@ -345,7 +345,7 @@ export function formatMemoryBlock(selfContent: string, diaryContent: string): st
   return sections.join('\n');
 }
 
-/** `workspace/topic/<slug>.md` (legacy single-file topic memory). */
+/** `agent/topic/<slug>.md` (legacy single-file topic memory). */
 export function topicMemoryPath(workspace: string, slug: string): string {
   return join(workspace, 'topic', `${slug}.md`);
 }
@@ -445,7 +445,7 @@ export function readTopicMemoryForDate(
 }
 
 export interface TopicMemoryRecord extends TopicMemoryFile {
-  /** Directory name under workspace/topic, i.e. the topic slug. */
+  /** Directory name under agent/topic, i.e. the topic slug. */
   topicSlug: string;
 }
 
@@ -793,7 +793,7 @@ function stripSystemBlocks(content: string): string {
  * Trigger message for writing one segment's activity record and updating the
  * topic's key memory.
  *
- * The layout is `workspace/topic/<slug>/<YYYY-MM-DD-HH-mm>.md`.
+ * The layout is `agent/topic/<slug>/<YYYY-MM-DD-HH-mm>.md`.
  * The filename timestamp is the segment's last message completion time.
  */
 export function buildTopicDiaryMessage(
@@ -872,7 +872,7 @@ export function selfTellInfo(text: string): string | undefined {
 export function buildSelfUpdateMessage(): string {
   return [
     'Update your self-description (AI.md) from this conversation.',
-    'Write workspace/AI.md with this exact header: first line "# <name>", then "## head-image", then "> <image path>". Put personality/self-knowledge below; do not store user facts or chat logs. Keep it under 1 MiB.',
+    'Write agent/AI.md with this exact header: first line "# <name>", then "## head-image", then "> <image path>". Put personality/self-knowledge below; do not store user facts or chat logs. Keep it under 1 MiB.',
   ].join(' ');
 }
 
@@ -883,7 +883,7 @@ export function buildSelfTellMessage(info: string): string {
     '',
     info.trim(),
     '',
-    'Write workspace/AI.md with this exact header: first line "# <name>", then "## head-image", then "> <image path>". Put personality/self-knowledge below; do not store user facts or chat logs. Keep it under 1 MiB.',
+    'Write agent/AI.md with this exact header: first line "# <name>", then "## head-image", then "> <image path>". Put personality/self-knowledge below; do not store user facts or chat logs. Keep it under 1 MiB.',
   ].join('\n');
 }
 

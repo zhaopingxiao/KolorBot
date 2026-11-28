@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+﻿import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { ToolDefinition } from 'kolorbot-agent-loop';
 import type { ConversationStore, Topic } from 'kolorbot-conversation';
@@ -65,7 +65,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
     {
       name: 'read_today_memory',
       description:
-        'Read every topic\'s timestamped memory records for a local date (today by default), across all workspace/topic/<slug>/ directories. Returns records in time order with separators like --------<slug>-HH-mm--------.',
+        'Read every topic\'s timestamped memory records for a local date (today by default), across all agent/topic/<slug>/ directories. Returns records in time order with separators like --------<slug>-HH-mm--------.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -283,7 +283,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
           main: {
             type: 'string',
             description:
-              'Full updated main.md key memory (facts/decisions/state/next steps); written to workspace/topic/<slug>/main.md.',
+              'Full updated main.md key memory (facts/decisions/state/next steps); written to agent/topic/<slug>/main.md.',
           },
         },
         required: ['content', 'main'],
@@ -329,7 +329,7 @@ export function createDiaryTools(options: DiaryToolsOptions): ToolDefinition[] {
     {
       name: 'write_topic',
       description:
-        'Create or replace the CURRENT topic\'s durable key memory (workspace/topic/<slug>/main.md) with durable facts, decisions, current state, next steps and related paths. No slug argument is needed. This is separate from the timestamped daily records written by write_topic_note.',
+        'Create or replace the CURRENT topic\'s durable key memory (agent/topic/<slug>/main.md) with durable facts, decisions, current state, next steps and related paths. No slug argument is needed. This is separate from the timestamped daily records written by write_topic_note.',
       inputSchema: {
         type: 'object',
         properties: {
