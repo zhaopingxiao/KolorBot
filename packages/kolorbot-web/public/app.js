@@ -1839,7 +1839,7 @@ function updateProviderForm() {
   const isCode = protocol === 'code';
   vendorRow.classList.toggle('hidden', !isVendor);
   code.classList.toggle('hidden', !isCode);
-  url.classList.toggle('hidden', isCode);
+  url.classList.toggle('hidden', isCode || isVendor);
   key.classList.toggle('hidden', isCode);
   if (isVendor) {
     const vendors = (state.providerData?.vendors ?? []).filter((vendor) => vendor.kind === kind);
@@ -1862,6 +1862,9 @@ function updateProviderForm() {
     if (selected !== undefined) url.value = selected.baseUrl;
   } else if (protocol === 'anthropic' && url.value.trim() === '') {
     url.value = 'https://api.anthropic.com';
+  } else if (!isCode) {
+    const selected = currentProviderVendor();
+    if (selected !== undefined && url.value === selected.baseUrl) url.value = '';
   }
   if (hint !== null) {
     hint.textContent = isCode
@@ -2013,7 +2016,10 @@ function renderProviderList() {
     const actions = el('div', 'actions');
     const canDiscover =
       provider.protocol === 'openai' ||
-      (provider.protocol === 'vendor' && providerVendor(provider.vendor)?.protocol === 'openai');
+      provider.protocol === 'anthropic' ||
+      (provider.protocol === 'vendor' &&
+        (providerVendor(provider.vendor)?.protocol === 'openai' ||
+          providerVendor(provider.vendor)?.protocol === 'anthropic'));
     if (canDiscover) {
       const refresh = el('button', 'text-button', '刷新');
       refresh.addEventListener('click', () => void refreshProvider(provider, refresh));
@@ -2050,7 +2056,7 @@ function renderProviderList() {
       }
       item.appendChild(models);
     } else {
-      item.appendChild(el('p', 'provider-empty', '还没有模型，点「刷新」重新识别。'));
+      item.appendChild(el('p', 'provider-empty', '暂无可用模型。'));
     }
     list.appendChild(item);
   }
@@ -2063,12 +2069,11 @@ async function addProvider() {
   const kind = $('#provider-kind').value;
   const protocol = $('#provider-protocol').value;
   const vendor = protocol === 'vendor' ? $('#provider-vendor').value : '';
-  const baseUrl = $('#provider-url').value.trim();
+  const baseUrl = protocol === 'vendor' || protocol === 'code' ? '' : $('#provider-url').value.trim();
   const apiKey = protocol === 'code' ? '' : $('#provider-key').value.trim();
-  const modelsText = $('#provider-models').value.trim();
   const code = protocol === 'code' ? $('#provider-code').value.trim() : '';
-  if (protocol !== 'code' && baseUrl === '') {
-    errorNode.textContent = '请填写接口地址或选择厂商';
+  if (protocol !== 'code' && protocol !== 'vendor' && baseUrl === '') {
+    errorNode.textContent = '请填写接口地址';
     return;
   }
   if (protocol === 'vendor' && vendor === '') {
@@ -2080,20 +2085,9 @@ async function addProvider() {
     return;
   }
 
-  const models = modelsText === '' ? [] : modelsText.split(/[,，\s]+/).filter(Boolean);
-  const selectedVendor = protocol === 'vendor' ? currentProviderVendor() : undefined;
-  if (
-    protocol !== 'code' &&
-    models.length === 0 &&
-    protocol !== 'openai' &&
-    selectedVendor?.protocol !== 'openai'
-  ) {
-    errorNode.textContent = '该协议不自动识别模型，请手动填写模型名';
-    return;
-  }
   const button = $('#provider-add');
   button.disabled = true;
-  button.textContent = '添加中…';
+  button.textContent = '识别中…';
   try {
     await api('/api/providers', {
       method: 'POST',
@@ -2104,14 +2098,12 @@ async function addProvider() {
         vendor,
         baseUrl,
         apiKey,
-        models,
         code,
       }),
     });
     $('#provider-name').value = '';
     $('#provider-url').value = '';
     $('#provider-key').value = '';
-    $('#provider-models').value = '';
     $('#provider-code').value = '';
     await loadProviders();
     toast('提供商已添加');

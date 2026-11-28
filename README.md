@@ -8,7 +8,7 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 
 > 新对话 / 交接请先读 [HANDOFF.md](HANDOFF.md)：包含项目结构、已完成改动、关键约束和运行方式。
 
-模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页选择模型类型和协议，再填接口地址和 API Key；OpenAI v1 会自动识别模型，厂商集成中的 Anthropic 等可手动填写模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
+模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页选择模型类型和协议，再填接口地址和 API Key；OpenAI v1 和 Anthropic 都会自动识别模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
 
 - **`kolorbot-agent-loop`** — 主循环 + 内置 KolorFrame 工具：调用模型 → 执行工具 → 把结果写回会话 → 再调用模型，直到模型给出最终答复。文件/目录/bash/技能/read_image 工具都在这个包里，可独立作为库使用。
 - **`kolorbot-conversation`** — 单对话存储：SQLite 里的 topics / segments / messages；切换话题会新建 segment，模型上下文只取当前 segment。
@@ -62,7 +62,7 @@ kolorbot/
 ```bash
 pnpm install
 pnpm build
-pnpm test      # 131 个测试
+pnpm test      # 132 个测试
 pnpm demo      # 完全离线：本地假模型 + 本地工具
 ```
 
@@ -364,9 +364,9 @@ async function generate(input, context) {
 添加流程：
 
 1. 选模型类型；协议会自动限制为允许的选项。
-2. 选厂商集成时地址自动填入厂商预设；选 OpenAI v1 时手动填接口地址。
-3. 填 API Key；没有 `/models` 的协议手动填写模型名。
-4. 点「添加提供商」：OpenAI v1 会自动请求 `/models`，其它协议直接使用手动模型。
+2. 选厂商集成时使用厂商预设地址，不需要填写接口地址；选 OpenAI v1 时手动填接口地址。
+3. 填 API Key；服务端会自动识别该提供商的模型。
+4. 点「添加提供商」：OpenAI v1 和 Anthropic 会自动请求模型列表；厂商原生接口暂未接入模型发现。
 5. 输入框上方的下拉框只显示大语言模型；其它类型暂不支持作为聊天模型。
 
 其它行为：
@@ -1020,13 +1020,13 @@ Content-Type: application/json
 pnpm test
 ```
 
-共 131 个测试：
+共 132 个测试：
 
 - `kolorbot-agent-loop`（61）：SSE 分片、流式工具调用拼装、并行/独占调度、取消、超时、上下文导入校验、真实 HTTP 假模型端到端；KolorFrame 的读写、目录、bash、后台任务、skills、`read_image`。
 - `kolorbot-conversation`（5）：话题复用、segment 切换、消息持久化、最后 10 条文本、未知话题拒绝、默认数据目录。
 - `kolorbot-skills`（14）：frontmatter 解析、列表、描述回退、签名变化、详情与文件列表、`kolor.json` MCP 解析、缺失目录。
 - `kolorbot-memory`（11）：`<system-memory>` / `<system-last-message>`、话题文件、日记片段查找（今天→最近→最早）、1 MiB 截断、`/self-md-*` 命令、话题日记触发文案。
-- `kolorbot-web`（40）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
+- `kolorbot-web`（41）：静态页/配置/单对话 API、话题判定与切换、跨天强制分段、话题记忆与上一话题最后 10 条注入、同一话题不重复注入、工具调用落库、`/api/memory`、独立整理 Agent（write_topic_note + 时间戳话题文件）、话题日历/当天片段 API、CLI 子命令、提供商存储与模型切换、外部消息回调、端口 3399 → 3420 → 随机回退、skill code 插件服务、自动整理、今日对话过滤。
 
 全部测试不需要网络和 API key。
 

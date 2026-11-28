@@ -10,7 +10,7 @@
 >
 > 代码基线：当前 `origin/main`（具体提交见 `git log`）
 >
-> 当前状态：`pnpm build` / `pnpm test` 全部通过（131 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
+> 当前状态：`pnpm build` / `pnpm test` 全部通过（132 个测试），单对话 + 话题驱动；Windows 单文件 release 已更新。
 
 ## 1. 这个项目是什么
 
@@ -236,7 +236,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 当前 release：
   - 版本 0.4.0
   - 大小 136,376,832 bytes
-  - SHA256 `77539B6A903289EC93C484E5A5289A1BDCDF0FDFF7E81708F6FEC6C51AD92E82`
+  - SHA256 `651C7352F05E00EF91A2B3BF4C2DB5010A2F717AEB9C65345C14937EAEBCFE18`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -329,12 +329,12 @@ npm run web       # 默认尝试 3399 -> 3420 -> 随机
 当前测试：
 
 ```text
-pnpm test  ✅ 131/131
+pnpm test  ✅ 132/132
   kolorbot-agent-loop 61
   kolorbot-conversation 5
   kolorbot-skills     14
   kolorbot-memory     11
-  kolorbot-web        40
+  kolorbot-web        41
 ```
 
 UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送/流式、话题切换、刷新重连、取消、滚动、Markdown、agent 卡片、指令补全、设定页。
@@ -360,7 +360,7 @@ UI 没有自动化浏览器测试。改 `public/app.js` 后至少手测：发送
 17. **`--host 0.0.0.0` 会暴露无鉴权 UI**。
 18. **静态资源必须进 `STATIC_FILES`**；只放 public 不会自动可访问。
 19. **打包前关掉运行中的 exe**，否则 copyfile EBUSY。
-20. **测试数不要写回旧值**：当前 131（conversation 5；memory 11；agent-loop 61；web 40）。
+20. **测试数不要写回旧值**：当前 132（conversation 5；memory 11；agent-loop 61；web 41）。
 
 ## 8. 已知限制 / 可以继续做
 
@@ -402,7 +402,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 131/131；release SHA256 77539B6A903289EC93C484E5A5289A1BDCDF0FDFF7E81708F6FEC6C51AD92E82。
+- 测试 132/132；release SHA256 651C7352F05E00EF91A2B3BF4C2DB5010A2F717AEB9C65345C14937EAEBCFE18。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

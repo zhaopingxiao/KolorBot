@@ -52,6 +52,7 @@ import {
 } from 'kolorbot-memory';
 import {
   ProviderStore,
+  discoverAnthropicModels,
   discoverModels,
   type DefaultModelConfig,
   type ModelTarget,
@@ -641,13 +642,20 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       const id = providerModelsMatch[1] as string;
       const provider = providers.record(id);
       if (provider === undefined) throw new HttpError(404, `unknown provider "${id}"`);
-      if (effectiveProtocol(provider) !== 'openai') {
-        throw new HttpError(400, '该协议不支持自动识别模型，请手动填写模型名');
+      const effective = effectiveProtocol(provider);
+      if (effective !== 'openai' && effective !== 'anthropic') {
+        throw new HttpError(400, '该厂商的模型发现接口尚未接入');
       }
-      const discovered = await discoverModels({
-        baseUrl: provider.baseUrl,
-        apiKey: provider.apiKey,
-      });
+      const discovered =
+        effective === 'anthropic'
+          ? await discoverAnthropicModels({
+              baseUrl: provider.baseUrl,
+              apiKey: provider.apiKey,
+            })
+          : await discoverModels({
+              baseUrl: provider.baseUrl,
+              apiKey: provider.apiKey,
+            });
       providers.setModels(id, discovered.models);
       sendJson(response, 200, {
         provider: providers.get(id),
@@ -1679,10 +1687,10 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   }
 
   /**
-   * Add a provider, discovering its models unless the caller listed them.
+   * Add a provider and discover its models automatically.
    *
-   * Discovery failures become 400s: saving a provider without models would
-   * leave nothing selectable in the composer.
+   * OpenAI v1 and Anthropic expose model-list endpoints. Native vendor
+   * integrations are reserved for later; they can be saved without models.
    */
   async function addProvider(request: IncomingMessage): Promise<Record<string, unknown>> {
     const body = await readJsonBody(request);
@@ -1701,9 +1709,6 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       throw new HttpError(400, '请选择与模型类型匹配的厂商');
     }
     const apiKey = typeof body.apiKey === 'string' ? body.apiKey : '';
-    const manual = Array.isArray(body.models)
-      ? body.models.filter((model): model is string => typeof model === 'string')
-      : [];
     const baseUrl = (
       typeof body.baseUrl === 'string' && body.baseUrl.trim() !== ''
         ? body.baseUrl
@@ -1714,21 +1719,19 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     }
     const effective = protocol === 'vendor' ? (preset?.protocol ?? 'native') : protocol;
 
-    let models = manual;
+    let models: string[] = [];
     let endpoint: string | undefined;
-    if (models.length === 0 && protocol !== 'code') {
-      if (effective !== 'openai') {
-        throw new HttpError(400, '该协议无法自动识别模型，请手动填写模型名');
-      }
+    if (effective === 'openai') {
       const discovered = await discoverModels({ baseUrl, apiKey });
       models = discovered.models;
       endpoint = discovered.endpoint;
-      if (models.length === 0) {
-        throw new HttpError(
-          400,
-          `没有从 ${discovered.endpoint} 识别到模型；确认接口地址，或手动填写模型`,
-        );
-      }
+    } else if (effective === 'anthropic') {
+      const discovered = await discoverAnthropicModels({ baseUrl, apiKey });
+      models = discovered.models;
+      endpoint = discovered.endpoint;
+    }
+    if (effective !== 'code' && effective !== 'native' && models.length === 0) {
+      throw new HttpError(400, '没有识别到模型；确认接口地址和 API Key');
     }
 
     const provider = providers.add({

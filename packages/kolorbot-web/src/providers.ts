@@ -102,6 +102,10 @@ export interface DiscoverModelsOptions {
   headers?: Record<string, string>;
 }
 
+export interface DiscoverAnthropicModelsOptions extends DiscoverModelsOptions {
+  version?: string;
+}
+
 /** Result of asking a provider which models it serves. */
 export interface DiscoveredModels {
   models: string[];
@@ -231,9 +235,6 @@ export class ProviderStore {
             : input.baseUrl);
     const apiKey = (input.apiKey ?? '').trim();
     const models = normalizeModels(input.models ?? []);
-    if (models.length === 0 && protocol !== 'code') {
-      throw new KolorStateError('a provider needs at least one model; run discovery or list them manually');
-    }
     const now = new Date().toISOString();
     const provider: ProviderRecord = {
       id: `p_${randomUUID().replaceAll('-', '').slice(0, 12)}`,
@@ -243,7 +244,7 @@ export class ProviderStore {
       ...(vendor === undefined ? {} : { vendor }),
       baseUrl,
       apiKey,
-      models: models.length === 0 ? ['code'] : models,
+      models,
       ...(typeof input.code === 'string' && input.code.trim() !== ''
         ? { code: input.code.trim() }
         : {}),
@@ -415,6 +416,71 @@ export async function discoverModels(options: DiscoverModelsOptions): Promise<Di
   }
 
   throw firstError ?? new KolorStateError('could not list models from this provider');
+}
+
+/**
+ * Ask an Anthropic-compatible endpoint which models it serves.
+ *
+ * Anthropic uses `x-api-key` plus `anthropic-version` rather than a bearer
+ * token. The response is the standard `{ data: [{ id }] }` list.
+ */
+export async function discoverAnthropicModels(
+  options: DiscoverAnthropicModelsOptions,
+): Promise<DiscoveredModels> {
+  const endpoint = anthropicModelsEndpoint(options.baseUrl);
+  const fetchImpl = options.fetchImpl ?? globalThis.fetch;
+  if (typeof fetchImpl !== 'function') {
+    throw new KolorStateError('global fetch is not available; pass options.fetchImpl');
+  }
+  const timeoutMs = options.timeoutMs ?? DEFAULT_MODELS_TIMEOUT_MS;
+  const headers: Record<string, string> = {
+    accept: 'application/json',
+    'anthropic-version': options.version ?? '2023-06-01',
+    ...((options.apiKey ?? '').trim() === ''
+      ? {}
+      : { 'x-api-key': (options.apiKey ?? '').trim() }),
+    ...options.headers,
+  };
+
+  let response: Response;
+  try {
+    response = await fetchImpl(endpoint, {
+      method: 'GET',
+      headers,
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new KolorStateError(`无法连接 ${endpoint}：${message}`, { cause: error });
+  }
+  if (!response.ok) {
+    const body = await safeText(response);
+    throw new KolorStateError(
+      `模型列表请求失败：${endpoint} 返回 ${response.status} ${response.statusText}${
+        body === '' ? '' : ` — ${clip(body, 300)}`
+      }`,
+    );
+  }
+  const payload = (await response.json().catch(() => undefined)) as unknown;
+  const models = parseModelsPayload(payload);
+  if (models.length === 0) {
+    throw new KolorStateError(`${endpoint} 没有返回可用模型`);
+  }
+  return { models, endpoint };
+}
+
+/** Anthropic models endpoint (`<base>/v1/models`). */
+export function anthropicModelsEndpoint(baseUrl: string): string {
+  const url = new URL(normalizeBaseUrl(baseUrl));
+  let path = url.pathname.replace(/\/+$/, '');
+  if (path.endsWith('/v1')) {
+    path = `${path}/models`;
+  } else if (!path.endsWith('/v1/models')) {
+    path = `${path}/v1/models`;
+  }
+  url.pathname = path;
+  url.hash = '';
+  return url.toString();
 }
 
 /** `<base>/models` candidates, most specific first. */

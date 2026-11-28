@@ -6,6 +6,8 @@ import test, { type TestContext } from 'node:test';
 import { createKolorWebServer, type KolorWebServer } from '../src/server.js';
 import {
   ProviderStore,
+  anthropicModelsEndpoint,
+  discoverAnthropicModels,
   discoverModels,
   modelsEndpoints,
   normalizeBaseUrl,
@@ -98,7 +100,7 @@ test('supports model kinds, Anthropic and vendor presets', (t) => {
     code: 'async function generate(input) { return input; }',
   });
   assert.equal(code.baseUrl, '');
-  assert.deepEqual(code.models, ['code']);
+  assert.deepEqual(code.models, []);
   assert.equal(store.list().find((entry) => entry.id === code.id)?.hasCode, true);
   assert.throws(() => store.setActive(code.id, 'code'));
 });
@@ -224,6 +226,28 @@ test('derives model endpoints from the base URL', () => {
   assert.deepEqual(modelsEndpoints('https://openrouter.ai/api/v1'), [
     'https://openrouter.ai/api/v1/models',
   ]);
+});
+
+test('discovers Anthropic models with x-api-key headers', async () => {
+  let seenUrl = '';
+  let seenHeaders: Headers | undefined;
+  const discovered = await discoverAnthropicModels({
+    baseUrl: 'https://api.anthropic.com',
+    apiKey: 'sk-ant',
+    fetchImpl: async (url, init) => {
+      seenUrl = String(url);
+      seenHeaders = new Headers(init?.headers);
+      return new Response(JSON.stringify({ data: [{ id: 'claude-a' }, { id: 'claude-b' }] }), {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  assert.equal(seenUrl, 'https://api.anthropic.com/v1/models');
+  assert.equal(seenHeaders?.get('x-api-key'), 'sk-ant');
+  assert.equal(seenHeaders?.get('anthropic-version'), '2023-06-01');
+  assert.deepEqual(discovered.models, ['claude-a', 'claude-b']);
+  assert.equal(anthropicModelsEndpoint('https://api.anthropic.com/v1'), 'https://api.anthropic.com/v1/models');
 });
 
 test('discovers models, retries under /v1 and reports failures', async (t) => {
@@ -377,14 +401,6 @@ test('refuses to save a provider whose models cannot be listed', async (t) => {
   assert.equal(response.status, 400);
   assert.match(String(response.data?.error), /401/);
   assert.deepEqual((await call(app, '/api/providers')).data?.providers, []);
-
-  // Models can also be listed by hand when a provider has no /models endpoint.
-  const manual = await call(app, '/api/providers', {
-    method: 'POST',
-    body: JSON.stringify({ baseUrl: 'http://127.0.0.1:1/v1', models: ['manual-model'] }),
-  });
-  assert.equal(manual.status, 201);
-  assert.deepEqual((manual.data?.provider as { models: string[] }).models, ['manual-model']);
 });
 
 test('chats with the selected provider model instead of the environment default', async (t) => {
