@@ -1,4 +1,4 @@
-﻿/**
+/**
  * kolorbot-agent-loop public API.
  *
  * @example
@@ -50,7 +50,23 @@ export * from './events.js';
 export * from './types.js';
 export * from './util/errors.js';
 
-export { FRAME_TOOLS, FrameError, callFrameTool, resolveFramePath } from './frame/index.js';
-export type { FrameContext, FrameToolDefinition, FrameToolResult } from './frame/index.js';
+export {
+  BackgroundBashError,
+  BackgroundBashManager,
+  FRAME_TOOLS,
+  FrameError,
+  MAX_BACKGROUND_TASKS,
+  callFrameTool,
+  resolveFramePath,
+  taskBaseName,
+} from './frame/index.js';
+export type {
+  BackgroundBashOptions,
+  BackgroundTaskInfo,
+  BackgroundTaskStatus,
+  FrameContext,
+  FrameToolDefinition,
+  FrameToolResult,
+} from './frame/index.js';
 
 export { CLIENT_NAME, VERSION } from './version.js';

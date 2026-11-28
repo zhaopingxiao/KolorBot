@@ -1,4 +1,5 @@
-﻿import { FRAME_TOOLS, callFrameTool, type FrameContext } from './frame/tools.js';
+import { FRAME_TOOLS, callFrameTool, type FrameContext } from './frame/tools.js';
+import type { BackgroundBashManager } from './frame/background.js';
 import { resolveConfig, type KolorConfig, type ResolvedKolorConfig } from './config.js';
 import { validateAgentContext } from './context.js';
 import type { KolorEvent, KolorEventListener, KolorEventType } from './events.js';
@@ -32,6 +33,8 @@ export interface KolorFrameOptions {
   skillsRoot?: string;
   /** Extra skills areas searched by the `skills` tool (user / built-in). */
   extraSkillRoots?: string[];
+  /** Shared background bash task manager; enables bash `wait: true`. */
+  background?: BackgroundBashManager;
 }
 
 /** Construction-time hooks. */
@@ -436,6 +439,7 @@ export class KolorAgent {
       ...(settings.extraSkillRoots === undefined
         ? {}
         : { extraSkillRoots: settings.extraSkillRoots }),
+      ...(settings.background === undefined ? {} : { background: settings.background }),
     };
 
     for (const definition of FRAME_TOOLS) {

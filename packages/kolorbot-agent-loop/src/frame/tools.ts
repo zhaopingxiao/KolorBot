@@ -1,8 +1,9 @@
-﻿import { exec } from 'node:child_process';
+import { exec } from 'node:child_process';
 import { appendFile, mkdir, readFile, readdir, stat, writeFile } from 'node:fs/promises';
 import { dirname, isAbsolute, relative, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { SkillError, SkillsRegistry, resolveSkillsRoot } from 'kolorbot-skills';
+import type { BackgroundBashManager } from './background.js';
 
 /** Runtime context for KolorFrame tools. */
 export interface FrameContext {
@@ -12,6 +13,8 @@ export interface FrameContext {
   skillsRoot?: string;
   /** Extra skills areas (user / built-in) searched by the `skills` tool. */
   extraSkillRoots?: string[];
+  /** Background bash tasks; when absent, `wait: true` is unavailable. */
+  background?: BackgroundBashManager;
 }
 
 /** An image the agent loop attaches to the next model request. */
@@ -102,8 +105,37 @@ export const FRAME_TOOLS: FrameToolDefinition[] = [
         command: { type: 'string', description: 'Shell command to execute' },
         cwd: { type: 'string', description: 'Working directory relative to the root. Default "."' },
         timeout_ms: { type: 'number', description: 'Timeout in milliseconds. Default 60000' },
+        wait: {
+          type: 'boolean',
+          description:
+            'When true, start the command in the background and return a task name immediately. Use read_bash_output/stop_bash to manage it.',
+        },
       },
       required: ['command'],
+    },
+  },
+  {
+    name: 'read_bash_output',
+    description:
+      'Read a background bash task by task name. While running, returns all output so far and appends (Running...). Once finished, returns all output and deletes the task record.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskName: { type: 'string', description: 'Background task name returned by bash wait:true' },
+      },
+      required: ['taskName'],
+    },
+  },
+  {
+    name: 'stop_bash',
+    description:
+      'Stop a background bash task by task name. Its output remains readable with read_bash_output; no completion notification is sent.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskName: { type: 'string', description: 'Background task name returned by bash wait:true' },
+      },
+      required: ['taskName'],
     },
   },
   {
@@ -154,6 +186,10 @@ export async function callFrameTool(
         return await listFilesTool(args, context);
       case 'bash':
         return await bashTool(args, context);
+      case 'read_bash_output':
+        return readBashOutputTool(args, context);
+      case 'stop_bash':
+        return stopBashTool(args, context);
       case 'skills':
         return skillsTool(args, context);
       case 'read_image':
@@ -306,6 +342,24 @@ async function bashTool(args: Record<string, unknown>, context: FrameContext): P
     return { content: `Error: working directory not found: ${cwdRelative}`, isError: true };
   }
 
+  if (args.wait === true) {
+    if (context.background === undefined) {
+      return {
+        content: 'Error: background bash is not configured for this agent.',
+        isError: true,
+      };
+    }
+    try {
+      const started = context.background.start(command, cwd);
+      return { content: started.content };
+    } catch (error) {
+      return {
+        content: `Error: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true,
+      };
+    }
+  }
+
   try {
     const { stdout, stderr } = await run(command, {
       cwd,
@@ -328,6 +382,28 @@ async function bashTool(args: Record<string, unknown>, context: FrameContext): P
       isError: true,
     };
   }
+}
+
+function readBashOutputTool(
+  args: Record<string, unknown>,
+  context: FrameContext,
+): FrameToolResult {
+  if (context.background === undefined) {
+    return { content: 'Error: background bash is not configured for this agent.', isError: true };
+  }
+  const taskName = requireString(args, 'taskName');
+  return context.background.read(taskName);
+}
+
+function stopBashTool(
+  args: Record<string, unknown>,
+  context: FrameContext,
+): FrameToolResult {
+  if (context.background === undefined) {
+    return { content: 'Error: background bash is not configured for this agent.', isError: true };
+  }
+  const taskName = requireString(args, 'taskName');
+  return context.background.stop(taskName);
 }
 
 function skillsTool(args: Record<string, unknown>, context: FrameContext): FrameToolResult {

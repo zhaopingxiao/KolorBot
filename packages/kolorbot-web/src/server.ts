@@ -5,6 +5,7 @@ import type { AddressInfo } from 'node:net';
 import { join, extname, isAbsolute, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
+  BackgroundBashManager,
   DEFAULT_SYSTEM_PROMPT,
   type AgentMessage,
   type KolorAgent,
@@ -264,6 +265,17 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   /** Reserved synchronously by /api/message before its internal chat request starts. */
   let callbackTurnBusy = false;
 
+  const backgroundNoticeQueue: string[] = [];
+  let backgroundDispatchInFlight = false;
+  const backgroundTasks = new BackgroundBashManager({
+    maxRunning: 8,
+    ...(options.logger === undefined ? {} : { logger: options.logger }),
+    onComplete: (taskName) => {
+      backgroundNoticeQueue.push(taskName);
+      dispatchBackgroundNotification();
+    },
+  });
+
   const pool = new AgentPool({
     mcpConfigs: () => skillMcpConfigs(skillsRegistry),
     systemPrompt: KOLOR_SYSTEM_PROMPT,
@@ -279,6 +291,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       root: config.frameRoot,
       skillsRoot: config.skillsDir,
       extraSkillRoots: [config.userSkillsDir, config.builtinSkillsDir],
+      background: backgroundTasks,
     },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
@@ -1389,36 +1402,59 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   }
 
   /**
-   * Continue a naturally finished turn whose last assistant message is empty.
-   * This is deliberately a normal user message: it is persisted, shown in the
-   * conversation and routed through the regular chat path.
+   * Post a synthetic user message through the normal chat path. It is
+   * persisted and shown exactly like a real user message.
    */
-  function requestAutoNext(): void {
+  async function sendSyntheticUserMessage(text: string, autoNext: boolean): Promise<void> {
     if (localBaseUrl === '') {
-      options.logger?.('cannot send automatic Next.: server URL is not ready');
+      options.logger?.('cannot send synthetic user message: server URL is not ready');
       return;
     }
-    void (async () => {
-      try {
-        const response = await fetch(`${localBaseUrl}/api/chat`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ text: 'Next.', autoNext: false }),
-        });
-        if (!response.ok) {
-          options.logger?.(`automatic Next. request failed with HTTP ${response.status}`);
-          await response.body?.cancel().catch(() => undefined);
-          return;
-        }
-        if (response.body === null) return;
-        const reader = response.body.getReader();
-        while (!(await reader.read()).done) {
-          // Drain the SSE stream so the headless turn can finish cleanly.
-        }
-      } catch (error) {
-        options.logger?.('automatic Next. request failed', error);
+    try {
+      const response = await fetch(`${localBaseUrl}/api/chat`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ text, autoNext }),
+      });
+      if (!response.ok) {
+        options.logger?.(`synthetic user message failed with HTTP ${response.status}`);
+        await response.body?.cancel().catch(() => undefined);
+        return;
       }
-    })();
+      if (response.body === null) return;
+      const reader = response.body.getReader();
+      while (!(await reader.read()).done) {
+        // Drain the SSE stream so the headless turn can finish cleanly.
+      }
+    } catch (error) {
+      options.logger?.(`synthetic user message failed: ${text}`, error);
+    }
+  }
+
+  /**
+   * Dispatch the oldest completed background task. A queued task whose output
+   * was fully read (record deleted) or explicitly stopped is skipped silently.
+   */
+  function dispatchBackgroundNotification(): boolean {
+    if (runs.isRunning('main') || backgroundDispatchInFlight) return false;
+    while (backgroundNoticeQueue.length > 0) {
+      const taskName = backgroundNoticeQueue.shift();
+      if (taskName === undefined || !backgroundTasks.consumeNotification(taskName)) continue;
+      backgroundDispatchInFlight = true;
+      void sendSyntheticUserMessage(`${taskName} has done.`, true).finally(() => {
+        backgroundDispatchInFlight = false;
+        dispatchBackgroundNotification();
+      });
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Continue a naturally finished turn whose last assistant message is empty.
+   */
+  function requestAutoNext(): void {
+    void sendSyntheticUserMessage('Next.', false);
   }
 
   async function driveTurn(
@@ -1489,7 +1525,13 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
       }
 
       runs.finish(run, cancelled ? 'cancelled' : failure === undefined ? 'done' : 'error', failure);
+      // A completed background task takes priority over automatic Next.:
+      // only one synthetic user message is sent at a turn boundary.
+      const notificationStarted = dispatchBackgroundNotification();
+      const notificationWaiting = backgroundNoticeQueue.length > 0;
       if (
+        !notificationStarted &&
+        !notificationWaiting &&
         !cancelled &&
         run.abortReason === null &&
         run.kind === 'chat' &&
@@ -1897,6 +1939,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     async close(): Promise<void> {
       diaryIdle.cancelAll();
       runs.cancelAll('shutdown');
+      backgroundTasks.disposeAll();
       await diaryPool.close();
       await pool.close();
       await new Promise<void>((resolve) => {
