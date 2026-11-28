@@ -31,8 +31,8 @@ export interface SkillDetails extends SkillSummary {
   files: string[];
 }
 
-/** The three skills areas, in display order. */
-export type SkillSource = 'agents' | 'user' | 'builtin';
+/** Skills areas, in display order. */
+export type SkillSource = 'agents' | 'user' | 'builtin' | 'kolorbot';
 
 /** One skills area: a directory plus the label the UI groups it under. */
 export interface SkillRoot {
@@ -41,9 +41,10 @@ export interface SkillRoot {
 }
 
 export const SKILL_SOURCE_LABELS: Record<SkillSource, string> = {
-  agents: '兼容技能',
-  user: '专属技能',
-  builtin: '内置技能',
+  kolorbot: 'Kolorbot Skill',
+  builtin: 'Kolorbot Skill',
+  user: 'Agent Skill',
+  agents: '通用 Agent Skills',
 };
 
 export class SkillError extends Error {

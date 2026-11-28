@@ -1,4 +1,4 @@
-﻿/* KolorBot web client: vanilla ES module, no build step. */
+/* KolorBot web client: vanilla ES module, no build step. */
 
 const $ = (selector) => document.querySelector(selector);
 
@@ -22,6 +22,8 @@ const state = {
   pending: null,
   /** Current page: chat | topics | skills | models | memory. */
   page: 'chat',
+  /** Skills page variant: main (Kolorbot + universal) or agent. */
+  skillsArea: 'main',
   topicSlug: null,
   topicDate: null,
 };
@@ -445,7 +447,9 @@ function renderHeader() {
   const session = state.session;
   const topic = state.currentTopic;
   const page = PAGES[state.page] ?? PAGES.chat;
-  $('#session-title').textContent = state.page === 'chat' ? (topic?.name ?? '对话') : page.title;
+  const isAgentSkills = state.page === 'skills' && state.skillsArea === 'agent';
+  $('#session-title').textContent =
+    state.page === 'chat' ? (topic?.name ?? '对话') : isAgentSkills ? 'Agent Skill' : page.title;
   $('#session-meta').textContent =
     state.page === 'chat'
       ? session
@@ -453,7 +457,9 @@ function renderHeader() {
           ? timeAgo(session.updatedAt)
           : ''
         : ''
-      : page.subtitle;
+      : isAgentSkills
+        ? 'Agent 专属技能 / agent/skills'
+        : page.subtitle;
 }
 
 /* ---------------- topics ---------------- */
@@ -1718,6 +1724,30 @@ async function loadSkills() {
   }
 
   const skills = data?.skills ?? [];
+  const categories = Array.isArray(data?.categories) ? data.categories : [];
+  if (categories.length > 0) {
+    const area = state.skillsArea === 'agent' ? 'agent' : 'main';
+    const visible = categories.filter((category) =>
+      area === 'agent' ? category.id === 'agent' : category.id !== 'agent',
+    );
+    for (const category of visible) {
+      const categorySkills = skills.filter((skill) => category.sources.includes(skill.source));
+      const head = el('div', 'skill-group-head');
+      head.title = (category.roots ?? []).map((root) => root.path).filter(Boolean).join('\n');
+      head.appendChild(el('span', 'skill-group-title', category.label ?? category.id));
+      head.appendChild(el('span', 'skill-group-count', String(categorySkills.length)));
+      list.appendChild(head);
+      if (categorySkills.length === 0) {
+        const paths = (category.roots ?? []).map((root) => root.path).filter(Boolean);
+        list.appendChild(
+          el('div', 'skill-group-empty', `（空）把技能放进 ${paths.join(' 或 ') || '对应目录'}`),
+        );
+      }
+      for (const skill of categorySkills) list.appendChild(skillListItem(skill));
+    }
+    return;
+  }
+
   const groups = Array.isArray(data?.roots) ? data.roots : [];
   if (groups.length === 0) {
     // Older server: flat list.
@@ -1743,6 +1773,13 @@ function skillListItem(skill) {
   const item = el('div', 'list-item');
   const grow = el('div', 'grow');
   const name = el('div', 'list-name', skill.name);
+  const sourceLabel = {
+    kolorbot: 'Kolorbot',
+    builtin: 'Kolorbot',
+    user: 'Agent',
+    agents: '通用',
+  }[skill.source];
+  if (sourceLabel !== undefined) name.appendChild(el('span', 'badge', sourceLabel));
   if (servers.length > 0) name.appendChild(mcpBadge(servers.length));
   grow.appendChild(name);
   grow.appendChild(el('div', 'list-sub', skill.description));
@@ -2242,7 +2279,20 @@ function wire() {
   });
 
   for (const item of document.querySelectorAll('.sidebar-nav [data-page]')) {
-    item.addEventListener('click', () => showPage(item.dataset.page));
+    item.addEventListener('click', () => {
+      const page = item.dataset.page;
+      if (page === 'skills') {
+        state.skillsArea = 'main';
+        if (state.page === 'skills') {
+          renderHeader();
+          void loadSkills();
+        } else {
+          showPage('skills');
+        }
+        return;
+      }
+      showPage(page);
+    });
   }
   $('#agent-menu-button').addEventListener('click', (event) => {
     event.stopPropagation();
@@ -2253,7 +2303,15 @@ function wire() {
       closeAgentMenu();
       if (item.dataset.agentPage === 'models') openModels();
       else if (item.dataset.agentPage === 'topics') showPage('topics');
-      else openMemory();
+      else if (item.dataset.agentPage === 'agent-skills') {
+        state.skillsArea = 'agent';
+        if (state.page === 'skills') {
+          renderHeader();
+          void loadSkills();
+        } else {
+          showPage('skills');
+        }
+      } else openMemory();
     });
   }
   document.addEventListener('click', (event) => {

@@ -19,7 +19,7 @@ KolorBot 是一个本地运行的 Node.js 智能体运行时，配一个轻量 W
 - 只使用用户在「模型」页添加的语言模型，可自动发现模型；没有内置默认模型。
 - 整个应用只有一条对话，按话题划分为 `topics` / `segments` / `messages`。
 - 模型消息先做话题判定；切换话题会新开 segment，模型上下文只取当前 segment。
-- 技能遵循 Claude `SKILL.md`，支持三个技能区；技能可以声明 MCP server。
+- 技能遵循 Claude `SKILL.md`，支持三组技能目录；技能可以声明 MCP server。
 - 记忆由 `AI.md` 和每个话题的 `agent/topic/<slug>/*.md` 时间戳记忆文件组成。
 - Web UI 白色极简风，支持桌面和移动端抽屉。
 - 有 Windows 单文件发布版，内置 Node/runtime，空目录可运行。
@@ -129,18 +129,18 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 
 ### 3.5 技能与 MCP（`kolorbot-skills`）
 
-三个技能区：
+三组技能：
 
-| 区 | 目录 | 说明 |
+| 组 | 目录 | 说明 |
 | --- | --- | --- |
-| 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR`） | Claude 标准兼容区 |
-| 专属技能 | `<home>/agent/skills`（`KOLOR_USER_SKILLS_DIR`） | 默认 `~/.kolorbot/agent/skills` |
-| 内置技能 | `<repo>/inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR`） | `browseruse` 在这里 |
+| Kolorbot Skill | `<home>/skills`（`KOLOR_KOLORBOT_SKILLS_DIR`）+ `<repo>/inner/skills` | 侧栏技能页上半部分；内置技能归到这里 |
+| 通用 Agent Skills | `~/.agents/skills`（`KOLOR_SKILLS_DIR`） | 侧栏技能页下半部分 |
+| Agent Skill | `<home>/agent/skills`（`KOLOR_USER_SKILLS_DIR`） | 左下角智能体卡片「⋯」→ Agent Skill |
 
-- 按 `<区>/<id>/SKILL.md` 读取；同名技能按 **专属 → 兼容 → 内置** 取第一个。
-- 2026-11-17：专属技能区从 `<home>/skills` 移到 `<home>/agent/skills`；现有 `deepseek-search` 已迁移。
+- 按 `<目录>/<id>/SKILL.md` 读取；同名技能按 **Agent Skill → Kolorbot Skill → 内置 → 通用 Agent Skills** 取第一个。
+- Web 技能页（侧栏）显示 Kolorbot Skill、通用 Agent Skills；Agent Skill 独立从智能体菜单进入。
 - `kolor.json` 可声明 `mcpServers`（也接受 `mcp` 别名），支持 `${VAR}` 环境变量展开。
-- Web 的「技能」页按三个区分组展示，有 MCP 的技能带 MCP 标识，详情显示 server 名称/transport。
+- Web 技能页的每个技能都带 MCP 标识，详情显示 server 名称/transport。
 - 原来的独立 MCP 页面已删除；MCP 只读，通过技能目录配置。
 
 ### 3.6 提供商与模型
@@ -223,7 +223,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
   - 只显示 AI.md 预览、路径、大小、名字/头像路径、固定格式提示；
   - 不再有旧日记开关、日记预览、日记刷新。
 - 模型页：提供商列表、添加、刷新模型、删除、当前模型选择。
-- 技能页：三区分组、MCP 标识、技能详情。
+- 技能页：KolorBot Skill / 通用 Agent Skills 两组；Agent Skill 从智能体菜单进入；MCP 标识、技能详情。
 - 移动端 ≤900px：左侧抽屉、遮罩、Esc 关闭、输入框 16px 字号。
 
 ### 3.9 Windows release
@@ -235,7 +235,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 当前 release：
   - 版本 0.4.0
   - 大小 136,376,832 bytes
-  - SHA256 `74E9AEA3C5F8D5D5F10A686B794AFA91EA37281A09FB8D1DAD9CEFA2FDD90F88`
+  - SHA256 `04F0ACDD8C074E376D2007FFBB1C452D648D78FEA78DF6CEBC9E9F57C2345119`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -262,7 +262,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 ├── providers.json        # 模型提供商 / active 模型 / key
 └── agent/
     ├── conversation.db   # topics / segments / messages
-    ├── skills/           # 专属技能区
+    ├── skills/           # Agent Skill
     ├── AI.md             # 固定头部 + 性格/自我认知
     ├── topic/<slug>/main.md + <YYYY-MM-DD-HH-mm>.md
     └── workspace/        # 文件/bash 工具根；assets/、projects/ 等
@@ -299,7 +299,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 | POST | `/api/sessions/:id/reset` | 重置上下文 |
 | GET | `/api/sessions/:id/export` | 导出 JSON |
 | POST | `/api/sessions/import` | 导入 |
-| GET | `/api/skills` | 三区技能列表 + 签名 + MCP |
+| GET | `/api/skills` | 技能列表 + 分组/categories + 签名 + MCP |
 | GET | `/api/skills/:id` | 技能详情 |
 | GET | `/api/mcp` | skill 声明的 MCP |
 | POST | `/api/mcp/:name/restart` | 重启 MCP server |
@@ -403,7 +403,7 @@ pnpm test
 - 新记忆文件：agent/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 134/134；release SHA256 74E9AEA3C5F8D5D5F10A686B794AFA91EA37281A09FB8D1DAD9CEFA2FDD90F88。
+- 测试 134/134；release SHA256 04F0ACDD8C074E376D2007FFBB1C452D648D78FEA78DF6CEBC9E9F57C2345119。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 

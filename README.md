@@ -12,7 +12,7 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 
 - **`kolorbot-agent-loop`** — 主循环 + 内置 KolorFrame 工具：调用模型 → 执行工具 → 把结果写回会话 → 再调用模型，直到模型给出最终答复。文件/目录/bash/技能/read_image 工具都在这个包里，可独立作为库使用。
 - **`kolorbot-conversation`** — 单对话存储：SQLite 里的 topics / segments / messages；切换话题会新建 segment，模型上下文只取当前 segment。
-- **`kolorbot-skills`** — 技能发现：读取三个技能区的 Claude 标准 `SKILL.md`，生成 `<system-skills>` 列表。
+- **`kolorbot-skills`** — 技能发现：读取技能目录的 Claude 标准 `SKILL.md`，生成 `<system-skills>` 列表。
 - **`kolorbot-memory`** — 记忆：AI.md 设定、时间戳话题记忆文件、`<system-memory>` / `<system-last-message>` 注入块。
 - **`kolorbot-web`** — Web UI + HTTP API：聊天、话题判定、模型提供商、技能/MCP、话题记忆。
 
@@ -131,7 +131,7 @@ npm run web -- --host 0.0.0.0
 - 模型：侧栏「技能」下面的「模型」管理提供商（大语言模型 / 语音 / 图片 / 视频；厂商集成、OpenAI v1、代码接入），输入框上方的下拉框随时切换当前聊天模型。
 - 设定：侧栏底部 agent 卡片的「⋯」→「设定」管理 AI.md，可用 `/self-md-update` / `/self-md-tell …` 创建或更新；页面不再显示日记项。
 - 输入框输入 `/` 会弹出指令补全（`/self-md-update`、`/self-md-tell`、`/update-daily-memory`），点击自动填充。
-- 技能：侧栏「技能」查看三个技能区的 Claude 标准技能；每个话题的第一条消息会带 `<system-skills>`，AI 用 `skills(id)` 工具读详情。
+- 技能：侧栏「技能」查看 Kolorbot Skill 和通用 Agent Skills；Agent Skill 在左下角智能体卡片的「⋯」里。每个话题的第一条消息会带 `<system-skills>`，AI 用 `skills(id)` 工具读详情。
 - 技能里的 MCP：有 MCP 的技能在列表里带一个 **MCP** 标识，点开技能详情就能看到它通过 `kolor.json` 声明的所有 MCP 服务器（名称 + transport）；**每个服务器旁边有「刷新」按钮，点击会关闭该 MCP 服务器并重新连接**。
 - 聊天：流式输出、工具调用卡片（**默认折叠**，点开看参数 / 结果 / 状态）、停止按钮、思考时的三个点。运行中继续输入并按 Enter 会先排队，等这一轮结束后自动发出。每次工具调用前后的文字各自成段；AI 回复**边出边渲染 Markdown**。
 - 断线不丢回答：一轮对话在服务端跑，关闭标签页、刷新、切网都只是断开镜像；回来时从服务端缓冲回放整轮。同一时间只允许一轮，重复发送返回 409。
@@ -147,9 +147,10 @@ npm run web -- --host 0.0.0.0
 | `KOLOR_HOME` | `~/.kolorbot` | 数据目录（`providers.json`、`memory.json`、`agent/`；对话库和技能在 `agent/` 内） |
 | `KOLOR_CONVERSATION_DB` | `<home>/agent/conversation.db` | 单对话 / 话题数据库 |
 | `KOLOR_FRAME_ROOT` | `<home>/agent/workspace` | 内置文件/bash 工具的工作区根 |
-| `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 兼容技能区（Claude 标准） |
-| `KOLOR_USER_SKILLS_DIR` | `<home>/agent/skills` | 专属技能区（默认 `~/.kolorbot/agent/skills`） |
-| `KOLOR_BUILTIN_SKILLS_DIR` | `<repo>/inner/skills` | 内置技能区 |
+| `KOLOR_KOLORBOT_SKILLS_DIR` | `<home>/skills` | Kolorbot Skill（和内置技能归为一组） |
+| `KOLOR_SKILLS_DIR` | `~/.agents/skills` | 通用 Agent Skills（Claude 标准） |
+| `KOLOR_USER_SKILLS_DIR` | `<home>/agent/skills` | Agent Skill（默认 `~/.kolorbot/agent/skills`） |
+| `KOLOR_BUILTIN_SKILLS_DIR` | `<repo>/inner/skills` | 内置技能（UI 归入 Kolorbot Skill） |
 | `BROWSERUSE_VIEW_PORT` | `9223` | browseruse 技能实时画面的端口（经 `kolor.json` 的 `${VAR}` 注入技能进程） |
 | `BROWSERUSE_HEADLESS` | `true` | browseruse 技能用 `false` 时显示真实浏览器窗口 |
 
@@ -306,7 +307,7 @@ KolorFrame 提供：
 | `stop_bash` | 按任务名停止后台进程；输出仍可读，不发送完成通知 |
 | `skills` | 读取 `~/.agents/skills/<id>/SKILL.md` 和文件列表 |
 
-文件工具只能在 `KOLOR_FRAME_ROOT` 内活动（`read_image` 也可以读三个技能区，方便看截图）；`bash` 不沙箱（本地可信环境使用）。
+文件工具只能在 `KOLOR_FRAME_ROOT` 内活动（`read_image` 也可以读技能目录，方便看截图）；`bash` 不沙箱（本地可信环境使用）。
 
 ## 模型提供商
 
@@ -615,20 +616,20 @@ review - 按仓库规范审阅 diff……
 
 - 同一话题内不重复注入；切换话题会重新注入，因为上下文是新的。
 - 列表为空时不注入空标签。
-- AI 需要细节时调用内置的 `skills(id)` 工具，拿到完整 `SKILL.md` 和该技能的文件列表（三个区都会查）。
+- AI 需要细节时调用内置的 `skills(id)` 工具，拿到完整 `SKILL.md` 和该技能的文件列表（所有技能目录都会查）。
 
-### 技能的三个区
+### 技能的三个组
 
-Web 端把技能分成三个区，侧栏「技能」弹窗里也按这三个区分组展示（带数量；空区会显示目录提示）：
+Web 端把技能分成三组，侧栏「技能」页展示 Kolorbot Skill 和通用 Agent Skills；Agent Skill 从智能体卡片「⋯」进入：
 
-| 区 | 目录 | 说明 |
+| 组 | 目录 | 说明 |
 | --- | --- | --- |
-| 兼容技能 | `~/.agents/skills`（`KOLOR_SKILLS_DIR` 可覆盖） | Claude 标准的兼容区，原来的安装位置 |
-| 专属技能 | `<home>/agent/skills`，默认 `~/.kolorbot/agent/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | KolorBot 自己的技能区 |
-| 内置技能 | 源码里的 `inner/skills`（`KOLOR_BUILTIN_SKILLS_DIR` 可覆盖） | 随源码分发的内置技能，`browseruse` 放在这里 |
+| Kolorbot Skill | `<home>/skills`（`KOLOR_KOLORBOT_SKILLS_DIR`）+ 源码 `inner/skills` | 侧栏技能页上半部分；内置技能也归到这里 |
+| 通用 Agent Skills | `~/.agents/skills`（`KOLOR_SKILLS_DIR` 可覆盖） | 侧栏技能页下半部分 |
+| Agent Skill | `<home>/agent/skills`（`KOLOR_USER_SKILLS_DIR` 可覆盖） | 左下角智能体卡片「⋯」→「Agent Skill」 |
 
-- 三个区都按 `<区>/<id>/SKILL.md` 组织；同名技能按 **专属 → 兼容 → 内置** 的优先级取第一个，不会重复注入。
-- 三个区的 `kolor.json` 都会被收集；同名 MCP server 同样按这个优先级取第一个。
+- 技能按 `<目录>/<id>/SKILL.md` 组织；同名技能按 **Agent Skill → Kolorbot Skill → 内置 → 通用 Agent Skills** 的优先级取第一个，不会重复注入。
+- 所有目录的 `kolor.json` 都会被收集；同名 MCP server 同样按这个优先级取第一个。
 - 改完技能文件不需要重启：下一轮对话重新读列表（列表指纹变化会触发重新注入和 MCP 重连）。
 
 ### Skill code 网页插件
@@ -948,7 +949,7 @@ const removeField = kb.setGlobal('myField', 123);
 | GET/PUT | `/api/memory` | 记忆：AI.md 内容/大小/名字/头像路径 + 旧日记兼容数据 + 日记开关 |
 | GET | `/api/agent` | Agent 名字、头像路径和 `avatarUrl` |
 | GET | `/api/agent/avatar` | 读取 AI.md 指向的本地头像文件 |
-| GET | `/api/skills` | 三个技能区的技能列表（`source` 区分区）+ 签名 + `roots` + 每个技能的 `mcpServers` |
+| GET | `/api/skills` | 技能列表 + 签名 + `roots` / `categories` + 每个技能的 `mcpServers` |
 | GET | `/api/skill-code` | 带 `code/index.js` 的浏览器插件技能列表 |
 | GET | `/skill-code/:id/*` | 读取技能 `code/` 下的插件文件 |
 | GET | `/api/skills/:id` | 技能详情（SKILL.md + 文件列表 + `mcpServers`） |

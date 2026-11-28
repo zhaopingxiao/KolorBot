@@ -257,8 +257,9 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
   const skillsRegistry = new SkillsRegistry({
     roots: [
       { source: 'user', path: config.userSkillsDir },
-      { source: 'agents', path: config.skillsDir },
+      { source: 'kolorbot', path: config.kolorbotSkillsDir },
       { source: 'builtin', path: config.builtinSkillsDir },
+      { source: 'agents', path: config.skillsDir },
     ],
     env: {
       ...process.env,
@@ -268,6 +269,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     },
   });
   mkdirSync(config.skillsDir, { recursive: true });
+  mkdirSync(config.kolorbotSkillsDir, { recursive: true });
   mkdirSync(config.userSkillsDir, { recursive: true });
 
   const diaryIdleMs = options.diaryIdleMs ?? DEFAULT_DIARY_IDLE_MS;
@@ -309,7 +311,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     kolorFrame: {
       root: config.frameRoot,
       skillsRoot: config.skillsDir,
-      extraSkillRoots: [config.userSkillsDir, config.builtinSkillsDir],
+      extraSkillRoots: [config.userSkillsDir, config.kolorbotSkillsDir, config.builtinSkillsDir],
       background: backgroundTasks,
     },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
@@ -337,7 +339,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
     kolorFrame: {
       root: config.frameRoot,
       skillsRoot: config.skillsDir,
-      extraSkillRoots: [config.userSkillsDir, config.builtinSkillsDir],
+      extraSkillRoots: [config.userSkillsDir, config.kolorbotSkillsDir, config.builtinSkillsDir],
     },
     ...(options.logger === undefined ? {} : { logger: options.logger }),
   });
@@ -453,6 +455,7 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
         frameRoot: config.frameRoot,
         workspaceRoot: config.frameRoot,
         skillsDir: config.skillsDir,
+        kolorbotSkillsDir: config.kolorbotSkillsDir,
         conversationDbPath: config.conversationDbPath,
         mcpServers: publicMcpServers(skillsRegistry),
         mcpStatus: pool.mcpStatus,
@@ -761,18 +764,34 @@ export async function createKolorWebServer(options: KolorWebOptions = {}): Promi
           .filter((server) => server.skillId === skill.id)
           .map(publicServer),
       }));
+      const roots = (['user', 'kolorbot', 'builtin', 'agents'] as const).map((source) => {
+        const root = skillsRegistry.roots.find((entry) => entry.source === source);
+        return {
+          source,
+          label: SKILL_SOURCE_LABELS[source],
+          path: root?.path ?? '',
+          count: skills.filter((skill) => skill.source === source).length,
+        };
+      });
+      const category = (
+        id: string,
+        label: string,
+        sources: Array<'user' | 'kolorbot' | 'builtin' | 'agents'>,
+      ) => ({
+        id,
+        label,
+        sources,
+        count: skills.filter((skill) => sources.includes(skill.source)).length,
+        roots: roots.filter((entry) => sources.includes(entry.source)),
+      });
       sendJson(response, 200, {
         root: config.skillsDir,
-        // Display order: compatibility area, custom area, built-in area.
-        roots: (['agents', 'user', 'builtin'] as const).map((source) => {
-          const root = skillsRegistry.roots.find((entry) => entry.source === source);
-          return {
-            source,
-            label: SKILL_SOURCE_LABELS[source],
-            path: root?.path ?? '',
-            count: skills.filter((skill) => skill.source === source).length,
-          };
-        }),
+        roots,
+        categories: [
+          category('kolorbot', 'Kolorbot Skill', ['kolorbot', 'builtin']),
+          category('agents', '通用 Agent Skills', ['agents']),
+          category('agent', 'Agent Skill', ['user']),
+        ],
         signature: skillsRegistry.signature(),
         skills,
         globalMcpServers: mcpServers

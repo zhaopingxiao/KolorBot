@@ -16,7 +16,9 @@ export interface WebConfig {
   frameRoot: string;
   /** Compatibility skills area (`~/.agents/skills`). */
   skillsDir: string;
-  /** Custom skills area inside the agent workspace (`<frameRoot>/skills`). */
+  /** Kolorbot skills area (`<home>/skills`), plus built-in skills in the UI. */
+  kolorbotSkillsDir: string;
+  /** Custom skills area inside the agent root (`<agentRoot>/skills`). */
   userSkillsDir: string;
   /** Built-in skills shipped with the source (`<repo>/inner/skills`). */
   builtinSkillsDir: string;
@@ -36,6 +38,7 @@ export interface WebConfigOverrides {
   frameRoot?: string;
   workspaceRoot?: string;
   skillsDir?: string;
+  kolorbotSkillsDir?: string;
   userSkillsDir?: string;
   builtinSkillsDir?: string;
   apiUrl?: string;
@@ -72,6 +75,10 @@ export function resolveWebConfig(
     agentRoot,
     frameRoot,
     skillsDir: overrides.skillsDir ?? resolveSkillsRoot(env),
+    kolorbotSkillsDir:
+      overrides.kolorbotSkillsDir ??
+      nonEmpty(env.KOLOR_KOLORBOT_SKILLS_DIR) ??
+      join(home, 'skills'),
     userSkillsDir:
       overrides.userSkillsDir ??
       nonEmpty(env.KOLOR_USER_SKILLS_DIR) ??

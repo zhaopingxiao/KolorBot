@@ -257,6 +257,14 @@ test('serves skill code plugins and their supporting files', async (t) => {
   );
   writeFileSync(join(skillDir, 'code', 'helper.js'), 'export const helper = true;\n', 'utf8');
 
+  const catalog = (await (await fetch(`${app.url}/api/skills`)).json()) as {
+    categories: Array<{ id: string; label: string }>;
+  };
+  assert.deepEqual(
+    catalog.categories.map((category) => category.label),
+    ['Kolorbot Skill', '通用 Agent Skills', 'Agent Skill'],
+  );
+
   const list = (await (await fetch(`${app.url}/api/skill-code`)).json()) as {
     skills: Array<{ id: string; url: string }>;
   };
