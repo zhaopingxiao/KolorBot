@@ -544,7 +544,7 @@ function normalizeProtocol(value: unknown, kind: ModelKind): ModelProtocol {
 function requireVendor(id: string | undefined, kind: ModelKind): VendorPreset {
   const vendor = findVendor(id ?? '');
   if (vendor === undefined || vendor.kind !== kind) {
-    throw new KolorStateError('选择厂商专用时，必须选择一个当前类型的厂商');
+    throw new KolorStateError('选择厂商集成时，必须选择一个当前类型的厂商');
   }
   return vendor;
 }

@@ -1774,7 +1774,7 @@ const MODEL_KIND_LABELS = {
 const MODEL_PROTOCOL_LABELS = {
   openai: 'OpenAI v1',
   anthropic: 'Anthropic',
-  vendor: '厂商专用',
+  vendor: '厂商集成',
   code: '代码接入',
 };
 
@@ -1788,7 +1788,7 @@ function providerKindLabel(provider) {
 
 function providerProtocolLabel(provider) {
   if (provider.protocol === 'vendor') {
-    return `厂商专用 · ${providerVendor(provider.vendor)?.label ?? provider.vendor ?? '未选择'}`;
+    return `厂商集成 · ${providerVendor(provider.vendor)?.label ?? provider.vendor ?? '未选择'}`;
   }
   return MODEL_PROTOCOL_LABELS[provider.protocol] ?? provider.protocol;
 }
@@ -1811,7 +1811,7 @@ function updateProviderFormOptions() {
   const kind = kindSelect.value || 'llm';
   const options = data?.protocols?.[kind] ?? [
     { id: 'openai', label: 'OpenAI v1' },
-    { id: 'vendor', label: '厂商专用' },
+    { id: 'vendor', label: '厂商集成' },
     { id: 'code', label: '代码接入' },
   ];
   const previous = protocolSelect.value;
@@ -1848,7 +1848,13 @@ function updateProviderForm() {
     for (const vendor of vendors) {
       const node = document.createElement('option');
       node.value = vendor.id;
-      node.textContent = `${vendor.label} · ${vendor.protocol === 'openai' ? 'OpenAI v1' : '专用接口'}`;
+      const wire =
+        vendor.protocol === 'openai'
+          ? 'OpenAI v1'
+          : vendor.protocol === 'anthropic'
+            ? 'Anthropic'
+            : '专用接口';
+      node.textContent = `${vendor.label} · ${wire}`;
       vendorSelect.appendChild(node);
     }
     if (vendors.some((vendor) => vendor.id === previous)) vendorSelect.value = previous;
@@ -1861,9 +1867,9 @@ function updateProviderForm() {
     hint.textContent = isCode
       ? '代码接入：provider 保存 Node.js 方法源码；方法参数是输入内容，返回值是输出内容。接口定义见 README。'
       : isVendor
-        ? '厂商专用：接口地址按厂商预设；Key 只保存在本机的 providers.json。'
+        ? '厂商集成：接口地址按厂商预设；Key 只保存在本机的 providers.json。'
         : protocol === 'anthropic'
-          ? 'Anthropic Messages API；非 Anthropic 官方接口请使用「厂商专用」。'
+          ? 'Anthropic Messages API。'
           : 'OpenAI v1 兼容协议；Key 只保存在本机的 providers.json。';
   }
 }
@@ -2075,8 +2081,14 @@ async function addProvider() {
   }
 
   const models = modelsText === '' ? [] : modelsText.split(/[,，\s]+/).filter(Boolean);
-  if (protocol !== 'code' && models.length === 0 && protocol !== 'openai' && vendor === '') {
-    errorNode.textContent = '该协议请手动填写模型名';
+  const selectedVendor = protocol === 'vendor' ? currentProviderVendor() : undefined;
+  if (
+    protocol !== 'code' &&
+    models.length === 0 &&
+    protocol !== 'openai' &&
+    selectedVendor?.protocol !== 'openai'
+  ) {
+    errorNode.textContent = '该协议不自动识别模型，请手动填写模型名';
     return;
   }
   const button = $('#provider-add');

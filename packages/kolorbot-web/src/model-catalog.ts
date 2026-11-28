@@ -58,6 +58,14 @@ export const MODEL_KINDS: ModelKindOption[] = [
  */
 export const VENDORS: VendorPreset[] = [
   {
+    id: 'anthropic',
+    label: 'Anthropic',
+    kind: 'llm',
+    baseUrl: 'https://api.anthropic.com',
+    protocol: 'anthropic',
+    description: 'Anthropic Messages API，选择后按 Anthropic 原生接口调用。',
+  },
+  {
     id: 'openai',
     label: 'OpenAI',
     kind: 'llm',
@@ -179,17 +187,13 @@ export function findVendor(id: string): VendorPreset | undefined {
   return VENDORS.find((vendor) => vendor.id === id);
 }
 
-/** Protocols offered for a category. LLM has Anthropic; code is last for all. */
-export function protocolsFor(kind: ModelKind): Array<{ id: ModelProtocol; label: string }> {
-  const base: Array<{ id: ModelProtocol; label: string }> = [
+/** Protocols offered for a category. Vendor integration comes first, code last. */
+export function protocolsFor(_kind: ModelKind): Array<{ id: ModelProtocol; label: string }> {
+  return [
+    { id: 'vendor', label: '厂商集成' },
     { id: 'openai', label: 'OpenAI v1' },
-  ];
-  if (kind === 'llm') base.push({ id: 'anthropic', label: 'Anthropic' });
-  base.push(
-    { id: 'vendor', label: '厂商专用' },
     { id: 'code', label: '代码接入' },
-  );
-  return base;
+  ];
 }
 
 /** Resolve the wire protocol a stored provider actually uses. */

@@ -1,4 +1,4 @@
-﻿# KolorBot
+# KolorBot
 
 <img src="packages/kolorbot-web/public/logo.png" width="76" alt="KolorBot logo" />
 
@@ -8,7 +8,7 @@ KolorBot 是一个 Node.js 智能体（agent）运行时，带本地 Web 聊天�
 
 > 新对话 / 交接请先读 [HANDOFF.md](HANDOFF.md)：包含项目结构、已完成改动、关键约束和运行方式。
 
-模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页选择模型类型和协议，再填接口地址和 API Key；OpenAI v1 会自动识别模型，Anthropic/厂商专用可手动填写模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
+模型不再写死成 DeepSeek，也没有内置默认模型：在 Web UI 左下角的「模型」页选择模型类型和协议，再填接口地址和 API Key；OpenAI v1 会自动识别模型，厂商集成中的 Anthropic 等可手动填写模型，然后在输入框上方的下拉框里选择使用。没有配置提供商时聊天会提示「没有可用模型」。
 
 - **`kolorbot-agent-loop`** — 主循环 + 内置 KolorFrame 工具：调用模型 → 执行工具 → 把结果写回会话 → 再调用模型，直到模型给出最终答复。文件/目录/bash/技能/read_image 工具都在这个包里，可独立作为库使用。
 - **`kolorbot-conversation`** — 单对话存储：SQLite 里的 topics / segments / messages；切换话题会新建 segment，模型上下文只取当前 segment。
@@ -128,7 +128,7 @@ npm run web -- --host 0.0.0.0
 - **后台 Bash**：`bash` 支持 `wait: true`，命令后台运行并按首个参数生成任务名（冲突时 `_2`、`_3`）；完成后若 AI 已空闲，会自动发送 `<任务名> has done.`；最多同时运行 8 个，重启不保留。
 - **历史页**：对话标题左边的日历图标进入；直接显示所有月份日历（所有话题合并），紫色日期可点开当天**全部话题**的聊天记录和当天记忆。
 - **话题分段**：每条用户消息先判定话题；切换时插入话题分割线并换新上下文。详见 [单对话、话题与记忆](#单对话话题与记忆)。
-- 模型：侧栏「技能」下面的「模型」管理提供商（大语言模型 / 语音 / 图片 / 视频；OpenAI v1、Anthropic、厂商专用、代码接入），输入框上方的下拉框随时切换当前聊天模型。
+- 模型：侧栏「技能」下面的「模型」管理提供商（大语言模型 / 语音 / 图片 / 视频；厂商集成、OpenAI v1、代码接入），输入框上方的下拉框随时切换当前聊天模型。
 - 设定：侧栏底部 agent 卡片的「⋯」→「设定」管理 AI.md，可用 `/self-md-update` / `/self-md-tell …` 创建或更新；页面不再显示日记项。
 - 输入框输入 `/` 会弹出指令补全（`/self-md-update`、`/self-md-tell`、`/update-daily-memory`），点击自动填充。
 - 技能：侧栏「技能」查看三个技能区的 Claude 标准技能；每个话题的第一条消息会带 `<system-skills>`，AI 用 `skills(id)` 工具读详情。
@@ -321,17 +321,17 @@ KolorFrame 提供：
 
 协议规则：
 
+- **厂商集成**：所有类型都有，排在协议第一位；选择厂商后使用预置接口地址。Anthropic 通过厂商集成选择，走 Anthropic Messages API；兼容 OpenAI v1 的厂商直接复用 OpenAI 客户端。
 - **OpenAI v1**：所有模型类型都有；支持 `/chat/completions` 和 `/models` 发现。
-- **Anthropic**：大语言模型专属，走 Anthropic Messages API（不走 OpenAI 格式）。
-- **厂商专用**：选择厂商后使用预置接口地址；如果厂商本身兼容 OpenAI v1，就直接复用 OpenAI 客户端，不需要专门适配。
 - **代码接入**：所有类型都有。保存一个 Node.js 方法源码，接口约定如下；运行时接入尚未启用，先保留接口。
 
-### 厂商专用
+### 厂商集成
 
 当前常用厂商预置：
 
 | 厂商 | 接口 | 适配方式 |
 | --- | --- | --- |
+| Anthropic | `https://api.anthropic.com` | Anthropic Messages API |
 | OpenAI | `https://api.openai.com/v1` | OpenAI v1 |
 | MiniMax | `https://api.minimax.io/v1` | OpenAI Chat Completions 兼容，无专用适配 |
 | DeepSeek | `https://api.deepseek.com/v1` | OpenAI v1 |
@@ -359,12 +359,12 @@ async function generate(input, context) {
 }
 ```
 
-当前版本只保存方法源码并展示接口，不会自动执行这段代码；聊天仍只使用大语言模型的 OpenAI v1 / Anthropic 协议。
+当前版本只保存方法源码并展示接口，不会自动执行这段代码；聊天仍只使用大语言模型的厂商集成 / OpenAI v1 接口。
 
 添加流程：
 
 1. 选模型类型；协议会自动限制为允许的选项。
-2. 选 OpenAI v1 或 Anthropic 时填接口地址；选厂商专用时地址自动填入厂商预设。
+2. 选厂商集成时地址自动填入厂商预设；选 OpenAI v1 时手动填接口地址。
 3. 填 API Key；没有 `/models` 的协议手动填写模型名。
 4. 点「添加提供商」：OpenAI v1 会自动请求 `/models`，其它协议直接使用手动模型。
 5. 输入框上方的下拉框只显示大语言模型；其它类型暂不支持作为聊天模型。

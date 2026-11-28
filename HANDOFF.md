@@ -146,9 +146,9 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 ### 3.6 提供商与模型
 
 - Web「模型」页：先选模型类型（大语言模型 / 语音 / 图片 / 视频），再选协议。
-- 协议：所有类型有 OpenAI v1；大语言模型另有 Anthropic；所有类型有厂商专用和代码接入。
-- 厂商专用来自 `model-catalog.ts` 的预置表（MiniMax、DeepSeek、Moonshot、智谱、通义、xAI、Gemini 等）；兼容 OpenAI v1 的厂商只预填 endpoint，不写专用适配。
-- Anthropic 走 `llm/anthropic.ts` 的 Messages API：system 顶层化、tool_use/tool_result 转换、SSE 增量与 usage 解析。
+- 协议：所有类型依次为厂商集成、OpenAI v1、代码接入；Anthropic 在厂商集成里选择。
+- 厂商集成来自 `model-catalog.ts` 的预置表（Anthropic、MiniMax、DeepSeek、Moonshot、智谱、通义、xAI、Gemini 等）；兼容 OpenAI v1 的厂商只预填 endpoint，不写专用适配。
+- 在厂商集成中选择 Anthropic 后走 `llm/anthropic.ts` 的 Messages API：system 顶层化、tool_use/tool_result 转换、SSE 增量与 usage 解析。
 - 代码接入保存 `code` 字段，接口约定见 README；运行时尚未执行。
 - 当前只有大语言模型能作为聊天模型；其它类型可保存但不能选中。
 - 存储 `~/.kolorbot/providers.json`，key 只存在本地文件，API 只返回 `hasKey` + 末四位。
@@ -236,7 +236,7 @@ Electron 桌面端原在仓库外 `D:\code\kolorbot_windows_desktop`，已按要
 - 当前 release：
   - 版本 0.4.0
   - 大小 136,376,832 bytes
-  - SHA256 `615153188464E7AAE2605BAE7471A4F3BB34AF0442CC47C97DCD64E58CD3B301`
+  - SHA256 `77539B6A903289EC93C484E5A5289A1BDCDF0FDFF7E81708F6FEC6C51AD92E82`
 - 运行中的 `KolorBotMain.exe` 会锁住输出文件；打包前先关闭旧进程，或先改名旧 exe 再构建。
 - 未显式指定端口时，CLI、release 和 `restart.cmd` 都按 **3399 → 3420 → 随机** 选择；显式 `--port` / `KOLOR_WEB_PORT` 不回退。
 
@@ -402,7 +402,7 @@ pnpm test
 - 新记忆文件：workspace/topic/<slug>/main.md 关键记忆 + <YYYY-MM-DD-HH-mm>.md 每日记录；write_topic_note 只在整理任务启用。
 - 默认端口：3399 → 3420 → 随机；显式 --port / KOLOR_WEB_PORT 不回退。
 - Electron 桌面端已删除，暂停使用。
-- 测试 131/131；release SHA256 615153188464E7AAE2605BAE7471A4F3BB34AF0442CC47C97DCD64E58CD3B301。
+- 测试 131/131；release SHA256 77539B6A903289EC93C484E5A5289A1BDCDF0FDFF7E81708F6FEC6C51AD92E82。
 - 代码已推送到 https://github.com/zhaopingxiao/KolorBot.git。
 ```
 
